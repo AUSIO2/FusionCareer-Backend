@@ -42,3 +42,12 @@ sa-token:
   token-style: uuid
   # 是否输出操作日志
   is-log: true
+
+# ===== AI 算法服务配置 =====
+python-service:
+  # Python 端 FastAPI 的基础 URL
+  base-url: http://127.0.0.1:8000
+  # 连接超时时间（毫秒）
+  connect-timeout: 5000
+  # 读取超时时间（毫秒），算法可能较慢，默认 60 秒
+  read-timeout: 60000
