@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <groupId>com.fusioncareer</groupId>
+    <artifactId>fusioncareer-backend</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <!-- Change packaging to pom for parent module -->
+    <packaging>pom</packaging>
+
+    <name>fusioncareer-backend</name>
+    <description>FusionCareer Backend Parent Project</description>
+
+    <!-- Define submodules -->
+    <modules>
+        <module>fusioncareer-api</module>
+        <module>fusioncareer-biz</module>
+    </modules>
+
+    <properties>
+        <java.version>17</java.version>
+        <mybatis-plus.version>3.5.6</mybatis-plus.version>
+        <lombok.version>1.18.36</lombok.version>
+        <sa-token.version>1.45.0</sa-token.version>
+    </properties>
+
+    <!-- Global Dependencies (Optional, things every module will definitely need) -->
+    <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <!-- Dependency Management for versions shared across submodules -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- Define the API module version for other modules to reference safely -->
+            <dependency>
+                <groupId>com.fusioncareer</groupId>
+                <artifactId>fusioncareer-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+                <version>${mybatis-plus.version}</version>
+            </dependency>
+
+            <!-- Sa-Token: 轻量级权限认证框架 -->
+            <dependency>
+                <groupId>cn.dev33</groupId>
+                <artifactId>sa-token-spring-boot3-starter</artifactId>
+                <version>${sa-token.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+</project>
