@@ -15,4 +15,5 @@ public class FudanOAuth2Properties {
     private String tokenUrl = "https://id.fudan.edu.cn/idp/api/v3/oauth2/token";
     private String userInfoUrl = "https://id.fudan.edu.cn/idp/api/v3/oauth2/userInfo";
     private String logoutUrl = "https://id.fudan.edu.cn/idp/authCenter/GLO";
+    private String frontendRedirectUrl = "http://localhost:3000";
 }

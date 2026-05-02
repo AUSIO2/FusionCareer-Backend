@@ -49,3 +49,17 @@ python-service:
   connect-timeout: 5000
   # 读取超时时间（毫秒），算法可能较慢，默认 60 秒
   read-timeout: 60000
+
+# ===== 复旦 SSO 统一身份认证配置 =====
+# 【接入必读：向复旦信息化中心申请注册清单】
+# 1. 业务系统服务器公网 IP（必填）：后端服务器的出口 IP，用于加入复旦防火墙白名单，以便本系统能成功发起 HTTP 请求获取 Token 和 UserInfo。
+# 2. 授权可信域名（必填）：需要与下方 redirect-uri 使用的域名保持完全一致（例：https://api.yourdomain.com）。
+# 3. 被动注销回调地址（服务端注销）：请将本系统的 SLO 接口提供给复旦（例：https://api.yourdomain.com/auth/fudan/slo）。
+fudan-sso:
+  client-id: your_client_id_here
+  client-secret: your_client_secret_here
+  # 务必与注册给复旦的可信域名保持一致，须填写完整的绝对地址
+  redirect-uri: https://api.yourdomain.com/auth/fudan/callback
+  # 登录成功或注销后跳转回前端的页面地址
+  frontend-redirect-url: https://www.yourdomain.com/
+
