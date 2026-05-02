@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
 /**
  * 复旦 SSO 统一身份认证接口
@@ -17,8 +19,9 @@ import org.springframework.web.servlet.view.RedirectView;
  */
 @Slf4j
 @RestController
-@RequestMapping("/auth/fudan")
+@RequestMapping("/fudan")
 @RequiredArgsConstructor
+@Tag(name = "复旦SSO接口", description = "复旦 SSO 统一身份认证接口")
 public class FudanSsoController {
 
     private final FudanSsoService fudanSsoService;
@@ -27,6 +30,7 @@ public class FudanSsoController {
      * 主动发起登录：重定向至 Fudan 统一认证中心
      */
     @GetMapping("/login")
+    @Operation(summary = "主动发起登录")
     public RedirectView login() {
         String url = fudanSsoService.buildLoginUrl();
         log.info("Redirecting to Fudan SSO login: {}", url);
@@ -37,6 +41,7 @@ public class FudanSsoController {
      * 认证回调地址：获取授权码并换取 Token 与用户信息
      */
     @GetMapping("/callback")
+    @Operation(summary = "认证回调地址")
     public RedirectView callback(@RequestParam("code") String code,
                                  @RequestParam(value = "state", required = false) String state) {
         log.info("Received Fudan SSO callback with code: {}", code);
@@ -55,6 +60,7 @@ public class FudanSsoController {
      * 主动发起退出：注销本地会话并重定向至 Fudan 统一退出地址
      */
     @GetMapping("/logout")
+    @Operation(summary = "主动发起退出")
     public RedirectView logout() {
         String url = fudanSsoService.processLogout();
         log.info("Redirecting to Fudan SSO logout: {}", url);
@@ -65,6 +71,7 @@ public class FudanSsoController {
      * 被动跟随退出：Fudan 认证中心后端通知应用注销会话
      */
     @GetMapping("/slo")
+    @Operation(summary = "被动跟随退出")
     public R<Void> slo(@RequestParam("token") String token) {
         log.info("Received Fudan SSO logout request for token: {}", token);
         fudanSsoService.processSlo(token);

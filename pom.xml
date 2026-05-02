@@ -30,6 +30,7 @@
         <mybatis-plus.version>3.5.6</mybatis-plus.version>
         <lombok.version>1.18.46</lombok.version>
         <sa-token.version>1.45.0</sa-token.version>
+        <springdoc.version>2.5.0</springdoc.version>
     </properties>
 
     <!-- Global Dependencies (Optional, things every module will definitely need) -->
@@ -62,6 +63,13 @@
                 <groupId>cn.dev33</groupId>
                 <artifactId>sa-token-spring-boot3-starter</artifactId>
                 <version>${sa-token.version}</version>
+            </dependency>
+
+            <!-- Springdoc OpenAPI -->
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
