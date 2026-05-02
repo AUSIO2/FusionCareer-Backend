@@ -15,15 +15,13 @@ spring:
 
 mybatis-plus:
   mapper-locations: classpath:mapper/**/*.xml
-  type-aliases-package: com.fusioncareer.model.entity
+  type-aliases-package: com.fusioncareer.entity
+  type-enums-package: com.fusioncareer.enums
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     db-config:
-      logic-delete-field: deleted
-      logic-delete-value: 1
-      logic-not-delete-value: 0
       id-type: assign_id
 
 # ===== Sa-Token 配置 =====
