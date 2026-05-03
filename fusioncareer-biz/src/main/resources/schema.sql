@@ -144,4 +144,46 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
   COMMENT = '岗位信息表';
 
 
+-- ----------------------------
+-- 10. 岗位投递问卷题目表 fc_job_post_question
+--     管理员为内部岗位自定义投递问卷
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS `fc_job_post_question`
+(
+    `id`            BIGINT        NOT NULL COMMENT '问题ID（雪花算法）',
+    `job_post_id`   BIGINT        NOT NULL COMMENT '所属岗位ID',
+    `sort_order`    INT           NOT NULL DEFAULT 0 COMMENT '排序序号（升序）',
+    `title`         VARCHAR(256)  NOT NULL COMMENT '问题标题',
+    `question_type` TINYINT       NOT NULL COMMENT '题目类型：1-单行文本 2-多行文本 3-单选 4-多选 5-文件上传',
+    `options`       JSON                   DEFAULT NULL COMMENT '选项列表（单选/多选时使用）',
+    `required`      TINYINT       NOT NULL DEFAULT 1 COMMENT '是否必填：1-必填 0-选填',
+    `placeholder`   VARCHAR(256)           DEFAULT NULL COMMENT '输入提示文字',
+    `created_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_job_post_id` (`job_post_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COMMENT = '岗位投递问卷题目表';
+
+
+-- ----------------------------
+-- 11. 学生问卷作答表 fc_questionnaire_answer
+--     学生对某岗位问卷的完整作答记录
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS `fc_questionnaire_answer`
+(
+    `id`            BIGINT        NOT NULL COMMENT '作答记录ID（雪花算法）',
+    `job_post_id`   BIGINT        NOT NULL COMMENT '所属岗位ID',
+    `user_id`       BIGINT        NOT NULL COMMENT '投递学生用户ID',
+    `answers`       JSON          NOT NULL COMMENT '作答内容JSON',
+    `created_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_job_user` (`job_post_id`, `user_id`),
+    KEY `idx_user_id` (`user_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COMMENT = '学生问卷作答表';
+
 
