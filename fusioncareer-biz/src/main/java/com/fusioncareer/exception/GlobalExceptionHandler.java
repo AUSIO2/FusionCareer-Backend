@@ -1,8 +1,9 @@
 package com.fusioncareer.exception;
 
 import com.fusioncareer.common.R;
-import com.fusioncareer.common.ResultCode;
-import com.fusioncareer.common.ServiceException;
+import cn.dev33.satoken.exception.NotLoginException;
+import cn.dev33.satoken.exception.NotPermissionException;
+import cn.dev33.satoken.exception.NotRoleException;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
 
 import java.text.MessageFormat;
 
@@ -66,6 +68,36 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         response.setStatus(e.getCode() == HttpServletResponse.SC_INTERNAL_SERVER_ERROR ? HttpServletResponse.SC_INTERNAL_SERVER_ERROR : HttpServletResponse.SC_OK);
         log.warn("业务异常: code={}, msg={}", e.getCode(), e.getMessage());
         return new R<>(e.getCode(), e.getMessage(), null);
+    }
+
+    /**
+     * 捕获未登录异常 (NotLoginException)
+     */
+    @ExceptionHandler(NotLoginException.class)
+    public R<Void> handleNotLoginException(NotLoginException e, HttpServletResponse response) {
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        log.warn("鉴权失败 - 未登录: type={}, msg={}", e.getType(), e.getMessage());
+        return new R<>(ResultCode.USER_NOT_LOGGED_IN.getCode(), e.getMessage(), null);
+    }
+
+    /**
+     * 捕获无角色异常 (NotRoleException)
+     */
+    @ExceptionHandler(NotRoleException.class)
+    public R<Void> handleNotRoleException(NotRoleException e, HttpServletResponse response) {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        log.warn("鉴权失败 - 缺少角色: role={}", e.getRole());
+        return new R<>(ResultCode.FORBIDDEN.getCode(), "缺少角色: " + e.getRole(), null);
+    }
+
+    /**
+     * 捕获无权限异常 (NotPermissionException)
+     */
+    @ExceptionHandler(NotPermissionException.class)
+    public R<Void> handleNotPermissionException(NotPermissionException e, HttpServletResponse response) {
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        log.warn("鉴权失败 - 缺少权限: permission={}", e.getPermission());
+        return new R<>(ResultCode.FORBIDDEN.getCode(), "缺少权限: " + e.getPermission(), null);
     }
 
     /**
