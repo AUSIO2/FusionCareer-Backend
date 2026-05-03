@@ -12,6 +12,12 @@ spring:
     username: root
     password: 
     driver-class-name: com.mysql.cj.jdbc.Driver
+  servlet:
+    multipart:
+      # 单个文件最大 20MB
+      max-file-size: 20MB
+      # 单次请求总大小最大 20MB
+      max-request-size: 20MB
 
 mybatis-plus:
   mapper-locations: classpath:mapper/**/*.xml
@@ -63,3 +69,25 @@ fudan-sso:
   # 登录成功或注销后跳转回前端的页面地址
   frontend-redirect-url: https://www.yourdomain.com/
 
+
+# ===== 文件上传配置 =====
+upload:
+  # 文件存储根目录（绝对路径，生产环境按需修改）
+  base-dir: /data/fusioncareer/uploads
+  # 静态资源访问 URL 前缀（需与 WebConfig 中映射路径一致）
+  url-prefix: http://localhost:8080/files
+  # 每用户简历文件存储配额：30MB = 31457280 字节
+  quota-per-user: 31457280
+  # 单个文件大小上限：20MB = 20971520 字节
+  max-single-file-bytes: 20971520
+  # 允许上传的 MIME 类型白名单
+  allowed-mime-types:
+    - application/pdf
+    - image/jpeg
+    - image/png
+  # 允许上传的文件扩展名白名单（小写）
+  allowed-extensions:
+    - pdf
+    - jpg
+    - jpeg
+    - png

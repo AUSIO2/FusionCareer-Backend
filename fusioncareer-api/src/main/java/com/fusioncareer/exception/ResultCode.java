@@ -1,4 +1,4 @@
-package com.fusioncareer.common;
+package com.fusioncareer.exception;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -10,7 +10,7 @@ import lombok.Getter;
  */
 @Getter
 @AllArgsConstructor
-public enum ResultCode {
+public enum ResultCode implements IErrorCode {
     SUCCESS(200, "操作成功"),
     USER_NOT_LOGGED_IN(401, "用户未登录或身份认证失败"),
     FORBIDDEN(403, "没有操作权限"),

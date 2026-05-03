@@ -1,8 +1,6 @@
 package com.fusioncareer.exception;
 
 import com.fusioncareer.common.R;
-import com.fusioncareer.common.ResultCode;
-import com.fusioncareer.common.ServiceException;
 import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
