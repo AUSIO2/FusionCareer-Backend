@@ -8,6 +8,8 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from app.exceptions import register_exception_handlers
+
 from app.clients.backend import BackendClient
 from app.clients.llm import LLMClient
 from app.config import settings
@@ -66,6 +68,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 注册全局异常处理
+register_exception_handlers(app)
+
 
 # ── 请求模型 ──
 
@@ -102,19 +107,8 @@ async def run_workflow(req: RunWorkflowRequest):
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
 
-    # 执行
-    try:
-        result = engine.run(workflow)
-        # 如果是协程则 await
-        import asyncio
-        if asyncio.iscoroutine(result):
-            result = await result
-        else:
-            result = await result
-    except Exception as e:
-        logger.exception("工作流执行失败")
-        raise HTTPException(status_code=500, detail={"error": str(e)})
-
+    # 执行（异常由全局处理器捕获）
+    result = await engine.run(workflow)
     return {"status": "completed", "workflow": req.name, "outputs": result}
 
 
@@ -149,12 +143,8 @@ async def run_preset_workflow(name: str, req: RunPresetRequest = RunPresetReques
     if errors:
         raise HTTPException(status_code=422, detail={"errors": errors})
 
-    try:
-        result = await engine.run(workflow)
-    except Exception as e:
-        logger.exception("工作流执行失败")
-        raise HTTPException(status_code=500, detail={"error": str(e)})
-
+    # 执行（异常由全局处理器捕获）
+    result = await engine.run(workflow)
     return {"status": "completed", "workflow": name, "outputs": result}
 
 
