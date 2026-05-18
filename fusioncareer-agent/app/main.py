@@ -46,6 +46,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"已注册 {len(registry.list_all())} 个 Skill: "
                 f"{[s['name'] for s in registry.list_all()]}")
 
+    # 注入 registry 到控制流 Skill（repeat / for_each 需要动态调用其他 Skill）
+    from app.skills.control_flow import set_registry as set_cf_registry
+    set_cf_registry(registry)
+
     engine = WorkflowEngine(registry)
 
     # 加载 workflows/ 目录下的 JSON
