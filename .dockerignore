@@ -1,0 +1,12 @@
+.git
+.idea
+*.iml
+target/
+fusioncareer-agent/.venv
+fusioncareer-agent/__pycache__
+deploy/ssl
+.env
+.env.production
+.env.local
+docs/
+*.log

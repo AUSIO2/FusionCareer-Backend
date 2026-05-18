@@ -44,3 +44,8 @@ build/
 *.zip
 *.tar.gz
 *.rar
+
+### Sensitive / Environment ###
+.env
+.env.production
+.env.local

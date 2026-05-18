@@ -1,0 +1,79 @@
+# FusionCareer 全栈部署
+# 启动: docker compose --env-file .env.production up -d
+
+services:
+  # ── MySQL 数据库 ──
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: fusioncareer
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./fusioncareer-biz/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Java 后端 ──
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/fusioncareer?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowMultiQueries=true
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD}
+      FUDAN_SSO_CLIENT_ID: ${FUDAN_SSO_CLIENT_ID}
+      FUDAN_SSO_CLIENT_SECRET: ${FUDAN_SSO_CLIENT_SECRET}
+    ports:
+      - "9100:9100"
+    volumes:
+      - upload_data:/data/fusioncareer/uploads
+
+  # ── Python AI Agent ──
+  agent:
+    build:
+      context: ./fusioncareer-agent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      BACKEND_BASE_URL: http://backend:9100
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      AGENT_PORT: 8900
+    ports:
+      - "8900:8900"
+
+  # ── Nginx 反向代理 ──
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - agent
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - upload_data:/data/fusioncareer/uploads:ro
+      # SSL 证书（部署时取消注释）
+      # - ./deploy/ssl:/etc/nginx/ssl:ro
+
+volumes:
+  mysql_data:
+  upload_data:
