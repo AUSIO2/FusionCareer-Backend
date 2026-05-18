@@ -1,0 +1,35 @@
+{
+  "name": "写入简历和资料",
+  "nodes": {
+    "n1": {
+      "skill": "resume_writer",
+      "inputs": {
+        "user_id": {"value": 0},
+        "resume_data": {
+          "value": {
+            "personalIntro": "复旦大学新闻学院硕士研究生",
+            "education": "复旦大学 新闻传播学 硕士 2024-2027",
+            "internship": "",
+            "skills": "Python, 数据分析, 新闻采写"
+          }
+        }
+      }
+    },
+    "n2": {
+      "skill": "profile_writer",
+      "inputs": {
+        "user_id": {"value": 0},
+        "profile_data": {
+          "value": {
+            "realName": "张三",
+            "gender": 1,
+            "major": "新闻传播学",
+            "eduLevel": 2,
+            "grade": "2024级",
+            "mindset": 2
+          }
+        }
+      }
+    }
+  }
+}
