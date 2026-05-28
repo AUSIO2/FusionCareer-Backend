@@ -129,4 +129,16 @@ curl -s -X PUT "$BASE_URL/internal/job-post/$JOB_ID" \
 echo -e "\n[4.6] DELETE /internal/job-post/$JOB_ID (管理员删除岗位)"
 curl -s -X DELETE "$BASE_URL/internal/job-post/$JOB_ID" | jq -c
 
+echo -e "\n======================================"
+echo "    【5】 问卷投递 (Questionnaire)     "
+echo "======================================"
+
+echo -e "\n[5.1] GET /api/questionnaire/my/list (我的投递列表)"
+curl -s -H "Fusion-Token: $TOKEN" "$BASE_URL/api/questionnaire/my/list?page=1&size=20" | jq -c
+
+echo -e "\n[5.2] GET /api/questionnaire/questions/{jobPostId} (含截止信息)"
+if [ -n "$JOB_ID" ] && [ "$JOB_ID" != "null" ]; then
+  curl -s -H "Fusion-Token: $TOKEN" "$BASE_URL/api/questionnaire/questions/$JOB_ID" | jq -c
+fi
+
 echo -e "\n✅ 所有接口测试完毕！"

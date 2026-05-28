@@ -1,0 +1,14 @@
+{
+  "name": "api_result",
+  "role": "O",
+  "schema": {
+    "type": "object",
+    "required": ["success"],
+    "properties": {
+      "success": { "type": "boolean" },
+      "message": { "type": "string" },
+      "data": { "type": "object", "additionalProperties": true }
+    },
+    "additionalProperties": true
+  }
+}

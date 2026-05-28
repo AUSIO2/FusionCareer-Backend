@@ -1,0 +1,26 @@
+{
+  "name": "profile_data",
+  "role": "IO",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "realName": { "type": "string" },
+      "gender": { "type": "integer" },
+      "birthDate": { "type": "string" },
+      "politicalStatus": { "type": "integer" },
+      "phone": { "type": "string" },
+      "email": { "type": "string" },
+      "wechat": { "type": "string" },
+      "hometown": { "type": "string" },
+      "grade": { "type": "string" },
+      "major": { "type": "string" },
+      "eduLevel": { "type": "integer" },
+      "supervisor": { "type": "string" },
+      "intentionOrder": { "type": "string" },
+      "intentionCity": { "type": "string" },
+      "intentionDream": { "type": "string" },
+      "mindset": { "type": "integer" }
+    },
+    "additionalProperties": true
+  }
+}

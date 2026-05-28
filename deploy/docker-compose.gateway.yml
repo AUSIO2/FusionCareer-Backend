@@ -1,0 +1,15 @@
+# FusionCareer — Python 机仅网关（无 Agent）
+# 启动: docker compose -f deploy/docker-compose.gateway.yml up -d
+
+services:
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    # 隧道在宿主机 127.0.0.1:19100 时，upstream 用 host.docker.internal:19100
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./nginx.python.gateway.conf:/etc/nginx/nginx.conf:ro

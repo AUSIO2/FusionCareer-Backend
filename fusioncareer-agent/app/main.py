@@ -1,22 +1,37 @@
 """FusionCareer AI Agent — FastAPI 入口"""
 
+import copy
 import json
 import logging
+import shutil
+import subprocess
+import sys
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
-from app.exceptions import register_exception_handlers
-
-from app.clients.backend import BackendClient
-from app.clients.llm import LLMClient
+from app.api.deps.admin_auth import require_agent_admin
+from app.api.exceptions import register_exception_handlers
+from app.api.routers import admin as admin_router
+from app.catalog.catalog import DataClassCatalog
+from app.catalog.ref_index import DataClassRefIndex
+from app.catalog.workflow_catalog import WorkflowCatalog
 from app.config import settings
-from app.engine import WorkflowEngine
-from app.registry import SkillRegistry
-from app.skills.resume_writer import set_backend_client as set_resume_backend
-from app.skills.profile_writer import set_backend_client as set_profile_backend
+from app.core.registry import SkillRegistry
+from app.core.source_skills import is_source_node
+from app.engine import WorkflowEngine, WorkflowNodeError
+from app.integrations.backend import BackendClient
+from app.runtime.paths import RuntimePaths
+from app.scheduler.service import SchedulerService
+from app.skills.business.insert_resume import set_backend_client as set_insert_resume_backend
+from app.skills.business.insert_user_profile import (
+    set_backend_client as set_insert_user_profile_backend,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,71 +39,277 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── 全局单例 ──
 backend_client = BackendClient()
-llm_client = LLMClient()
 registry = SkillRegistry()
 engine: WorkflowEngine | None = None
-
-# ── 预设工作流 ──
-preset_workflows: dict[str, dict] = {}
+workflow_catalog: WorkflowCatalog | None = None
+scheduler_service: SchedulerService | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
+    global engine, workflow_catalog, scheduler_service
 
-    # 启动：注入依赖 → 自动发现 Skill → 加载预设工作流
-    set_resume_backend(backend_client)
-    set_profile_backend(backend_client)
+    set_insert_resume_backend(backend_client)
+    set_insert_user_profile_backend(backend_client)
 
-    registry.auto_discover("app.skills")
-    logger.info(f"已注册 {len(registry.list_all())} 个 Skill: "
-                f"{[s['name'] for s in registry.list_all()]}")
+    runtime_paths = RuntimePaths(Path(settings.agent_runtime_dir).resolve())
+    runtime_paths.ensure_dirs()
 
-    # 注入 registry 到控制流 Skill（repeat / for_each 需要动态调用其他 Skill）
-    from app.skills.control_flow import set_registry as set_cf_registry
-    set_cf_registry(registry)
+    data_class_catalog = DataClassCatalog(runtime_paths)
+    if not data_class_catalog.seed_if_empty():
+        data_class_catalog.load_from_disk()
 
-    engine = WorkflowEngine(registry)
+    data_class_ref_index = DataClassRefIndex()
+    data_class_ref_index.load_from_disk(runtime_paths)
 
-    # 加载 workflows/ 目录下的 JSON
-    wf_dir = Path(__file__).parent / "workflows"
-    if wf_dir.exists():
-        for f in wf_dir.glob("*.json"):
-            preset_workflows[f.stem] = json.loads(f.read_text())
-            logger.info(f"加载预设工作流: {f.stem}")
+    registry.auto_discover("app.skills.platform")
+    registry.auto_discover("app.skills.business")
+    try:
+        registry.reload_plugins(runtime_paths)
+    except Exception:
+        logger.warning("runtime 插件加载失败，仅使用内置 Skill", exc_info=True)
+
+    data_class_ref_index.rebuild_from_registry(registry)
+    data_class_ref_index.save_to_disk(runtime_paths)
+
+    workflow_catalog = WorkflowCatalog(runtime_paths)
+    workflow_catalog.seed_runtime_if_empty()
+    workflow_catalog.load_all()
+
+    engine = WorkflowEngine(registry, data_class_catalog)
+    scheduler_service = SchedulerService(
+        engine,
+        workflow_catalog,
+        runtime_paths,
+        timezone=settings.schedule_timezone,
+    )
+    scheduler_service.start()
+
+    app.state.runtime_paths = runtime_paths
+    app.state.data_class_catalog = data_class_catalog
+    app.state.data_class_ref_index = data_class_ref_index
+    app.state.skill_registry = registry
+    app.state.workflow_catalog = workflow_catalog
+    app.state.workflow_engine = engine
+    app.state.scheduler_service = scheduler_service
+
+    logger.info(
+        "启动完成: %d Skill, %d 工作流, %d 数据类, %d 定时任务",
+        len(registry.list_all()),
+        len(workflow_catalog.list_entries()),
+        len(data_class_catalog.list_all()),
+        len(scheduler_service.store.list_all()),
+    )
 
     yield
 
-    # 关闭
+    scheduler_service.shutdown()
     await backend_client.close()
 
 
 app = FastAPI(
     title="FusionCareer AI Agent",
     description="节点式工作流微服务 — 可插拔 Skill 插件",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
-# 注册全局异常处理
 register_exception_handlers(app)
+app.include_router(admin_router.router)
 
-
-# ── 请求模型 ──
 
 class RunWorkflowRequest(BaseModel):
-    """直接提交工作流 JSON 执行"""
     name: str = "inline"
     nodes: dict
+    loop: dict | None = None
+
 
 class RunPresetRequest(BaseModel):
-    """执行预设工作流，可覆盖 value 参数"""
-    overrides: dict = {}
+    overrides: dict = Field(default_factory=dict)
+    loop: dict | None = None
 
 
-# ── 路由 ──
+class LoopControl(BaseModel):
+    judge_skill: str
+    max_iterations: int = Field(gt=0)
+    judge_inputs: dict[str, Any] = Field(default_factory=dict)
+    initial_globals: dict[str, Any] = Field(default_factory=dict)
+
+
+def _validate_overrides(workflow: dict, overrides: dict) -> list[str]:
+    errors: list[str] = []
+    nodes = workflow.get("nodes") or {}
+    for key in overrides:
+        parts = key.split(".", 1)
+        if len(parts) != 2:
+            errors.append(f"overrides 键 '{key}' 格式应为 node_id.slot")
+            continue
+        nid, slot = parts
+        if nid not in nodes:
+            errors.append(f"overrides 节点 '{nid}' 不存在")
+            continue
+        if slot not in (nodes[nid].get("inputs") or {}):
+            errors.append(f"overrides 槽位 '{key}' 不存在")
+            continue
+        if not is_source_node(nodes, nid, registry):
+            errors.append(f"overrides 仅允许源节点（input_*），'{key}' 为业务节点")
+    return errors
+
+
+def _validate_or_422(workflow: dict, *, overrides: dict | None = None) -> None:
+    if overrides:
+        override_errors = _validate_overrides(workflow, overrides)
+        if override_errors:
+            raise HTTPException(status_code=422, detail={"errors": override_errors})
+    errors = engine.validate(workflow, allow_source_literals_only=True)
+    if errors:
+        raise HTTPException(status_code=422, detail={"errors": errors})
+
+
+def _validate_loop_or_422(loop: LoopControl | None) -> None:
+    if loop is None:
+        return
+    try:
+        skill = registry.get(loop.judge_skill)
+    except KeyError:
+        raise HTTPException(
+            status_code=422,
+            detail={"errors": [f"judge_skill '{loop.judge_skill}' 不存在"]},
+        ) from None
+    defn = skill.define()
+    out_def = defn.get("outputs") or {}
+    if out_def.get("continue") != "bool":
+        raise HTTPException(
+            status_code=422,
+            detail={"errors": [f"judge_skill '{loop.judge_skill}' 必须输出 continue(bool)"]},
+        )
+    required_inputs = set((defn.get("inputs") or {}).keys()) - {"state_path", "iteration"}
+    missing = sorted(slot for slot in required_inputs if slot not in loop.judge_inputs)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail={"errors": [f"judge_inputs 缺少必需字段: {', '.join(missing)}"]},
+        )
+
+
+def _run_workflow_subprocess(workflow: dict, state_path: Path, iteration: int) -> dict[str, Any]:
+    run_root = state_path.parent
+    payload_path = run_root / f"iter_{iteration}.json"
+    payload_path.write_text(
+        json.dumps(
+            {
+                "workflow": workflow,
+                "state_path": str(state_path),
+                "iteration": iteration,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [sys.executable, "-m", "app.engine.for_worker", str(payload_path)],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"iteration={iteration} 子进程失败 rc={proc.returncode}: {proc.stderr.strip()}"
+        )
+    lines = [line for line in proc.stdout.splitlines() if line.strip()]
+    if not lines:
+        return {}
+    return json.loads(lines[-1])
+
+
+async def _run_with_loop(workflow_name: str, workflow: dict, loop: LoopControl) -> dict[str, Any]:
+    run_id = str(uuid.uuid4())
+    run_root = Path(settings.agent_runtime_dir).resolve() / "runs" / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    state_path = run_root / "state.json"
+    state_path.write_text(json.dumps(loop.initial_globals, ensure_ascii=False), encoding="utf-8")
+
+    judge = registry.get(loop.judge_skill)
+    iterations_executed = 0
+    stopped_by_judge = False
+    last_result: dict[str, Any] = {}
+    try:
+        for i in range(loop.max_iterations):
+            judge_inputs = dict(loop.judge_inputs)
+            if "state_path" in (judge.define().get("inputs") or {}):
+                judge_inputs["state_path"] = str(state_path)
+            if "iteration" in (judge.define().get("inputs") or {}):
+                judge_inputs["iteration"] = i
+            decision = await judge.execute(judge_inputs)
+            if not bool(decision.get("continue", False)):
+                stopped_by_judge = True
+                break
+            last_result = _run_workflow_subprocess(workflow, state_path, i)
+            iterations_executed += 1
+    finally:
+        shutil.rmtree(run_root, ignore_errors=True)
+    return {
+        "status": "completed",
+        "workflow": workflow_name,
+        "run_id": run_id,
+        "iterations_executed": iterations_executed,
+        "stopped_by_judge": stopped_by_judge,
+        "outputs": (last_result.get("outputs") or {}),
+    }
+
+
+async def _run_response(
+    workflow_name: str,
+    workflow: dict,
+    *,
+    overrides: dict | None = None,
+    loop: LoopControl | None = None,
+):
+    _validate_or_422(workflow, overrides=overrides)
+    _validate_loop_or_422(loop)
+    try:
+        if loop is not None:
+            return await _run_with_loop(workflow_name, workflow, loop)
+        outputs = await engine.run(workflow)
+        return {
+            "status": "completed",
+            "workflow": workflow_name,
+            "outputs": outputs,
+        }
+    except WorkflowNodeError as e:
+        root = e.root_node
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "failed",
+                "workflow": workflow_name,
+                "failed_node": root,
+                "root_node": root,
+                "skill": e.skill,
+                "attempts_used": e.attempts_used,
+                "retry_policy": e.retry_policy_applied,
+                "input_snapshot": e.input_snapshot,
+                "timeout_seconds": e.timeout_seconds,
+                "error": {"type": type(e.cause).__name__, "message": str(e.cause)},
+                "outputs": e.partial_outputs,
+            },
+        )
+
+
+def _apply_overrides(workflow: dict, overrides: dict) -> dict:
+    wf = copy.deepcopy(workflow)
+    for key, val in overrides.items():
+        parts = key.split(".", 1)
+        if len(parts) != 2:
+            continue
+        nid, slot = parts
+        node = wf.get("nodes", {}).get(nid)
+        if node and slot in node.get("inputs", {}):
+            node["inputs"][slot] = {"value": val}
+    return wf
+
 
 @app.get("/api/health")
 async def health():
@@ -97,61 +318,33 @@ async def health():
 
 @app.get("/api/skills")
 async def list_skills():
-    """列出所有已注册 Skill（含输入输出定义）"""
     return {"skills": registry.list_all()}
 
 
-@app.post("/api/run")
+@app.post("/api/run", dependencies=[Depends(require_agent_admin)])
 async def run_workflow(req: RunWorkflowRequest):
-    """提交一个 workflow JSON 执行"""
     workflow = {"name": req.name, "nodes": req.nodes}
-
-    # 校验
-    errors = engine.validate(workflow)
-    if errors:
-        raise HTTPException(status_code=422, detail={"errors": errors})
-
-    # 执行（异常由全局处理器捕获）
-    result = await engine.run(workflow)
-    return {"status": "completed", "workflow": req.name, "outputs": result}
+    loop = LoopControl(**req.loop) if req.loop else None
+    return await _run_response(req.name, workflow, loop=loop)
 
 
 @app.get("/api/workflows")
 async def list_workflows():
-    """列出所有预设工作流"""
-    return {
-        "workflows": [
-            {"name": name, "node_count": len(wf.get("nodes", {}))}
-            for name, wf in preset_workflows.items()
-        ]
-    }
+    return {"workflows": workflow_catalog.list_entries()}
 
 
-@app.post("/api/workflows/{name}/run")
+@app.post("/api/workflows/{name}/run", dependencies=[Depends(require_agent_admin)])
 async def run_preset_workflow(name: str, req: RunPresetRequest = RunPresetRequest()):
-    """执行预设工作流（可通过 overrides 覆盖 value 参数）"""
-    if name not in preset_workflows:
-        raise HTTPException(status_code=404, detail=f"预设工作流 '{name}' 不存在")
+    if not workflow_catalog.has(name):
+        raise HTTPException(status_code=404, detail=f"工作流 '{name}' 不存在")
 
-    workflow = json.loads(json.dumps(preset_workflows[name]))  # deep copy
-
-    # 覆盖 value 参数: overrides = {"n1.file_id": 9876}
-    for key, val in req.overrides.items():
-        parts = key.split(".", 1)
-        if len(parts) == 2:
-            nid, slot = parts
-            if nid in workflow["nodes"] and slot in workflow["nodes"][nid].get("inputs", {}):
-                workflow["nodes"][nid]["inputs"][slot] = {"value": val}
-
-    errors = engine.validate(workflow)
-    if errors:
-        raise HTTPException(status_code=422, detail={"errors": errors})
-
-    # 执行（异常由全局处理器捕获）
-    result = await engine.run(workflow)
-    return {"status": "completed", "workflow": name, "outputs": result}
+    base = workflow_catalog.get(name)
+    workflow = _apply_overrides(base, req.overrides)
+    loop = LoopControl(**req.loop) if req.loop else None
+    return await _run_response(name, workflow, overrides=req.overrides, loop=loop)
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app.main:app", host="0.0.0.0", port=settings.agent_port, reload=True)

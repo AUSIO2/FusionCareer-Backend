@@ -18,19 +18,20 @@ spring:
 fudan-sso:
   client-id: ${FUDAN_SSO_CLIENT_ID}
   client-secret: ${FUDAN_SSO_CLIENT_SECRET}
-  redirect-uri: https://fusioncareer.fudan.edu.cn/fudan/callback
-  frontend-redirect-url: https://fusioncareer.fudan.edu.cn/
+  redirect-uri: ${FUDAN_SSO_REDIRECT_URI:https://fusioncareer.fudan.edu.cn/fudan/callback}
+  # 须为站点根路径，勿填 /user（会与业务 API 路径混淆，导致落地为 /user#/login）
+  frontend-redirect-url: ${FUDAN_SSO_FRONTEND_REDIRECT_URL:https://fusioncareer.fudan.edu.cn/}
 
 # ===== 文件上传（生产路径） =====
 upload:
   base-dir: /data/fusioncareer/uploads
   url-prefix: https://fusioncareer.fudan.edu.cn/files
 
-# ===== AI Agent 服务 =====
+# ===== AI Agent 服务（双机部署时通过环境变量指向 Python 机内网 IP） =====
 python-service:
-  base-url: http://127.0.0.1:8900
+  base-url: ${PYTHON_SERVICE_BASE_URL:http://127.0.0.1:8900}
 
 # ===== 关闭 SQL 日志 =====
 mybatis-plus:
   configuration:
-    log-impl: org.apache.ibatis.logging.nop.NopLoggingImpl
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl

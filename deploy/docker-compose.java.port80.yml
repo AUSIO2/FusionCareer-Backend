@@ -1,0 +1,11 @@
+# Java 机临时：在 80 端口反代本机 backend:9100（安全组若放行 80 机间访问）
+# 与 backend 栈并行: docker compose -f deploy/docker-compose.java.port80.yml up -d
+# 需 backend 已在 127.0.0.1:9100 监听
+
+services:
+  java-proxy-80:
+    image: nginx:alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./nginx.java.port80.conf:/etc/nginx/nginx.conf:ro

@@ -63,14 +63,15 @@ public class FudanSsoServiceImpl implements FudanSsoService {
                 throw new RuntimeException("Failed to get access token");
             }
 
-            // 2. 获取用户信息
+            // 2. 获取用户信息（复旦可能返回 userId / sub / uid 等字段）
             JsonNode userInfo = getUserInfo(accessToken);
-            if (userInfo == null || !userInfo.has("userId")) {
+            String userId = resolveFudanUserId(userInfo);
+            if (userId == null || userId.isBlank()) {
+                log.error("Fudan userInfo missing user id, body={}", userInfo);
                 throw new RuntimeException("Failed to get user info");
             }
 
-            String userId = userInfo.get("userId").asText();
-            String userName = userInfo.has("userName") ? userInfo.get("userName").asText() : userId;
+            String userName = resolveFudanUserName(userInfo, userId);
 
             // 3. 业务系统登录注册逻辑
             UserEntity user = userService.lambdaQuery().eq(UserEntity::getStudentId, userId).one();
@@ -186,7 +187,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
      */
     private JsonNode getUserInfo(String accessToken) throws Exception {
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        headers.setAccept(java.util.List.of(MediaType.APPLICATION_JSON));
         headers.set("Authorization", "Bearer " + accessToken);
 
         HttpEntity<Void> request = new HttpEntity<>(headers);
@@ -198,13 +199,51 @@ public class FudanSsoServiceImpl implements FudanSsoService {
                 String.class
         );
 
-        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-            JsonNode root = objectMapper.readTree(response.getBody());
-            if (root.has("errcode")) {
-                throw new RuntimeException("Error from Fudan UserInfo API: " + root.get("msg").asText());
+        String body = response.getBody();
+        log.info("Fudan userInfo HTTP {} body={}", response.getStatusCode(), body);
+
+        if (response.getStatusCode().is2xxSuccessful() && body != null && !body.isBlank()) {
+            JsonNode root = objectMapper.readTree(body);
+            if (root.has("errcode") && root.get("errcode").asInt(0) != 0) {
+                String msg = root.has("msg") ? root.get("msg").asText() : body;
+                throw new RuntimeException("Error from Fudan UserInfo API: " + msg);
             }
             return root;
         }
         return null;
+    }
+
+    /** 兼容复旦 / OIDC 多种学号字段名 */
+    private String resolveFudanUserId(JsonNode userInfo) {
+        if (userInfo == null) {
+            return null;
+        }
+        for (String field : new String[]{"userId", "sub", "uid", "username", "user_id"}) {
+            if (userInfo.hasNonNull(field) && !userInfo.get(field).asText().isBlank()) {
+                return userInfo.get(field).asText();
+            }
+        }
+        if (userInfo.has("data") && userInfo.get("data").isObject()) {
+            return resolveFudanUserId(userInfo.get("data"));
+        }
+        return null;
+    }
+
+    private String resolveFudanUserName(JsonNode userInfo, String fallback) {
+        if (userInfo == null) {
+            return fallback;
+        }
+        for (String field : new String[]{"userName", "name", "displayName", "nickname"}) {
+            if (userInfo.hasNonNull(field) && !userInfo.get(field).asText().isBlank()) {
+                return userInfo.get(field).asText();
+            }
+        }
+        if (userInfo.has("data") && userInfo.get("data").isObject()) {
+            String nested = resolveFudanUserName(userInfo.get("data"), fallback);
+            if (!nested.equals(fallback)) {
+                return nested;
+            }
+        }
+        return fallback;
     }
 }

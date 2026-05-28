@@ -1,0 +1,5 @@
+{
+  "name": "json_obj",
+  "role": "IO",
+  "schema": { "type": "object", "additionalProperties": true }
+}

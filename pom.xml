@@ -31,6 +31,7 @@
         <lombok.version>1.18.46</lombok.version>
         <sa-token.version>1.45.0</sa-token.version>
         <springdoc.version>2.5.0</springdoc.version>
+        <hutool.version>5.8.27</hutool.version>
     </properties>
 
     <!-- Global Dependencies (Optional, things every module will definitely need) -->
@@ -70,6 +71,12 @@
                 <groupId>org.springdoc</groupId>
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
                 <version>${springdoc.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>cn.hutool</groupId>
+                <artifactId>hutool-all</artifactId>
+                <version>${hutool.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

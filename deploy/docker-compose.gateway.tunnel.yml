@@ -1,0 +1,10 @@
+# 与 docker-compose.gateway.yml 叠加使用（SSH 隧道在宿主机 127.0.0.1:19100）
+# docker compose -f deploy/docker-compose.gateway.yml -f deploy/docker-compose.gateway.tunnel.yml up -d --force-recreate nginx
+#
+# Nginx 使用宿主机网络，upstream 填 127.0.0.1:19100（见 nginx.python.tunnel.conf）
+
+services:
+  nginx:
+    network_mode: host
+    ports: !reset []
+    extra_hosts: !reset []
