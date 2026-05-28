@@ -1,0 +1,29 @@
+# Java 机：backend + 自动 SSH 反向隧道（Python 网关用 127.0.0.1:19100）
+#
+# 一次性准备（Java 机 root）:
+#   ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519_py
+#   ssh-copy-id -i /root/.ssh/id_ed25519_py.pub vmadmin@10.107.13.184
+#   cp deploy/env.tunnel.example .env.tunnel
+#
+# 启动:
+#   docker compose -f deploy/docker-compose.java.image.yml \
+#     -f deploy/docker-compose.java.tunnel.yml \
+#     --env-file .env.production --env-file .env.tunnel up -d
+
+services:
+  ssh-tunnel:
+    image: alpine:3.19
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      PYTHON_HOST: ${PYTHON_HOST}
+      PYTHON_USER: ${PYTHON_USER:-vmadmin}
+      PYTHON_SSH_PORT: ${PYTHON_SSH_PORT:-22}
+      LOCAL_BACKEND: ${LOCAL_BACKEND:-127.0.0.1:9100}
+      REMOTE_BIND: ${REMOTE_BIND:-127.0.0.1:19100}
+      SSH_KEY: /root/.ssh/id_tunnel
+    volumes:
+      - ./ssh-tunnel/entrypoint.sh:/entrypoint.sh:ro
+      - ${SSH_KEY_PATH:-/root/.ssh/id_ed25519_py}:/root/.ssh/id_tunnel:ro
+
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]

@@ -1,0 +1,53 @@
+{
+  "name": "写入简历和资料",
+  "nodes": {
+    "input_uid": {
+      "skill": "input_int",
+      "inputs": {
+        "int": { "value": 0 }
+      }
+    },
+    "input_rd": {
+      "skill": "input_resume_data",
+      "inputs": {
+        "data": {
+          "value": {
+            "personalIntro": "",
+            "education": "",
+            "internship": "",
+            "skills": ""
+          }
+        }
+      }
+    },
+    "input_pd": {
+      "skill": "input_profile_data",
+      "inputs": {
+        "data": {
+          "value": {
+            "realName": "",
+            "gender": 1,
+            "major": "",
+            "eduLevel": 2,
+            "grade": "",
+            "mindset": 2
+          }
+        }
+      }
+    },
+    "n1": {
+      "skill": "insert_resume",
+      "inputs": {
+        "user_id": { "from": "input_uid.int" },
+        "resume_data": { "from": "input_rd.data" }
+      }
+    },
+    "n2": {
+      "skill": "insert_user_profile",
+      "inputs": {
+        "user_id": { "from": "input_uid.int" },
+        "profile_data": { "from": "input_pd.data" }
+      }
+    }
+  }
+}

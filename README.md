@@ -50,6 +50,8 @@ FusionCareer-Backend/
 └── pom.xml
 ```
 
+前端 Vue 应用在独立仓库 **[FusionCareer-View](https://github.com/AUSIO2/FusionCareer-View)**（`ui_kits/student`），部署脚本见该仓库 `deploy/scripts/`。
+
 ## 数据库
 
 共 7 张业务表，建表脚本见 `fusioncareer-biz/src/main/resources/schema.sql`。

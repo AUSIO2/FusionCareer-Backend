@@ -48,4 +48,5 @@ build/
 ### Sensitive / Environment ###
 .env
 .env.production
+.env.agent
 .env.local

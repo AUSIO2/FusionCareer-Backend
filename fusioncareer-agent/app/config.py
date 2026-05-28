@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     # Agent 服务
     agent_port: int = 8900
 
+    # 热更新 runtime（开发默认 ./runtime）
+    agent_runtime_dir: str = "./runtime"
+
+    # 管理员 API（PUT /api/admin/*）；未配置则管理接口返回 503
+    agent_admin_token: str = ""
+
+    # 定时任务时区
+    schedule_timezone: str = "Asia/Shanghai"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

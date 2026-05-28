@@ -1,0 +1,36 @@
+# FusionCareer — Python 机（Agent + 网关 Nginx）
+# 域名 fusioncareer.fudan.edu.cn 解析到本机；SSO 对外入口 /fudan/* 反代 Java
+#
+# 启动（在含 deploy/ 与 fusioncareer-agent/ 的目录）:
+#   docker compose -f deploy/docker-compose.agent.yml --env-file fusioncareer-agent/.env.agent up -d --build
+
+services:
+  agent:
+    build:
+      context: ../fusioncareer-agent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../fusioncareer-agent/.env.agent
+    environment:
+      BACKEND_BASE_URL: ${BACKEND_BASE_URL}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      AGENT_PORT: 8900
+    expose:
+      - "8900"
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - agent
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.python.conf:/etc/nginx/nginx.conf:ro
+      # SSL（申请证书后取消注释）:
+      # - /etc/letsencrypt/live/fusioncareer.fudan.edu.cn/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      # - /etc/letsencrypt/live/fusioncareer.fudan.edu.cn/privkey.pem:/etc/nginx/ssl/privkey.pem:ro

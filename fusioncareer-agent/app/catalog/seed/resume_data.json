@@ -1,0 +1,19 @@
+{
+  "name": "resume_data",
+  "role": "IO",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "personalIntro": { "type": "string" },
+      "basicInfo": { "type": "string" },
+      "education": { "type": "string" },
+      "internship": { "type": "string" },
+      "campus": { "type": "string" },
+      "awards": { "type": "string" },
+      "skills": { "type": "string" },
+      "portfolio": { "type": "string" },
+      "remark": { "type": "string" }
+    },
+    "additionalProperties": true
+  }
+}

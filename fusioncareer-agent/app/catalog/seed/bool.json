@@ -1,0 +1,5 @@
+{
+  "name": "bool",
+  "role": "IO",
+  "schema": { "type": "boolean" }
+}

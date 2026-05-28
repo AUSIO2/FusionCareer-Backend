@@ -1,7 +1,7 @@
-# ===== 轻量 Runtime 镜像 =====
-# 使用方式：先在本地 mvn package，再 docker build
-# cd FusionCareer-Backend && ./mvnw package -DskipTests -pl fusioncareer-biz -am
-# docker build -t fusioncareer-backend:latest .
+# ===== 轻量 Runtime 镜像（整仓上下文，易被 .dockerignore 排除 target/）=====
+# 推荐改用: fusioncareer-biz/Dockerfile.prod + 见 deploy/DEPLOY-JAVA.md
+# ./mvnw package -DskipTests -pl fusioncareer-biz -am
+# docker build -f fusioncareer-biz/Dockerfile.prod -t fusioncareer-backend:prod fusioncareer-biz
 FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app

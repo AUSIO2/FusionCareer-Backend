@@ -82,6 +82,26 @@ CREATE TABLE IF NOT EXISTS `fc_resume`
 
 
 -- ----------------------------
+-- 4. 用户简历文件表 fc_resume_file
+--    上传文件元数据（PDF/JPG/PNG），配额由业务层校验
+-- ----------------------------
+CREATE TABLE IF NOT EXISTS `fc_resume_file`
+(
+    `id`            BIGINT        NOT NULL COMMENT '文件ID（雪花算法）',
+    `user_id`       BIGINT        NOT NULL COMMENT '所属用户ID，关联 fc_user.id',
+    `original_name` VARCHAR(255)  NOT NULL COMMENT '用户上传时的原始文件名',
+    `storage_path`  VARCHAR(512)  NOT NULL COMMENT '服务器相对存储路径（相对于 upload.base-dir）',
+    `file_size`     BIGINT        NOT NULL COMMENT '文件大小（字节）',
+    `mime_type`     VARCHAR(64)   NOT NULL COMMENT 'MIME类型：application/pdf / image/jpeg / image/png',
+    `created_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_user_id` (`user_id`)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COMMENT = '用户简历文件表（30MB/人配额）';
+
+
+-- ----------------------------
 -- 9. 岗位信息主表 fc_job_post
 --    对应「岗位详情页」
 -- ----------------------------
@@ -176,12 +196,18 @@ CREATE TABLE IF NOT EXISTS `fc_questionnaire_answer`
     `id`            BIGINT        NOT NULL COMMENT '作答记录ID（雪花算法）',
     `job_post_id`   BIGINT        NOT NULL COMMENT '所属岗位ID',
     `user_id`       BIGINT        NOT NULL COMMENT '投递学生用户ID',
-    `answers`       JSON          NOT NULL COMMENT '作答内容JSON',
-    `created_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `answers`            JSON          NOT NULL COMMENT '作答内容JSON',
+    `submission_status`  TINYINT       NOT NULL DEFAULT 1 COMMENT '0-草稿 1-已提交待审核 2-已审阅',
+    `reviewed_at`        DATETIME               DEFAULT NULL COMMENT '管理员审阅时间',
+    `reviewed_by`        BIGINT                 DEFAULT NULL COMMENT '审阅管理员 user_id',
+    `review_passed`      TINYINT(1)             DEFAULT NULL COMMENT '审阅是否通过：1-通过 0-未通过',
+    `review_comments`    TEXT                   DEFAULT NULL COMMENT '管理员审阅意见',
+    `created_at`         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_job_user` (`job_post_id`, `user_id`),
-    KEY `idx_user_id` (`user_id`)
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_user_status` (`user_id`, `submission_status`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COMMENT = '学生问卷作答表';

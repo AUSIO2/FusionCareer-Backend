@@ -1,5 +1,6 @@
 package com.fusioncareer.dto.res;
 
+import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -35,4 +36,11 @@ public class QuestionnaireAnswerResponse {
 
     /** 更新时间 */
     private LocalDateTime updatedAt;
+
+    private QuestionnaireSubmissionStatus submissionStatus;
+    private String statusLabel;
+    private LocalDateTime reviewedAt;
+    /** 审阅是否通过 */
+    private Boolean reviewPassed;
+    private String reviewComments;
 }

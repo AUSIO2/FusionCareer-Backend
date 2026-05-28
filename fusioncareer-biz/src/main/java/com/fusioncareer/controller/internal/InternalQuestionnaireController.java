@@ -3,6 +3,7 @@ package com.fusioncareer.controller.internal;
 import com.fusioncareer.common.PageResult;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.JobPostQuestionRequest;
+import com.fusioncareer.dto.req.QuestionnaireReviewRequest;
 import com.fusioncareer.dto.res.JobPostQuestionResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
 import com.fusioncareer.service.JobPostQuestionService;
@@ -68,5 +69,22 @@ public class InternalQuestionnaireController {
     @Operation(summary = "查看单条问卷作答详情")
     public R<QuestionnaireAnswerResponse> getAnswerDetail(@PathVariable Long id) {
         return R.success(questionnaireAnswerService.getDetail(id));
+    }
+
+    @PutMapping("/answers/{id}/review")
+    @Operation(summary = "审阅单条问卷投递（必填审阅意见）")
+    public R<QuestionnaireAnswerResponse> reviewAnswer(
+            @PathVariable Long id,
+            @RequestBody QuestionnaireReviewRequest request) {
+        return R.success(questionnaireAnswerService.review(id, request, null));
+    }
+
+    @PutMapping("/answers/job/{jobPostId}/review-batch")
+    @Operation(summary = "批量审阅某岗位下所有待审核投递")
+    public R<Integer> reviewAnswersBatch(
+            @PathVariable Long jobPostId,
+            @RequestBody QuestionnaireReviewRequest request) {
+        int count = questionnaireAnswerService.reviewBatchByJobPost(jobPostId, request, null);
+        return R.success(count);
     }
 }

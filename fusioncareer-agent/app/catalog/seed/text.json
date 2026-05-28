@@ -1,0 +1,5 @@
+{
+  "name": "text",
+  "role": "IO",
+  "schema": { "type": "string" }
+}

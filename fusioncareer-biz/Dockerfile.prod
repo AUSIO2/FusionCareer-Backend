@@ -1,0 +1,19 @@
+# 生产运行时镜像（构建上下文 = fusioncareer-biz 目录）
+# 先在本机: ./mvnw package -DskipTests -pl fusioncareer-biz -am
+# 再 build:
+#   docker build -f fusioncareer-biz/Dockerfile.prod -t fusioncareer-backend:prod fusioncareer-biz
+#
+# 若拉取 docker.io 超时，可改用下面 FROM 之一（与根 Dockerfile 二选一即可）
+
+FROM eclipse-temurin:21-jre-alpine
+# FROM docker.m.daocloud.io/library/eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+COPY target/*.jar app.jar
+
+RUN mkdir -p /data/fusioncareer/uploads
+
+ENV JAVA_OPTS="-Xms256m -Xmx512m"
+EXPOSE 9100
+
+ENTRYPOINT ["sh", "-c", "java ${JAVA_OPTS} -jar app.jar --spring.profiles.active=prod"]

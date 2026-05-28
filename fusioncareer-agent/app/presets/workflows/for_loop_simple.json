@@ -1,0 +1,27 @@
+{
+  "name": "for_loop_simple",
+  "nodes": {
+    "loop": {
+      "kind": "for",
+      "judge_skill": "judge_continue",
+      "max_iterations": 100,
+      "judge_inputs": {
+        "max_true": { "value": 3 }
+      },
+      "initial_globals": {
+        "judge_count": 0
+      },
+      "target_workflow": {
+        "name": "target_echo",
+        "nodes": {
+          "src": {
+            "skill": "input_text",
+            "inputs": {
+              "text": { "value": "loop-body" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

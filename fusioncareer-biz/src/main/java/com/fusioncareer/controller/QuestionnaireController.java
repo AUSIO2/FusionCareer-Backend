@@ -4,26 +4,27 @@ import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.QuestionnaireSubmitRequest;
-import com.fusioncareer.dto.res.JobPostQuestionResponse;
+import com.fusioncareer.dto.res.JobPostQuestionnaireResponse;
+import com.fusioncareer.dto.res.MyQuestionnaireListPageResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
 import com.fusioncareer.dto.res.ResumeFileResponse;
+import com.fusioncareer.entity.JobPostEntity;
+import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
+import com.fusioncareer.exception.QuestionnaireErrorCode;
+import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.service.JobPostQuestionService;
+import com.fusioncareer.service.JobPostService;
 import com.fusioncareer.service.QuestionnaireAnswerService;
 import com.fusioncareer.service.ResumeFileService;
+import com.fusioncareer.util.QuestionnaireDeadlineUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
-
 /**
  * 学生端 - 岗位投递问卷接口
- * <p>
- * 学生查看问卷、上传文件、提交问卷作答。
- *
- * @author Xiong Heng
  */
 @SaCheckLogin
 @RestController
@@ -33,13 +34,30 @@ import java.util.List;
 public class QuestionnaireController {
 
     private final JobPostQuestionService jobPostQuestionService;
+    private final JobPostService jobPostService;
     private final QuestionnaireAnswerService questionnaireAnswerService;
     private final ResumeFileService resumeFileService;
 
     @GetMapping("/questions/{jobPostId}")
-    @Operation(summary = "获取某岗位的投递问卷")
-    public R<List<JobPostQuestionResponse>> getQuestions(@PathVariable Long jobPostId) {
-        return R.success(jobPostQuestionService.listByJobPostId(jobPostId));
+    @Operation(summary = "获取某岗位的投递问卷（含截止信息）")
+    public R<JobPostQuestionnaireResponse> getQuestions(@PathVariable Long jobPostId) {
+        JobPostEntity job = jobPostService.getById(jobPostId);
+        if (job == null) {
+            throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND);
+        }
+        JobPostQuestionnaireResponse resp = new JobPostQuestionnaireResponse();
+        resp.setQuestionnaireDeadline(job.getWorkEndDate());
+        resp.setExpired(QuestionnaireDeadlineUtil.isExpired(job.getWorkEndDate()));
+        resp.setSourceUrl(job.getSourceUrl());
+        resp.setQuestions(jobPostQuestionService.listByJobPostId(jobPostId));
+        return R.success(resp);
+    }
+
+    @PostMapping("/draft")
+    @Operation(summary = "保存问卷草稿")
+    public R<QuestionnaireAnswerResponse> saveDraft(@RequestBody QuestionnaireSubmitRequest request) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.success(questionnaireAnswerService.saveDraft(userId, request));
     }
 
     @PostMapping("/submit")
@@ -47,6 +65,16 @@ public class QuestionnaireController {
     public R<QuestionnaireAnswerResponse> submit(@RequestBody QuestionnaireSubmitRequest request) {
         Long userId = StpUtil.getLoginIdAsLong();
         return R.success(questionnaireAnswerService.submit(userId, request));
+    }
+
+    @GetMapping("/my/list")
+    @Operation(summary = "分页查看我的问卷投递记录")
+    public R<MyQuestionnaireListPageResponse> listMy(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) QuestionnaireSubmissionStatus status) {
+        Long userId = StpUtil.getLoginIdAsLong();
+        return R.success(questionnaireAnswerService.listMyByUserId(userId, page, size, status));
     }
 
     @GetMapping("/my/{jobPostId}")

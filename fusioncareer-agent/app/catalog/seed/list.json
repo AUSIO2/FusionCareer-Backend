@@ -1,0 +1,5 @@
+{
+  "name": "list",
+  "role": "IO",
+  "schema": { "type": "array" }
+}
