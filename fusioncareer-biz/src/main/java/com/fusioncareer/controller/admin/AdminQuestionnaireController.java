@@ -10,6 +10,9 @@ import com.fusioncareer.dto.res.JobPostQuestionResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
 import com.fusioncareer.service.JobPostQuestionService;
 import com.fusioncareer.service.QuestionnaireAnswerService;
+import com.fusioncareer.service.QuestionnaireExportService;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +25,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @SaCheckRole("ADMIN")
@@ -34,6 +42,7 @@ public class AdminQuestionnaireController {
 
     private final JobPostQuestionService jobPostQuestionService;
     private final QuestionnaireAnswerService questionnaireAnswerService;
+    private final QuestionnaireExportService questionnaireExportService;
 
     @PostMapping("/questions/batch/{jobPostId}")
     @Operation(summary = "整组保存问卷题目")
@@ -61,8 +70,8 @@ public class AdminQuestionnaireController {
     @Operation(summary = "分页获取岗位投递")
     public R<PageResult<QuestionnaireAnswerResponse>> readAnswers(
             @PathVariable("jobPostId") Long readJobId,
-            @RequestParam(defaultValue = "1") int readPage,
-            @RequestParam(defaultValue = "20") int readSize) {
+            @RequestParam(name = "page", defaultValue = "1") int readPage,
+            @RequestParam(name = "size", defaultValue = "20") int readSize) {
         return R.success(questionnaireAnswerService.listByJobPostId(readJobId, readPage, readSize));
     }
 
@@ -88,5 +97,30 @@ public class AdminQuestionnaireController {
             @RequestBody QuestionnaireReviewRequest updateReview) {
         return R.success(questionnaireAnswerService.reviewBatchByJobPost(
                 updateJobId, updateReview, StpUtil.getLoginIdAsLong()));
+    }
+
+    @GetMapping("/answers/job/{jobPostId}/export")
+    @Operation(summary = "导出岗位投递")
+    public ResponseEntity<byte[]> exportAnswers(
+            @PathVariable("jobPostId") Long readJobId,
+            @RequestParam(name = "format", defaultValue = "csv") String readFormat,
+            @RequestParam(name = "answerIds", required = false) List<Long> readAnswerIds) {
+        boolean readZip = "zip".equalsIgnoreCase(readFormat);
+        if (!readZip && !"csv".equalsIgnoreCase(readFormat)) {
+            throw ServiceException.of(ResultCode.VALIDATE_FAILED, "导出格式仅支持 csv 或 zip");
+        }
+        byte[] readBody = readZip
+                ? questionnaireExportService.buildZip(readJobId, readAnswerIds)
+                : questionnaireExportService.buildCsv(readJobId, readAnswerIds);
+        String readFilename = "applications-" + readJobId + (readZip ? ".zip" : ".csv");
+        MediaType readMediaType = readZip
+                ? MediaType.parseMediaType("application/zip")
+                : MediaType.parseMediaType("text/csv;charset=UTF-8");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename(readFilename, StandardCharsets.UTF_8)
+                        .build().toString())
+                .contentType(readMediaType)
+                .body(readBody);
     }
 }

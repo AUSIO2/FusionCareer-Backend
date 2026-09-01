@@ -164,6 +164,17 @@ class FudanSsoTest {
                 .andExpect(jsonPath("$.code").value(200));
     }
 
+    @Test
+    void rejectExport() throws Exception {
+        createUser("test-export-normal", UserRole.NORMAL, UserStatus.NORMAL);
+        String readUrl = loginUser("test-export-normal");
+        String readToken = readUrl.substring(readUrl.indexOf("token=") + 6);
+
+        readMockMvc.perform(get("/admin/questionnaire/answers/job/1/export")
+                        .header("Fusion-Token", readToken))
+                .andExpect(status().isForbidden());
+    }
+
     private String readState(MvcResult readLogin) {
         String readUrl = readLogin.getResponse().getRedirectedUrl();
         return UriComponentsBuilder.fromUriString(readUrl).build()

@@ -231,9 +231,21 @@ POST 退出响应：
 |------|------|------|
 | 岗位 | `/admin/job-post/**` | 列表、详情、创建、批量创建、更新、删除 |
 | 问卷题目 | `/admin/questionnaire/questions/**` | 读取、整组保存、删除 |
-| 投递审核 | `/admin/questionnaire/answers/**` | 列表、详情、单条审核、批量审核 |
+| 投递审核 | `/admin/questionnaire/answers/**` | 列表、详情、单条审核、批量审核、导出 |
 
 未登录返回 HTTP 401，普通用户返回 HTTP 403。
+
+投递导出：
+
+```text
+GET /admin/questionnaire/answers/job/{jobPostId}/export?format=csv
+GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
+```
+
+- `answerIds` 可选，可重复传递或使用逗号分隔，只导出选中的投递。
+- CSV 带 UTF-8 BOM，可直接用 Excel 打开。
+- ZIP 包含 `applications.csv` 和问卷文件题引用的简历附件。
+- 草稿不会进入导出结果。
 
 ### 内部服务接口
 

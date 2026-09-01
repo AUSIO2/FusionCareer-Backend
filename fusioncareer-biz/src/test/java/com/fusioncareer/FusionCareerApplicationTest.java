@@ -58,9 +58,8 @@ class FusionCareerApplicationTest {
 
     @Test
     void readUploadPath() {
-        Path readTemp = Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
         Path readUpload = Path.of(readUploadProperties.getBaseDir()).toAbsolutePath().normalize();
-        assertThat(readUpload.toString()).startsWith(readTemp.toString());
         assertThat(readUpload.toString()).doesNotContain("/data/fusioncareer/uploads");
+        assertThat(readUpload.toString()).containsAnyOf("fusioncareer-test-uploads", ".test-output/uploads");
     }
 }

@@ -26,7 +26,7 @@ waitDatabase() {
 }
 
 runJUnit() {
-  (cd "$readRoot" && ./mvnw -B -pl fusioncareer-biz -am test)
+  (cd "$readRoot" && TEST_UPLOAD_DIR="$readOutput/uploads" ./mvnw -B -pl fusioncareer-biz -am test)
 }
 
 buildBackend() {
@@ -94,6 +94,7 @@ stopServices() {
     rm -f "$readPid"
   fi
   docker compose -f "$readCompose" down -v --remove-orphans >/dev/null 2>&1 || true
+  rm -rf "$readOutput/uploads"
 }
 
 cleanFiles() {

@@ -133,6 +133,7 @@ FusionCareer-Backend/
 | 问卷与投递审核 | `/admin/questionnaire/**` |
 
 `/internal/**` 仅供内网服务直连 Java，公网 Nginx 对 `/api/internal/**` 返回 404。
+管理员可通过 `/admin/questionnaire/answers/job/{jobPostId}/export?format=csv|zip` 导出投递。
 
 #### 用户管理 `/internal/user`
 
