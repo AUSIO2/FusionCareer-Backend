@@ -1,6 +1,8 @@
 package com.fusioncareer.client;
 
 import com.fusioncareer.dto.req.ResumeParseRequest;
+import com.fusioncareer.dto.req.JobStructureRequest;
+import com.fusioncareer.dto.res.JobStructureResponse;
 import com.fusioncareer.dto.res.ResumeParseResponse;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
@@ -26,4 +28,7 @@ public interface PythonServiceClient {
 
     @PostExchange("/resume/parse")
     ResumeParseResponse parseResume(@RequestBody ResumeParseRequest readRequest);
+
+    @PostExchange("/job/structure")
+    JobStructureResponse structureJob(@RequestBody JobStructureRequest readRequest);
 }

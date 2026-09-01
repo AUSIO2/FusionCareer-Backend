@@ -2,11 +2,19 @@ package com.fusioncareer;
 
 import cn.dev33.satoken.stp.StpInterface;
 import com.fusioncareer.config.FudanOAuth2Properties;
+import com.fusioncareer.client.PythonServiceClient;
+import com.fusioncareer.dto.req.JobPostRequest;
+import com.fusioncareer.dto.res.JobStructureResponse;
 import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.enums.JobCategory;
+import com.fusioncareer.enums.JobPostStatus;
+import com.fusioncareer.enums.RecruitType;
+import com.fusioncareer.enums.SourceType;
 import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.enums.UserStatus;
 import com.fusioncareer.service.FudanSsoService;
 import com.fusioncareer.service.UserService;
+import com.fusioncareer.service.JobPostService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -22,6 +30,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -55,8 +65,14 @@ class FudanSsoTest {
     @Autowired
     private StpInterface readRoleProvider;
 
+    @Autowired
+    private JobPostService readJobService;
+
     @MockBean
     private RestTemplate readRestClient;
+
+    @MockBean
+    private PythonServiceClient readPythonClient;
 
     @Test
     void createState() {
@@ -173,6 +189,33 @@ class FudanSsoTest {
         readMockMvc.perform(get("/admin/questionnaire/answers/job/1/export")
                         .header("Fusion-Token", readToken))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void structureJob() throws Exception {
+        createUser("test-structure-admin", UserRole.ADMIN, UserStatus.NORMAL);
+        String readUrl = loginUser("test-structure-admin");
+        String readToken = readUrl.substring(readUrl.indexOf("token=") + 6);
+        JobPostRequest createJob = new JobPostRequest();
+        createJob.setSourceType(SourceType.CRAWL);
+        createJob.setCompanyName("示例公司");
+        createJob.setPositionName("编辑");
+        createJob.setJobCategory(JobCategory.ENTERPRISE);
+        createJob.setRecruitType(RecruitType.OTHER);
+        createJob.setStatus(JobPostStatus.PUBLISHED);
+        JobStructureResponse readResponse = new JobStructureResponse();
+        readResponse.setJobs(List.of(createJob));
+        when(readPythonClient.structureJob(any())).thenReturn(readResponse);
+        long readCount = readJobService.count();
+
+        readMockMvc.perform(post("/admin/job-post/structure")
+                        .header("Fusion-Token", readToken)
+                        .contentType("application/json")
+                        .content("{\"text\":\"招聘编辑\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.jobs[0].sourceType").value("PLATFORM"))
+                .andExpect(jsonPath("$.data.jobs[0].status").value("OFFLINE"));
+        assertThat(readJobService.count()).isEqualTo(readCount);
     }
 
     private String readState(MvcResult readLogin) {

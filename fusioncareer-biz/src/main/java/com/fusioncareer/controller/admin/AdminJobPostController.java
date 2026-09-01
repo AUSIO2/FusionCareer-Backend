@@ -5,6 +5,14 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
+import com.fusioncareer.dto.req.JobStructureRequest;
+import com.fusioncareer.dto.res.JobStructureResponse;
+import com.fusioncareer.client.PythonServiceClient;
+import com.fusioncareer.enums.JobPostStatus;
+import com.fusioncareer.enums.SourceType;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
+import org.springframework.util.StringUtils;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.service.JobPostService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,6 +37,27 @@ import java.util.List;
 public class AdminJobPostController {
 
     private final JobPostService jobPostService;
+    private final PythonServiceClient readPythonClient;
+
+    @PostMapping("/structure")
+    @Operation(summary = "将岗位原文转为可编辑标准字段")
+    public R<JobStructureResponse> structureJob(@RequestBody JobStructureRequest readRequest) {
+        if (!StringUtils.hasText(readRequest.getText())) {
+            throw ServiceException.of(ResultCode.VALIDATE_FAILED, "岗位原文不能为空");
+        }
+        readRequest.setSourceType(SourceType.PLATFORM);
+        readRequest.setDefaultStatus(JobPostStatus.OFFLINE);
+        JobStructureResponse readResponse = readPythonClient.structureJob(readRequest);
+        readResponse.getJobs().forEach(updateJob -> {
+            if (!StringUtils.hasText(updateJob.getCompanyName())
+                    || !StringUtils.hasText(updateJob.getPositionName())) {
+                throw ServiceException.of(ResultCode.VALIDATE_FAILED, "算法返回的岗位缺少公司或岗位名称");
+            }
+            updateJob.setSourceType(SourceType.PLATFORM);
+            updateJob.setStatus(JobPostStatus.OFFLINE);
+        });
+        return R.success(readResponse);
+    }
 
     @PostMapping
     @Operation(summary = "创建岗位")
