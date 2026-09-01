@@ -20,6 +20,7 @@ class Settings(BaseSettings):
 
     # 管理员 API（PUT /api/admin/*）；未配置则管理接口返回 503
     agent_admin_token: str = ""
+    internal_service_token: str = ""
 
     # 定时任务时区
     schedule_timezone: str = "Asia/Shanghai"
