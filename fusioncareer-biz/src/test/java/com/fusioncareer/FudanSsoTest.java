@@ -122,7 +122,7 @@ class FudanSsoTest {
 
         readMockMvc.perform(get("/user/me").header("Fusion-Token", readToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.id").value(createUser.getId()))
+                .andExpect(jsonPath("$.data.id").value(String.valueOf(createUser.getId())))
                 .andExpect(jsonPath("$.data.role").value("NORMAL"))
                 .andExpect(jsonPath("$.data.status").value("NORMAL"));
     }
