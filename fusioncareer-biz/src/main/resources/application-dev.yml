@@ -23,5 +23,8 @@ upload:
 python-service:
   base-url: http://127.0.0.1:9
 
+internal-service:
+  token: ${INTERNAL_SERVICE_TOKEN:dev-internal}
+
 sa-token:
   is-log: false

@@ -31,6 +31,9 @@ public class PythonServiceConfig {
     @Value("${python-service.read-timeout:60000}")
     private long readTimeout;
 
+    @Value("${internal-service.token:}")
+    private String internalToken;
+
     @Bean
     public PythonServiceClient pythonServiceClient() {
         // 使用 JDK 11+ 内置的 HttpClient 作为底层实现，支持细粒度的超时控制
@@ -41,6 +44,7 @@ public class PythonServiceConfig {
         RestClient restClient = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
+                .defaultHeader("X-Internal-Token", internalToken)
                 .build();
 
         // 适配到 HTTP Interfaces 工厂

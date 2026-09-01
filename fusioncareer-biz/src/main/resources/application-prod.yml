@@ -32,6 +32,9 @@ upload:
 python-service:
   base-url: ${PYTHON_SERVICE_BASE_URL:http://127.0.0.1:8900}
 
+internal-service:
+  token: ${INTERNAL_SERVICE_TOKEN}
+
 # ===== 关闭 SQL 日志 =====
 mybatis-plus:
   configuration:

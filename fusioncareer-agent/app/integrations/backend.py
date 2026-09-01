@@ -33,10 +33,13 @@ class BackendClient:
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
+            read_headers = {"Content-Type": "application/json"}
+            if settings.internal_service_token:
+                read_headers["X-Internal-Token"] = settings.internal_service_token
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=30.0,
-                headers={"Content-Type": "application/json"},
+                headers=read_headers,
             )
         return self._client
 

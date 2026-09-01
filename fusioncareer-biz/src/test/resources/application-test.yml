@@ -29,6 +29,9 @@ python-service:
   connect-timeout: 100
   read-timeout: 100
 
+internal-service:
+  token: test-internal
+
 logging:
   level:
     com.fusioncareer.exception.GlobalExceptionHandler: OFF
