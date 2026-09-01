@@ -1,0 +1,39 @@
+# Python 网关机生产部署：复用 Java -> Python 的 127.0.0.1:19100 反向隧道。
+services:
+  agent:
+    build:
+      context: ../fusioncareer-agent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    cpus: 2.0
+    mem_limit: 3g
+    env_file:
+      - path: ../fusioncareer-agent/.env.agent
+        required: true
+    environment:
+      BACKEND_BASE_URL: http://127.0.0.1:19100
+      AGENT_RUNTIME_DIR: /data/agent/runtime
+      WECHAT_CONFIG_ROOT: /data/wechat
+      PADDLE_PDX_CACHE_HOME: /data/paddle
+      AGENT_PORT: 8900
+    volumes:
+      - agent_runtime:/data/agent
+      - wechat_data:/data/wechat
+      - paddle_cache:/data/paddle
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      agent:
+        condition: service_healthy
+    volumes:
+      - ./nginx.python.host.conf:/etc/nginx/nginx.conf:ro
+      - ${FRONTEND_DIST:-/home/vmadmin/fusioncareer/frontend/dist}:/usr/share/nginx/html:ro
+
+volumes:
+  agent_runtime:
+  wechat_data:
+  paddle_cache:
