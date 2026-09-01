@@ -1,7 +1,11 @@
 package com.fusioncareer.client;
 
+import com.fusioncareer.dto.req.ResumeParseRequest;
+import com.fusioncareer.dto.res.ResumeParseResponse;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
+import org.springframework.web.service.annotation.PostExchange;
+import org.springframework.web.bind.annotation.RequestBody;
 
 /**
  * AI 算法服务端点接口 (基于 Spring 6 HTTP Interfaces)
@@ -11,14 +15,15 @@ import org.springframework.web.service.annotation.HttpExchange;
  *
  * @author Xiong Heng
  */
-@HttpExchange("/api/v1")
+@HttpExchange("/api/internal")
 public interface PythonServiceClient {
 
     /**
      * 框架搭建测试：探测 Python 端是否存活
      */
-    @GetExchange("/ping")
+    @GetExchange("/health")
     String ping();
-    
-    // TODO: 后续在这里添加具体业务接口（如 @PostExchange("/resume/optimize")）
+
+    @PostExchange("/resume/parse")
+    ResumeParseResponse parseResume(@RequestBody ResumeParseRequest readRequest);
 }

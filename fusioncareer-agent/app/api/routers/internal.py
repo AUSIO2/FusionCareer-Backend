@@ -43,6 +43,11 @@ class ResumeParseResult(BaseModel):
     warnings: list[str]
 
 
+@router.get("/health")
+async def readHealth() -> dict[str, str]:
+    return {"status": "ok"}
+
+
 @router.post("/job/structure", response_model=JobStructureResult)
 async def structureJob(readBody: JobStructureBody) -> dict[str, Any]:
     return await structureJobs(readBody.text, readBody.sourceUrl, readBody.sourceType)
