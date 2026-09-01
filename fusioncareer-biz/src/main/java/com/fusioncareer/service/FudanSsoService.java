@@ -1,8 +1,12 @@
 package com.fusioncareer.service;
 
+import com.fusioncareer.enums.UserRole;
+
 public interface FudanSsoService {
 
     String createState();
+
+    boolean useMockLogin();
 
     void verifyState(String readExpected, String readActual);
 
@@ -20,6 +24,8 @@ public interface FudanSsoService {
      * @return 系统内登录成功后的前端跳转地址
      */
     String processCallback(String code);
+
+    String loginMock(UserRole readRole);
 
     /**
      * 主动发起退出：注销本地会话并构建 Fudan 统一退出地址

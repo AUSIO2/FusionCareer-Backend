@@ -22,7 +22,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
@@ -48,6 +51,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
     private final ResumeService resumeService;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
+    private final Environment environment;
 
     // 在内存中映射 Fudan 的 access_token -> Sa-Token 的 tokenValue
     private final Map<String, String> ssoToSaTokenMap = new ConcurrentHashMap<>();
@@ -55,6 +59,11 @@ public class FudanSsoServiceImpl implements FudanSsoService {
     @Override
     public String createState() {
         return UUID.randomUUID().toString();
+    }
+
+    @Override
+    public boolean useMockLogin() {
+        return environment.acceptsProfiles(Profiles.of("dev")) && ssoProperties.isMockLogin();
     }
 
     @Override
@@ -155,9 +164,50 @@ public class FudanSsoServiceImpl implements FudanSsoService {
     }
 
     @Override
+    @Transactional
+    public String loginMock(UserRole readRole) {
+        UserRole createRole = readRole == null ? ssoProperties.getMockRole() : readRole;
+        String readStudentId = createRole == UserRole.ADMIN
+                ? ssoProperties.getMockAdminId()
+                : ssoProperties.getMockStudentId();
+        String readUsername = createRole == UserRole.ADMIN
+                ? "本地管理员"
+                : ssoProperties.getMockUsername();
+        UserEntity readUser = userService.lambdaQuery()
+                .eq(UserEntity::getStudentId, readStudentId)
+                .one();
+        if (readUser == null) {
+            readUser = new UserEntity();
+            readUser.setStudentId(readStudentId);
+            readUser.setUsername(readUsername);
+            readUser.setRole(createRole);
+            readUser.setStatus(UserStatus.NORMAL);
+            readUser.setCreatedAt(LocalDateTime.now());
+            userService.save(readUser);
+
+            UserProfileEntity createProfile = new UserProfileEntity();
+            createProfile.setUserId(readUser.getId());
+            createProfile.setRealName(readUsername);
+            createProfile.setCreatedAt(LocalDateTime.now());
+            userProfileService.save(createProfile);
+
+            ResumeEntity createResume = new ResumeEntity();
+            createResume.setUserId(readUser.getId());
+            createResume.setCreatedAt(LocalDateTime.now());
+            resumeService.save(createResume);
+        }
+        StpUtil.login(readUser.getId());
+        return ssoProperties.getFrontendRedirectUrl()
+                + "#/login?token=" + StpUtil.getTokenValue();
+    }
+
+    @Override
     public String processLogout() {
         if (StpUtil.isLogin()) {
             StpUtil.logout();
+        }
+        if (useMockLogin()) {
+            return ssoProperties.getFrontendRedirectUrl() + "#/login";
         }
         String redirectUrl = URLEncoder.encode(ssoProperties.getFrontendRedirectUrl(), StandardCharsets.UTF_8);
         return String.format("%s?redirectToLogin=false&redirectToUrl=%s",

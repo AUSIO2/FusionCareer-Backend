@@ -1,6 +1,7 @@
 package com.fusioncareer.controller;
 
 import com.fusioncareer.common.R;
+import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.service.FudanSsoService;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +38,13 @@ public class FudanSsoController {
      */
     @GetMapping("/login")
     @Operation(summary = "主动发起登录")
-    public RedirectView login(HttpSession updateSession) {
+    public RedirectView login(
+            @RequestParam(name = "role", required = false) UserRole readRole,
+            HttpSession updateSession) {
+        if (fudanSsoService.useMockLogin()) {
+            log.warn("Using dev mock login");
+            return new RedirectView(fudanSsoService.loginMock(readRole));
+        }
         String createState = fudanSsoService.createState();
         updateSession.setAttribute(SSO_STATE, createState);
         String readUrl = fudanSsoService.buildLoginUrl(createState);
