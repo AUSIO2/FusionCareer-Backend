@@ -134,6 +134,10 @@ public class FudanSsoServiceImpl implements FudanSsoService {
                 log.info("Registered new user from Fudan SSO");
             }
 
+            if (user.getStatus() == UserStatus.DISABLED) {
+                throw ServiceException.of(ResultCode.FORBIDDEN, "用户已禁用");
+            }
+
             // 4. Sa-Token 登录
             StpUtil.login(user.getId());
             String saTokenValue = StpUtil.getTokenValue();

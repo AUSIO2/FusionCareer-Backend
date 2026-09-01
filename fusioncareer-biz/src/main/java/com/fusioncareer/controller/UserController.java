@@ -9,10 +9,12 @@ import com.fusioncareer.dto.req.UserProfileRequest;
 import com.fusioncareer.dto.res.ResumeFileResponse;
 import com.fusioncareer.dto.res.ResumeResponse;
 import com.fusioncareer.dto.res.UserProfileResponse;
+import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.entity.ResumeFileEntity;
 import com.fusioncareer.service.ResumeFileService;
 import com.fusioncareer.service.ResumeService;
 import com.fusioncareer.service.UserProfileService;
+import com.fusioncareer.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -46,6 +48,13 @@ public class UserController {
     private final ResumeService resumeService;
     private final ResumeFileService resumeFileService;
     private final UploadProperties uploadProperties;
+    private final UserService userService;
+
+    @GetMapping("/me")
+    @Operation(summary = "获取当前用户和角色")
+    public R<UserResponse> readUser() {
+        return R.success(userService.getUserById(StpUtil.getLoginIdAsLong()));
+    }
 
     @GetMapping("/profile/get")
     @Operation(summary = "获取个人资料")

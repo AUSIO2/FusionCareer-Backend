@@ -78,8 +78,11 @@ POST 退出响应：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| GET | `/user/me` | 获取当前用户、角色和状态 |
 | GET | `/user/profile/get` | 获取个人资料 |
 | PUT | `/user/profile/save` | 保存个人资料 |
+
+`GET /user/me` 返回 `UserResponse`，其中 `role` 为 `NORMAL` 或 `ADMIN`，`status` 为 `NORMAL` 或 `DISABLED`。管理员路由必须以后端角色校验结果为准。
 
 **PUT 请求体** `UserProfileRequest`:
 ```json

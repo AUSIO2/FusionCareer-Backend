@@ -82,6 +82,7 @@ FusionCareer-Backend/
 | GET | `/fudan/logout` | 主动注销 | ❌ |
 | POST | `/fudan/logout` | 注销并返回 UIS 退出地址 | ✅ |
 | GET | `/fudan/slo?token=xxx` | 被动注销回调 | ❌ |
+| GET | `/user/me` | 当前用户、角色与状态 | ✅ |
 
 ### 用户端接口（需要 `Fusion-Token` 认证）
 

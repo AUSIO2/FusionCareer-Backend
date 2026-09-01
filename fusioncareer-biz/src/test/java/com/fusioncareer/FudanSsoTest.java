@@ -1,7 +1,12 @@
 package com.fusioncareer;
 
+import cn.dev33.satoken.stp.StpInterface;
 import com.fusioncareer.config.FudanOAuth2Properties;
+import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.enums.UserRole;
+import com.fusioncareer.enums.UserStatus;
 import com.fusioncareer.service.FudanSsoService;
+import com.fusioncareer.service.UserService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -44,6 +49,12 @@ class FudanSsoTest {
     @Autowired
     private FudanOAuth2Properties readSsoProperties;
 
+    @Autowired
+    private UserService readUserService;
+
+    @Autowired
+    private StpInterface readRoleProvider;
+
     @MockBean
     private RestTemplate readRestClient;
 
@@ -85,33 +96,14 @@ class FudanSsoTest {
 
     @Test
     void hideToken() throws Exception {
-        mockIdentity();
-        MvcResult readLogin = readMockMvc.perform(get("/fudan/login")).andReturn();
-        MockHttpSession updateSession = (MockHttpSession) readLogin.getRequest().getSession(false);
-
-        MvcResult readCallback = readMockMvc.perform(get("/fudan/callback")
-                        .param("code", "test-code")
-                        .param("state", readState(readLogin))
-                        .session(updateSession))
-                .andExpect(status().is3xxRedirection())
-                .andReturn();
-
-        String readUrl = readCallback.getResponse().getRedirectedUrl();
+        String readUrl = loginUser("test-hide");
         assertThat(readUrl).startsWith("http://127.0.0.1:5173/#/login?token=");
         assertThat(readUrl.substring(0, readUrl.indexOf('#'))).doesNotContain("token=");
     }
 
     @Test
     void logoutSession() throws Exception {
-        mockIdentity();
-        MvcResult readLogin = readMockMvc.perform(get("/fudan/login")).andReturn();
-        MockHttpSession updateSession = (MockHttpSession) readLogin.getRequest().getSession(false);
-        MvcResult readCallback = readMockMvc.perform(get("/fudan/callback")
-                        .param("code", "test-code")
-                        .param("state", readState(readLogin))
-                        .session(updateSession))
-                .andReturn();
-        String readUrl = readCallback.getResponse().getRedirectedUrl();
+        String readUrl = loginUser("test-logout");
         String readToken = readUrl.substring(readUrl.indexOf("token=") + 6);
 
         readMockMvc.perform(post("/fudan/logout").header("Fusion-Token", readToken))
@@ -122,13 +114,65 @@ class FudanSsoTest {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void readUser() throws Exception {
+        UserEntity createUser = createUser("test-normal", UserRole.NORMAL, UserStatus.NORMAL);
+        String readUrl = loginUser("test-normal");
+        String readToken = readUrl.substring(readUrl.indexOf("token=") + 6);
+
+        readMockMvc.perform(get("/user/me").header("Fusion-Token", readToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(createUser.getId()))
+                .andExpect(jsonPath("$.data.role").value("NORMAL"))
+                .andExpect(jsonPath("$.data.status").value("NORMAL"));
+    }
+
+    @Test
+    void readRoles() {
+        UserEntity createUser = createUser("test-admin", UserRole.ADMIN, UserStatus.NORMAL);
+
+        assertThat(readRoleProvider.getRoleList(createUser.getId(), "login"))
+                .containsExactly("ADMIN");
+    }
+
+    @Test
+    void rejectDisabled() throws Exception {
+        createUser("test-disabled", UserRole.ADMIN, UserStatus.DISABLED);
+
+        assertThat(loginUser("test-disabled"))
+                .isEqualTo("/error?msg=sso_login_failed");
+    }
+
     private String readState(MvcResult readLogin) {
         String readUrl = readLogin.getResponse().getRedirectedUrl();
         return UriComponentsBuilder.fromUriString(readUrl).build()
                 .getQueryParams().getFirst("state");
     }
 
-    private void mockIdentity() {
+    private String loginUser(String readStudentId) throws Exception {
+        mockIdentity(readStudentId);
+        MvcResult readLogin = readMockMvc.perform(get("/fudan/login")).andReturn();
+        MockHttpSession updateSession = (MockHttpSession) readLogin.getRequest().getSession(false);
+        MvcResult readCallback = readMockMvc.perform(get("/fudan/callback")
+                        .param("code", "test-code")
+                        .param("state", readState(readLogin))
+                        .session(updateSession))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+        return readCallback.getResponse().getRedirectedUrl();
+    }
+
+    private UserEntity createUser(String createStudentId, UserRole createRole, UserStatus createStatus) {
+        UserEntity createUser = new UserEntity();
+        createUser.setUsername(createStudentId);
+        createUser.setStudentId(createStudentId);
+        createUser.setRole(createRole);
+        createUser.setStatus(createStatus);
+        readUserService.save(createUser);
+        return createUser;
+    }
+
+    private void mockIdentity(String readStudentId) {
         when(readRestClient.exchange(
                 eq(readSsoProperties.getTokenUrl()),
                 eq(HttpMethod.POST),
@@ -140,6 +184,7 @@ class FudanSsoTest {
                 eq(HttpMethod.GET),
                 any(HttpEntity.class),
                 eq(String.class)))
-                .thenReturn(ResponseEntity.ok("{\"userId\":\"test-student\",\"userName\":\"Test User\"}"));
+                .thenReturn(ResponseEntity.ok("{\"userId\":\"" + readStudentId
+                        + "\",\"userName\":\"Test User\"}"));
     }
 }
