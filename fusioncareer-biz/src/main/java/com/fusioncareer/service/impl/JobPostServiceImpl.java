@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fusioncareer.common.PageResult;
+import com.fusioncareer.dto.JobPostApplicationCount;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
@@ -11,18 +12,25 @@ import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.enums.JobPostSort;
 import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.mapper.JobPostMapper;
+import com.fusioncareer.mapper.QuestionnaireAnswerMapper;
 import com.fusioncareer.service.JobPostService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static com.fusioncareer.util.PaginationUtil.createPage;
 
 @Service
+@RequiredArgsConstructor
 public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity> implements JobPostService {
+
+    private final QuestionnaireAnswerMapper readAnswerMapper;
 
     @Transactional
     @Override
@@ -46,7 +54,11 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
 
     @Override
     public JobPostResponse getJobPost(Long id) {
-        return toResponse(getById(id));
+        JobPostResponse readJob = toResponse(getById(id));
+        if (readJob != null) {
+            mapApplications(List.of(readJob));
+        }
+        return readJob;
     }
 
     @Override
@@ -89,6 +101,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
          .eq(StringUtils.hasText(readQuery.getWorkCity()), JobPostEntity::getWorkCity, readQuery.getWorkCity())
          .ge(readQuery.getSalaryMin() != null, JobPostEntity::getSalaryMax, readQuery.getSalaryMin())
          .le(readQuery.getSalaryMax() != null, JobPostEntity::getSalaryMin, readQuery.getSalaryMax())
+         .eq(readQuery.getRecommended() != null, JobPostEntity::getRecommended, readQuery.getRecommended())
          .eq(readQuery.getStatus() != null, JobPostEntity::getStatus, readQuery.getStatus())
          .eq(readQuery.getSourceType() != null, JobPostEntity::getSourceType, readQuery.getSourceType())
          .and(StringUtils.hasText(readQuery.getKeyword()), readKeyword -> readKeyword
@@ -107,17 +120,35 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
         buildQuery.orderByDesc(JobPostEntity::getCreatedAt);
     }
 
-    private PageResult<JobPostResponse> mapPage(Page<JobPostEntity> readJobs) {
-        PageResult<JobPostResponse> readPage = new PageResult<>(readJobs.getTotal(),
-                (int) readJobs.getCurrent(), (int) readJobs.getSize());
-        readJobs.getRecords().forEach(e -> readPage.add(toResponse(e)));
+    private PageResult<JobPostResponse> mapPage(Page<JobPostEntity> readEntities) {
+        List<JobPostResponse> readJobs = readEntities.getRecords().stream()
+                .map(this::toResponse)
+                .toList();
+        mapApplications(readJobs);
+
+        PageResult<JobPostResponse> readPage = new PageResult<>(readEntities.getTotal(),
+                (int) readEntities.getCurrent(), (int) readEntities.getSize());
+        readPage.addAll(readJobs);
         return readPage;
+    }
+
+    private void mapApplications(List<JobPostResponse> updateJobs) {
+        if (updateJobs.isEmpty()) {
+            return;
+        }
+        List<Long> readJobIds = updateJobs.stream().map(JobPostResponse::getId).toList();
+        Map<Long, Long> readCounts = readAnswerMapper.countApplications(readJobIds).stream()
+                .collect(Collectors.toMap(JobPostApplicationCount::getJobPostId,
+                        JobPostApplicationCount::getApplicationCount));
+        updateJobs.forEach(updateJob -> updateJob.setApplicationCount(
+                readCounts.getOrDefault(updateJob.getId(), 0L)));
     }
 
     private JobPostResponse toResponse(JobPostEntity entity) {
         if (entity == null) return null;
         JobPostResponse resp = new JobPostResponse();
         BeanUtils.copyProperties(entity, resp);
+        resp.setApplicationCount(0L);
         return resp;
     }
 }

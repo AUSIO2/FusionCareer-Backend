@@ -24,6 +24,7 @@ public class JobPostQueryRequest {
     private Integer salaryMin;
     private Integer salaryMax;
     private JobPostSort sortBy = JobPostSort.NEWEST;
+    private Boolean recommended;
     private JobPostStatus status;
     private SourceType sourceType;
     private String keyword;

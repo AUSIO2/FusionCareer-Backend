@@ -34,5 +34,6 @@ public class JobPostRequest {
     private String reqGradYear;
     private String reqSkills;
     private String reqOther;
+    private Boolean recommended;
     private JobPostStatus status;
 }

@@ -156,8 +156,18 @@
 | `workDurationType` | enum | 工作时长类型 |
 | `workPeriodType` | enum | 实习时长 |
 | `workMode` | enum | 工作形式 |
+| `workProvince` | string | 工作省份 |
 | `workCity` | string | 工作城市 |
+| `salaryMin` | int | 查询薪资下限，与岗位薪资区间相交 |
+| `salaryMax` | int | 查询薪资上限，与岗位薪资区间相交 |
+| `sortBy` | enum | `NEWEST`（默认）或 `DEADLINE` |
+| `recommended` | boolean | 是否只查询推荐岗位 |
 | `sourceType` | enum | 来源类型 |
+
+岗位响应额外包含：
+
+- `recommended`：是否推荐。
+- `applicationCount`：已提交和已审核的投递数，不包含草稿。
 
 ### 3.5 岗位投递问卷
 
@@ -277,6 +287,7 @@
   "reqGradYear": "2026届",
   "reqSkills": "Office 办公软件",
   "reqOther": "认真负责",
+  "recommended": true,
   "status": "PUBLISHED"
 }
 ```

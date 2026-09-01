@@ -36,6 +36,8 @@ public class JobPostResponse {
     private String reqGradYear;
     private String reqSkills;
     private String reqOther;
+    private Boolean recommended;
+    private Long applicationCount;
     private JobPostStatus status;
     private Long createdBy;
     private LocalDateTime createdAt;

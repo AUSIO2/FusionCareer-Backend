@@ -52,6 +52,7 @@ public class JobPostEntity implements Serializable {
     private String reqGradYear;
     private String reqSkills;
     private String reqOther;
+    private Boolean recommended;
     private JobPostStatus status;
     private Long createdBy;
     private LocalDateTime createdAt;
