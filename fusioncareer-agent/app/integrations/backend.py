@@ -77,6 +77,17 @@ class BackendClient:
         resp.raise_for_status()
         return resp.content
 
+    async def read_resume_file(self, user_id: int, file_id: int) -> tuple[dict, bytes]:
+        """Validate ownership through the user file list, then download bytes."""
+        read_files = await self.list_resume_files(user_id)
+        read_file = next(
+            (read_item for read_item in read_files if str(read_item.get("id")) == str(file_id)),
+            None,
+        )
+        if read_file is None:
+            raise BackendApiError(403, "resume file does not belong to user")
+        return read_file, await self.download_resume_file(file_id)
+
     # ── 通用方法 ──────────────────────────────
 
     async def _post(self, path: str, data: Any) -> Any:

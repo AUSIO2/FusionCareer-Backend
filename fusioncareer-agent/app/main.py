@@ -91,6 +91,7 @@ async def lifespan(app: FastAPI):
     app.state.workflow_catalog = workflow_catalog
     app.state.workflow_engine = engine
     app.state.scheduler_service = scheduler_service
+    app.state.backend_client = backend_client
 
     logger.info(
         "启动完成: %d Skill, %d 工作流, %d 数据类, %d 定时任务",
