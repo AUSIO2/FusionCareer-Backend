@@ -15,6 +15,9 @@ readVolume="fusioncareer-agent-smoke-runtime"
 if ! test -f "$readFrontend/package.json" && test -f "$readFrontend/ui_kits/student/package.json"; then
   readFrontend="$readFrontend/ui_kits/student"
 fi
+if ! test -f "$readFrontend/package.json" && test -f "$readFrontend/Desktop/FusionCareer Design System_V4/package.json"; then
+  readFrontend="$readFrontend/Desktop/FusionCareer Design System_V4"
+fi
 
 stopServices() {
   for readPid in "$readAgentPid" "$readFakePid"; do
@@ -120,7 +123,8 @@ PY
 runAudit() {
   ! git -C "$readRoot" ls-files | grep -Eq '(^|/)(\.env|config\.json|cookies?\.txt)$'
   ! git -C "$readRoot" grep -IqE 'sk-[0-9a-fA-F]{32,}' -- .
-  ! git -C "$readRoot" grep -IqE 'WECHAT_COOKIE=.+(pass_ticket|wxuin|wxsid)' -- .
+  ! git -C "$readRoot" grep -IqE 'WECHAT_COOKIE=.+(pass_ticket|wxuin|wxsid)' \
+    -- . ':!deploy/scripts/test-algorithm.sh'
 }
 
 runDeploy() {
