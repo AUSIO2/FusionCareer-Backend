@@ -410,12 +410,12 @@ schemathesis-report/schema-coverage.html
   - `salaryMin`
   - `salaryMax`
   - `sortBy=NEWEST|DEADLINE`
-  - `recommended`
 - 省份和城市分别查询，不再用省份值匹配 `work_city`。
 - 薪资查询采用区间相交规则。
 - `NEWEST` 按创建时间倒序。
 - `DEADLINE` 按截止日期正序，空日期排最后。
 - 保持现有岗位分类、招聘类型、工作形式等筛选不变。
+- `recommended` 在 B3 随数据库字段一起加入，避免 B2 出现无法执行的查询条件。
 
 验收：
 
