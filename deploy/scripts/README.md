@@ -2,6 +2,14 @@
 
 本仓库仅 **后端 + 网关 compose**。前端在独立仓库 **FusionCareer-View** 的 `deploy/scripts/`。
 
+算法集成发布前执行：
+
+```bash
+FRONTEND_ROOT=/absolute/path/FusionCareer-View ./deploy/scripts/test-algorithm.sh
+```
+
+配置、smoke、会话更新与回滚见 `docs/ALGORITHM_RUNBOOK.md`。
+
 ## 流程概览
 
 ```text

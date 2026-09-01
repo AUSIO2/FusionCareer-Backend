@@ -51,6 +51,7 @@ startBackend() {
   FUDAN_SSO_REDIRECT_URI=http://127.0.0.1:19100/fudan/callback \
   FUDAN_SSO_FRONTEND_REDIRECT_URL=http://127.0.0.1:5173/ \
   PYTHON_SERVICE_BASE_URL=http://127.0.0.1:9 \
+  INTERNAL_SERVICE_TOKEN=test-internal \
   SA_TOKEN_IS_LOG=false \
     java -jar "$readJar" >"$readOutput/backend.log" 2>&1 &
   echo "$!" >"$readPid"
@@ -80,6 +81,7 @@ runSchemathesis() {
     --include-method GET \
     --exclude-path-regex '^/(fudan|internal/resume-file/.*/download|user/resume/file/.*/download).*' \
     --checks not_a_server_error \
+    -H 'X-Internal-Token: test-internal' \
     -n 10 \
     --seed 20260901 \
     --report junit \
