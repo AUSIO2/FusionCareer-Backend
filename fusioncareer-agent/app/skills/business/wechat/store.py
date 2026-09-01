@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,6 +42,34 @@ class WechatStore:
                     enabled INTEGER NOT NULL DEFAULT 1,
                     last_article_url TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL
+                )
+                """
+            )
+            updateDatabase.execute(
+                """
+                CREATE TABLE IF NOT EXISTS articles (
+                    url TEXT PRIMARY KEY,
+                    fakeid TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
+                    published_at TEXT NOT NULL DEFAULT '',
+                    markdown_path TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    structured INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            updateDatabase.execute(
+                """
+                CREATE TABLE IF NOT EXISTS runs (
+                    id TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL,
+                    fakeid TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    status TEXT NOT NULL,
+                    added_count INTEGER NOT NULL DEFAULT 0,
+                    error TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
@@ -106,6 +135,92 @@ class WechatStore:
         with self.openDatabase() as readDatabase:
             readRows = readDatabase.execute(readQuery).fetchall()
         return [self.mapAccount(readRow) for readRow in readRows]
+
+    def readAccount(self, readFakeid: str) -> WechatAccount:
+        with self.openDatabase() as readDatabase:
+            readRow = readDatabase.execute(
+                "SELECT * FROM accounts WHERE fakeid = ?", (readFakeid,)
+            ).fetchone()
+        if readRow is None:
+            raise KeyError(readFakeid)
+        return self.mapAccount(readRow)
+
+    def hasArticle(self, readUrl: str) -> bool:
+        with self.openDatabase() as readDatabase:
+            readRow = readDatabase.execute(
+                "SELECT 1 FROM articles WHERE url = ?", (readUrl,)
+            ).fetchone()
+        return readRow is not None
+
+    def saveArticle(
+        self,
+        readFakeid: str,
+        readArticle: dict,
+        readPath: Path,
+        readHash: str,
+    ) -> None:
+        readTime = datetime.now(timezone.utc).isoformat()
+        with self.openDatabase() as updateDatabase:
+            updateDatabase.execute(
+                """
+                INSERT INTO articles
+                    (url, fakeid, title, published_at, markdown_path, content_hash, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET
+                    title = excluded.title,
+                    published_at = excluded.published_at,
+                    markdown_path = excluded.markdown_path,
+                    content_hash = excluded.content_hash
+                """,
+                (
+                    readArticle.get("link") or "",
+                    readFakeid,
+                    readArticle.get("title") or "",
+                    str(readArticle.get("create_time") or ""),
+                    str(readPath),
+                    readHash,
+                    readTime,
+                ),
+            )
+
+    def saveCheckpoint(self, readFakeid: str, updateUrl: str) -> None:
+        updateTime = datetime.now(timezone.utc).isoformat()
+        with self.openDatabase() as updateDatabase:
+            updateDatabase.execute(
+                "UPDATE accounts SET last_article_url = ?, updated_at = ? WHERE fakeid = ?",
+                (updateUrl, updateTime, readFakeid),
+            )
+
+    def startRun(self, readMode: str, readFakeid: str) -> str:
+        createId = str(uuid.uuid4())
+        createTime = datetime.now(timezone.utc).isoformat()
+        with self.openDatabase() as updateDatabase:
+            updateDatabase.execute(
+                """
+                INSERT INTO runs (id, mode, fakeid, started_at, status)
+                VALUES (?, ?, ?, ?, 'RUNNING')
+                """,
+                (createId, readMode, readFakeid, createTime),
+            )
+        return createId
+
+    def finishRun(
+        self,
+        updateId: str,
+        updateStatus: str,
+        updateCount: int = 0,
+        updateError: str = "",
+    ) -> None:
+        updateTime = datetime.now(timezone.utc).isoformat()
+        with self.openDatabase() as updateDatabase:
+            updateDatabase.execute(
+                """
+                UPDATE runs
+                SET finished_at = ?, status = ?, added_count = ?, error = ?
+                WHERE id = ?
+                """,
+                (updateTime, updateStatus, updateCount, updateError[:1000], updateId),
+            )
 
     @staticmethod
     def buildFallback(readFakeid: str) -> str:

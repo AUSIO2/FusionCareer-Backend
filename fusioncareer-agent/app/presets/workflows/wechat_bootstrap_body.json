@@ -1,0 +1,27 @@
+{
+  "name": "wechat_bootstrap_body",
+  "nodes": {
+    "paths": {
+      "skill": "input_json_obj",
+      "inputs": {
+        "json_obj": { "value": { "config_root": "" } }
+      }
+    },
+    "init": {
+      "skill": "wechat_init_run_state",
+      "inputs": {
+        "paths": { "from": "paths.json_obj" },
+        "state_path": { "_loop_inject": true },
+        "iteration": { "_loop_inject": true }
+      }
+    },
+    "bootstrap": {
+      "skill": "wechat_process_account_bootstrap",
+      "inputs": {
+        "paths": { "from": "init.json_obj" },
+        "state_path": { "_loop_inject": true },
+        "iteration": { "_loop_inject": true }
+      }
+    }
+  }
+}
