@@ -49,11 +49,24 @@
 | 方法 | 路径 | 说明 | 认证 |
 |------|------|------|------|
 | GET | `/fudan/login` | 重定向至复旦统一认证登录 | ❌ |
-| GET | `/fudan/callback?code=xxx` | 认证回调（复旦认证中心调用） | ❌ |
+| GET | `/fudan/callback?code=xxx&state=xxx` | 认证回调（复旦认证中心调用） | ❌ |
 | GET | `/fudan/logout` | 主动注销，重定向至复旦退出 | ❌ |
+| POST | `/fudan/logout` | 注销本地会话并返回 UIS 退出地址 | ✅ |
 | GET | `/fudan/slo?token=xxx` | 被动注销回调（复旦认证中心调用） | ❌ |
 
-> 登录成功后，回调接口会自动创建/更新用户并生成 Sa-Token，通过 Cookie 或 URL 参数返回给前端。
+> 登录请求和回调必须携带匹配的一次性 `state`。登录成功后生成 Sa-Token，并重定向到 `/#/login?token=...`；fragment 不会进入 Nginx 请求日志。
+
+POST 退出响应：
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "redirectUrl": "https://id.fudan.edu.cn/..."
+  }
+}
+```
 
 ---
 

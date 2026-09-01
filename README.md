@@ -78,8 +78,9 @@ FusionCareer-Backend/
 |------|------|------|------|
 | GET | `/sys/health` | 健康检查 | ❌ |
 | GET | `/fudan/login` | 重定向至复旦 SSO 登录 | ❌ |
-| GET | `/fudan/callback?code=xxx` | SSO 回调 | ❌ |
+| GET | `/fudan/callback?code=xxx&state=xxx` | SSO 回调 | ❌ |
 | GET | `/fudan/logout` | 主动注销 | ❌ |
+| POST | `/fudan/logout` | 注销并返回 UIS 退出地址 | ✅ |
 | GET | `/fudan/slo?token=xxx` | 被动注销回调 | ❌ |
 
 ### 用户端接口（需要 `Fusion-Token` 认证）

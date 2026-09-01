@@ -2,12 +2,16 @@ package com.fusioncareer.service;
 
 public interface FudanSsoService {
 
+    String createState();
+
+    void verifyState(String readExpected, String readActual);
+
     /**
      * 构建复旦 SSO 统一认证的跳转地址
      *
      * @return SSO 登录页面地址
      */
-    String buildLoginUrl();
+    String buildLoginUrl(String readState);
 
     /**
      * 处理复旦 SSO 回调，进行系统内自动注册与登录
