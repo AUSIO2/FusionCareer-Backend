@@ -18,6 +18,8 @@ import org.springframework.util.StringUtils;
 
 import java.util.List;
 
+import static com.fusioncareer.util.PaginationUtil.createPage;
+
 @Service
 public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity> implements JobPostService {
 
@@ -48,9 +50,9 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
 
     @Override
     public PageResult<JobPostResponse> listJobPosts(JobPostQueryRequest query) {
-        Page<JobPostEntity> result = page(
-                new Page<>(query.getPage(), query.getSize()), buildWrapper(query));
-        return toPageResult(result, query.getPage(), query.getSize());
+        Page<JobPostEntity> readJobs = page(
+                createPage(query.getPage(), query.getSize()), buildWrapper(query));
+        return mapPage(readJobs);
     }
 
     @Override
@@ -58,9 +60,9 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
         LambdaQueryWrapper<JobPostEntity> wrapper = buildWrapper(query);
         wrapper.eq(JobPostEntity::getStatus, JobPostStatus.PUBLISHED);
 
-        Page<JobPostEntity> result = page(
-                new Page<>(query.getPage(), query.getSize()), wrapper);
-        return toPageResult(result, query.getPage(), query.getSize());
+        Page<JobPostEntity> readJobs = page(
+                createPage(query.getPage(), query.getSize()), wrapper);
+        return mapPage(readJobs);
     }
 
     @Transactional
@@ -93,10 +95,11 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
         return w;
     }
 
-    private PageResult<JobPostResponse> toPageResult(Page<JobPostEntity> result, int page, int size) {
-        PageResult<JobPostResponse> pageResult = new PageResult<>(result.getTotal(), page, size);
-        result.getRecords().forEach(e -> pageResult.add(toResponse(e)));
-        return pageResult;
+    private PageResult<JobPostResponse> mapPage(Page<JobPostEntity> readJobs) {
+        PageResult<JobPostResponse> readPage = new PageResult<>(readJobs.getTotal(),
+                (int) readJobs.getCurrent(), (int) readJobs.getSize());
+        readJobs.getRecords().forEach(e -> readPage.add(toResponse(e)));
+        return readPage;
     }
 
     private JobPostResponse toResponse(JobPostEntity entity) {
