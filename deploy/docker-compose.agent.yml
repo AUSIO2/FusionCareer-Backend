@@ -10,23 +10,37 @@ services:
       context: ../fusioncareer-agent
       dockerfile: Dockerfile
     restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 6g
     env_file:
-      - ../fusioncareer-agent/.env.agent
+      - path: ../fusioncareer-agent/.env.agent
+        required: false
     environment:
       BACKEND_BASE_URL: ${BACKEND_BASE_URL}
       LLM_BASE_URL: ${LLM_BASE_URL}
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      AGENT_ADMIN_TOKEN: ${AGENT_ADMIN_TOKEN}
+      AGENT_RUNTIME_DIR: /data/agent/runtime
+      WECHAT_CONFIG_ROOT: /data/wechat
+      WECHAT_TOKEN: ${WECHAT_TOKEN}
+      WECHAT_COOKIE: ${WECHAT_COOKIE}
+      PADDLE_PDX_CACHE_HOME: /data/paddle
       AGENT_PORT: 8900
     expose:
       - "8900"
+    volumes:
+      - agent_runtime:/data/agent
+      - wechat_data:/data/wechat
+      - paddle_cache:/data/paddle
 
   nginx:
     image: nginx:alpine
     restart: unless-stopped
     depends_on:
-      - agent
+      agent:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
@@ -35,3 +49,8 @@ services:
       # SSL（申请证书后取消注释）:
       # - /etc/letsencrypt/live/fusioncareer.fudan.edu.cn/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
       # - /etc/letsencrypt/live/fusioncareer.fudan.edu.cn/privkey.pem:/etc/nginx/ssl/privkey.pem:ro
+
+volumes:
+  agent_runtime:
+  wechat_data:
+  paddle_cache:
