@@ -121,9 +121,18 @@ FusionCareer-Backend/
 | GET | `/questionnaire/my/{jobPostId}` | 查看我的作答 |
 | POST | `/questionnaire/upload` | 上传问卷附件（multipart） |
 
-### 内部管理接口（`/internal/**`，无需认证）
+### 内部服务接口（`/internal/**`，无需认证）
 
-> 供管理后台和 Python 算法服务直接调用。
+> 仅供 Python 等内网服务直连 Java。
+
+浏览器管理后台改用受 `ADMIN` 角色保护的路径：
+
+| 资源 | 路径 |
+|------|------|
+| 岗位管理 | `/admin/job-post/**` |
+| 问卷与投递审核 | `/admin/questionnaire/**` |
+
+`/internal/**` 仅供内网服务直连 Java，公网 Nginx 对 `/api/internal/**` 返回 404。
 
 #### 用户管理 `/internal/user`
 

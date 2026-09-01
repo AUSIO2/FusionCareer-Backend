@@ -143,6 +143,27 @@ class FudanSsoTest {
                 .isEqualTo("/error?msg=sso_login_failed");
     }
 
+    @Test
+    void rejectNormal() throws Exception {
+        createUser("test-role-normal", UserRole.NORMAL, UserStatus.NORMAL);
+        String readUrl = loginUser("test-role-normal");
+        String readToken = readUrl.substring(readUrl.indexOf("token=") + 6);
+
+        readMockMvc.perform(get("/admin/job-post/list").header("Fusion-Token", readToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void allowAdmin() throws Exception {
+        createUser("test-role-admin", UserRole.ADMIN, UserStatus.NORMAL);
+        String readUrl = loginUser("test-role-admin");
+        String readToken = readUrl.substring(readUrl.indexOf("token=") + 6);
+
+        readMockMvc.perform(get("/admin/job-post/list").header("Fusion-Token", readToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+    }
+
     private String readState(MvcResult readLogin) {
         String readUrl = readLogin.getResponse().getRedirectedUrl();
         return UriComponentsBuilder.fromUriString(readUrl).build()
