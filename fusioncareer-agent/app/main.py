@@ -29,6 +29,7 @@ from app.skills.business.insert_resume import set_backend_client as set_insert_r
 from app.skills.business.insert_user_profile import (
     set_backend_client as set_insert_user_profile_backend,
 )
+from app.skills.business.wechat.structure_articles import set_backend_client as set_wechat_backend
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
 
     set_insert_resume_backend(backend_client)
     set_insert_user_profile_backend(backend_client)
+    set_wechat_backend(backend_client)
 
     runtime_paths = RuntimePaths(Path(settings.agent_runtime_dir).resolve())
     runtime_paths.ensure_dirs()

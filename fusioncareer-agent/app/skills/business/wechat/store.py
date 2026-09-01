@@ -222,6 +222,26 @@ class WechatStore:
                 (updateTime, updateStatus, updateCount, updateError[:1000], updateId),
             )
 
+    def readPendingArticles(self, readLimit: int = 20) -> list[dict]:
+        with self.openDatabase() as readDatabase:
+            readRows = readDatabase.execute(
+                """
+                SELECT url, fakeid, title, markdown_path
+                FROM articles
+                WHERE structured = 0
+                ORDER BY created_at
+                LIMIT ?
+                """,
+                (readLimit,),
+            ).fetchall()
+        return [dict(readRow) for readRow in readRows]
+
+    def markStructured(self, readUrl: str) -> None:
+        with self.openDatabase() as updateDatabase:
+            updateDatabase.execute(
+                "UPDATE articles SET structured = 1 WHERE url = ?", (readUrl,)
+            )
+
     @staticmethod
     def buildFallback(readFakeid: str) -> str:
         readHash = hashlib.sha256(readFakeid.encode("utf-8")).hexdigest()[:8]

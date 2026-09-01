@@ -88,6 +88,22 @@ class BackendClient:
             raise BackendApiError(403, "resume file does not belong to user")
         return read_file, await self.download_resume_file(file_id)
 
+    # ── 岗位相关 ──────────────────────────────
+
+    async def list_job_posts(self) -> list[dict]:
+        read_jobs: list[dict] = []
+        read_page = 1
+        while True:
+            read_result = await self._get(f"/internal/job-post/list?page={read_page}&size=100") or {}
+            read_jobs.extend(read_result.get("list") or [])
+            if read_page >= int(read_result.get("totalPages") or 0):
+                return read_jobs
+            read_page += 1
+
+    async def create_job_posts(self, create_jobs: list[dict]) -> None:
+        if create_jobs:
+            await self._post("/internal/job-post/batch", create_jobs)
+
     # ── 通用方法 ──────────────────────────────
 
     async def _post(self, path: str, data: Any) -> Any:
