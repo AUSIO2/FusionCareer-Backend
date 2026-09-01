@@ -17,6 +17,7 @@ checkTools() {
 }
 
 startDatabase() {
+  docker compose -f "$readCompose" down -v --remove-orphans >/dev/null 2>&1 || true
   docker compose -f "$readCompose" up -d --wait mysql-test
 }
 
