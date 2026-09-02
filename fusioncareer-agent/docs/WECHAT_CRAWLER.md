@@ -31,6 +31,7 @@ Content-Type: application/json
   "loop": {
     "judge_skill": "wechat_judge_accounts",
     "max_iterations": 500,
+    "iteration_delay_seconds": 20,
     "judge_inputs": {},
     "initial_globals": { "stats": {} },
     "finalize_skill": "wechat_finalize_daily",
@@ -66,6 +67,7 @@ PUT /api/admin/schedules/wechat-daily
   "loop": {
     "judge_skill": "wechat_judge_accounts",
     "max_iterations": 500,
+    "iteration_delay_seconds": 20,
     "initial_globals": { "stats": {} },
     "finalize_skill": "wechat_finalize_daily",
     "finalize_inputs": {

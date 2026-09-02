@@ -37,3 +37,9 @@ def test_validate_loop_with_finalize(registry: SkillRegistry):
 def test_validate_loop_missing_judge(registry: SkillRegistry):
     loop = LoopControl(judge_skill="no_such_skill", max_iterations=1)
     assert any("不存在" in e for e in validate_loop(registry, loop))
+
+
+def test_loop_delay_bounds():
+    assert LoopControl(judge_skill="test", max_iterations=1, iteration_delay_seconds=20).iteration_delay_seconds == 20
+    with pytest.raises(ValueError):
+        LoopControl(judge_skill="test", max_iterations=1, iteration_delay_seconds=301)

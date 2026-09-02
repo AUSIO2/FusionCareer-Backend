@@ -31,6 +31,10 @@ BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 DEFAULT_ARTICLES_BASE_DIR = "公众号文章"
 
 
+class WechatApiError(RuntimeError):
+    pass
+
+
 def beijing_now() -> datetime:
     return datetime.now(BEIJING_TZ)
 
@@ -89,34 +93,30 @@ def get_articles(
         "f": "json",
         "ajax": "1",
     }
-    try:
-        response = http_get(session, url, headers=headers, params=params)
-        response.raise_for_status()
-        data = response.json()
-        if "base_resp" in data and data["base_resp"]["ret"] != 0:
-            logger.warning("WeChat API error: %s", data.get("base_resp"))
-            return [], 0
-        if "publish_page" not in data:
-            return [], 0
-        publish_page = json_loads_embedded(data["publish_page"])
-        publish_list = publish_page.get("publish_list", [])
-        articles: list[dict] = []
-        for publish_item in publish_list:
-            publish_info = json_loads_embedded(publish_item.get("publish_info", "{}"))
-            for appmsg in publish_info.get("appmsg_info", []):
-                articles.append(
-                    {
-                        "title": appmsg.get("title"),
-                        "link": appmsg.get("content_url"),
-                        "create_time": publish_info.get("sent_info", {}).get("time", 0),
-                        "digest": appmsg.get("digest", ""),
-                        "author": appmsg.get("author", ""),
-                    }
-                )
-        return articles, int(publish_page.get("total_count", 0))
-    except Exception as e:
-        logger.warning("get_articles failed: %s", e)
-        return [], 0
+    response = http_get(session, url, headers=headers, params=params)
+    response.raise_for_status()
+    data = response.json()
+    readResp = data.get("base_resp") or {}
+    if readResp.get("ret", 0) != 0:
+        raise WechatApiError(f"WeChat API {readResp.get('ret')}: {readResp.get('err_msg', '')}")
+    if "publish_page" not in data:
+        raise WechatApiError("WeChat API response missing publish_page")
+    publish_page = json_loads_embedded(data["publish_page"])
+    publish_list = publish_page.get("publish_list", [])
+    articles: list[dict] = []
+    for publish_item in publish_list:
+        publish_info = json_loads_embedded(publish_item.get("publish_info", "{}"))
+        for appmsg in publish_info.get("appmsg_info", []):
+            articles.append(
+                {
+                    "title": appmsg.get("title"),
+                    "link": appmsg.get("content_url"),
+                    "create_time": publish_info.get("sent_info", {}).get("time", 0),
+                    "digest": appmsg.get("digest", ""),
+                    "author": appmsg.get("author", ""),
+                }
+            )
+    return articles, int(publish_page.get("total_count", 0))
 
 
 def json_loads_embedded(raw: str | dict) -> dict:

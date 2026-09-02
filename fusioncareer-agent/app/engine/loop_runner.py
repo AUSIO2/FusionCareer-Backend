@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import shutil
@@ -26,6 +27,7 @@ class LoopControl(BaseModel):
     initial_globals: dict[str, Any] = Field(default_factory=dict)
     finalize_skill: str | None = None
     finalize_inputs: dict[str, Any] = Field(default_factory=dict)
+    iteration_delay_seconds: float = Field(default=0, ge=0, le=300)
 
 
 def validate_loop(registry: SkillRegistry, loop: LoopControl | None) -> list[str]:
@@ -137,6 +139,8 @@ async def run_with_loop(
                 break
             last_result = _run_workflow_subprocess(workflow, state_path, i)
             iterations_executed += 1
+            if loop.iteration_delay_seconds and i + 1 < loop.max_iterations:
+                await asyncio.sleep(loop.iteration_delay_seconds)
 
         if loop.finalize_skill and state_path.exists():
             finalize_outputs = await _run_finalize(registry, loop, state_path)
