@@ -12,6 +12,8 @@ public interface UserProfileService extends IService<UserProfileEntity> {
 
     void saveOrUpdateProfile(Long userId, UserProfileRequest request);
 
+    void patchProfile(Long userId, UserProfileRequest request);
+
     PageResult<UserProfileResponse> listProfiles(int page, int size);
 
     void updateProfile(Long userId, UserProfileRequest request);

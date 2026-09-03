@@ -1,7 +1,11 @@
 package com.fusioncareer.client;
 
+import com.fusioncareer.client.dto.ResumeParseResponse;
+import org.springframework.core.io.Resource;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
+import org.springframework.web.service.annotation.PostExchange;
+import org.springframework.web.bind.annotation.RequestPart;
 
 /**
  * AI 算法服务端点接口 (基于 Spring 6 HTTP Interfaces)
@@ -19,6 +23,10 @@ public interface PythonServiceClient {
      */
     @GetExchange("/ping")
     String ping();
-    
-    // TODO: 后续在这里添加具体业务接口（如 @PostExchange("/resume/optimize")）
+
+    /**
+     * 上传简历文件并提取可同步到个人资料的结构化字段。
+     */
+    @PostExchange(value = "/resume/parse", contentType = "multipart/form-data")
+    ResumeParseResponse parseResume(@RequestPart("file") Resource file);
 }
