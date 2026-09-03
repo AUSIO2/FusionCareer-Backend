@@ -97,7 +97,7 @@ FusionCareer-Backend/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/user/resume/file/upload` | 上传简历文件（multipart） |
+| POST | `/user/resume/file/upload` | 上传简历文件；可选同步个人资料（multipart） |
 | GET | `/user/resume/file/list` | 获取文件列表 |
 | GET | `/user/resume/file/{fileId}/download` | 下载文件 |
 | DELETE | `/user/resume/file/{fileId}` | 删除文件 |

@@ -7,10 +7,14 @@ import com.fusioncareer.config.UploadProperties;
 import com.fusioncareer.dto.req.ResumeRequest;
 import com.fusioncareer.dto.req.UserProfileRequest;
 import com.fusioncareer.dto.res.ResumeFileResponse;
+import com.fusioncareer.dto.res.ResumeUploadResponse;
 import com.fusioncareer.dto.res.ResumeResponse;
 import com.fusioncareer.dto.res.UserProfileResponse;
 import com.fusioncareer.entity.ResumeFileEntity;
+import com.fusioncareer.enums.ProfileUpdateStatus;
+import com.fusioncareer.service.ProfileSyncOutcome;
 import com.fusioncareer.service.ResumeFileService;
+import com.fusioncareer.service.ResumeProfileSyncService;
 import com.fusioncareer.service.ResumeService;
 import com.fusioncareer.service.UserProfileService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,6 +22,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
+import org.springframework.beans.BeanUtils;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -45,6 +50,7 @@ public class UserController {
     private final UserProfileService userProfileService;
     private final ResumeService resumeService;
     private final ResumeFileService resumeFileService;
+    private final ResumeProfileSyncService resumeProfileSyncService;
     private final UploadProperties uploadProperties;
 
     @GetMapping("/profile/get")
@@ -78,10 +84,31 @@ public class UserController {
     @PostMapping(value = "/resume/file/upload", consumes = "multipart/form-data")
     @Operation(summary = "上传简历文件",
             description = "支持 PDF / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB")
-    public R<ResumeFileResponse> uploadResumeFile(
+    public R<ResumeUploadResponse> uploadResumeFile(
             @Parameter(description = "简历文件", required = true)
-            @RequestParam("file") MultipartFile file) {
-        return R.success(resumeFileService.upload(StpUtil.getLoginIdAsLong(), file));
+            @RequestParam("file") MultipartFile file,
+            @Parameter(description = "是否使用简历识别结果更新个人资料")
+            @RequestParam(value = "updateProfile", defaultValue = "false") boolean updateProfile) {
+        long userId = StpUtil.getLoginIdAsLong();
+        ResumeFileResponse uploadedFile = resumeFileService.upload(userId, file);
+
+        ResumeUploadResponse response = new ResumeUploadResponse();
+        BeanUtils.copyProperties(uploadedFile, response);
+        if (!updateProfile) {
+            response.setProfileUpdateStatus(ProfileUpdateStatus.NOT_REQUESTED);
+            response.setProfileUpdateMessage("简历已上传，未请求更新个人资料");
+            return R.success(response);
+        }
+
+        ResumeFileEntity storedFile = resumeFileService.getOwnFile(userId, uploadedFile.getId());
+        ProfileSyncOutcome outcome = resumeProfileSyncService.syncProfile(
+                userId,
+                resumeFileService.loadAsResource(storedFile.getStoragePath())
+        );
+        response.setProfileUpdateStatus(outcome.status());
+        response.setUpdatedFields(outcome.updatedFields());
+        response.setProfileUpdateMessage(outcome.message());
+        return R.success(response);
     }
 
     @GetMapping("/resume/file/list")

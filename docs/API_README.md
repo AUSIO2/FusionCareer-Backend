@@ -116,13 +116,40 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/user/resume/file/upload` | 上传简历文件（multipart/form-data, field: `file`） |
+| POST | `/user/resume/file/upload` | 上传简历文件，可选使用识别结果更新个人资料 |
 | GET | `/user/resume/file/list` | 获取我的简历文件列表 |
 | GET | `/user/resume/file/{fileId}/download` | 下载指定简历文件（流式） |
 | DELETE | `/user/resume/file/{fileId}` | 删除指定简历文件 |
 | GET | `/user/resume/file/quota` | 查询存储配额 |
 
 **上传限制**: PDF / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB
+
+**POST `/user/resume/file/upload` multipart 字段**:
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `file` | File | 是 | PDF / JPG / JPEG / PNG |
+| `updateProfile` | Boolean | 否 | 默认 `false`；为 `true` 时识别简历并以非空字段更新个人资料 |
+
+算法识别失败不会回滚已上传的简历文件，也不会修改个人资料。响应中的
+`profileUpdateStatus` 为 `NOT_REQUESTED`、`SUCCESS`、`NO_FIELDS_RECOGNIZED`
+、`ALGORITHM_FAILED` 或 `PROFILE_UPDATE_FAILED`。
+
+**上传响应** `ResumeUploadResponse`:
+
+```json
+{
+  "id": 1234567890,
+  "originalName": "我的简历.pdf",
+  "url": "http://localhost:9100/files/resumes/1/2026-09-03/abc.pdf",
+  "fileSize": 102400,
+  "mimeType": "application/pdf",
+  "createdAt": "2026-09-03T10:00:00",
+  "profileUpdateStatus": "SUCCESS",
+  "updatedFields": ["realName", "grade", "eduLevel", "email"],
+  "profileUpdateMessage": "已根据简历更新个人资料"
+}
+```
 
 **文件列表响应** `ResumeFileResponse`:
 ```json
