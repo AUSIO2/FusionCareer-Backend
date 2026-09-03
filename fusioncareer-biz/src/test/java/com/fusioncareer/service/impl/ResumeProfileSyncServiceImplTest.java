@@ -17,6 +17,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.web.client.RestClientException;
 
 import java.time.LocalDate;
 
@@ -67,11 +69,8 @@ class ResumeProfileSyncServiceImplTest {
         ProfileSyncOutcome outcome = service.syncProfile(42L, resumeFile);
 
         assertThat(outcome.status()).isEqualTo(ProfileUpdateStatus.SUCCESS);
-        assertThat(outcome.updatedFields()).containsExactly(
-                "realName", "gender", "birthDate", "politicalStatus", "phone", "grade", "eduLevel"
-        );
         ArgumentCaptor<UserProfileRequest> captor = ArgumentCaptor.forClass(UserProfileRequest.class);
-        verify(userProfileService).saveOrUpdateProfile(eq(42L), captor.capture());
+        verify(userProfileService).patchProfile(eq(42L), captor.capture());
         UserProfileRequest request = captor.getValue();
         assertThat(request.getRealName()).isEqualTo("张三");
         assertThat(request.getGender()).isEqualTo(Gender.MALE);
@@ -93,19 +92,17 @@ class ResumeProfileSyncServiceImplTest {
         ProfileSyncOutcome outcome = service.syncProfile(42L, resumeFile);
 
         assertThat(outcome.status()).isEqualTo(ProfileUpdateStatus.NO_FIELDS_RECOGNIZED);
-        assertThat(outcome.updatedFields()).isEmpty();
-        verify(userProfileService, never()).saveOrUpdateProfile(eq(42L), org.mockito.ArgumentMatchers.any());
+        verify(userProfileService, never()).patchProfile(eq(42L), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
     void syncProfileReturnsFailureWithoutWritingWhenAlgorithmCallFails() {
-        when(pythonServiceClient.parseResume(resumeFile)).thenThrow(new RuntimeException("timeout"));
+        when(pythonServiceClient.parseResume(resumeFile)).thenThrow(new RestClientException("timeout"));
 
         ProfileSyncOutcome outcome = service.syncProfile(42L, resumeFile);
 
         assertThat(outcome.status()).isEqualTo(ProfileUpdateStatus.ALGORITHM_FAILED);
-        assertThat(outcome.updatedFields()).isEmpty();
-        verify(userProfileService, never()).saveOrUpdateProfile(eq(42L), org.mockito.ArgumentMatchers.any());
+        verify(userProfileService, never()).patchProfile(eq(42L), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -113,14 +110,13 @@ class ResumeProfileSyncServiceImplTest {
         ResumeParseResponse.ResumeProfileData data = new ResumeParseResponse.ResumeProfileData();
         data.setRealName("张三");
         when(pythonServiceClient.parseResume(resumeFile)).thenReturn(successResponse(data));
-        doThrow(new RuntimeException("database unavailable"))
+        doThrow(new DataAccessResourceFailureException("database unavailable"))
                 .when(userProfileService)
-                .saveOrUpdateProfile(eq(42L), org.mockito.ArgumentMatchers.any());
+                .patchProfile(eq(42L), org.mockito.ArgumentMatchers.any());
 
         ProfileSyncOutcome outcome = service.syncProfile(42L, resumeFile);
 
         assertThat(outcome.status()).isEqualTo(ProfileUpdateStatus.PROFILE_UPDATE_FAILED);
-        assertThat(outcome.updatedFields()).isEmpty();
     }
 
     private ResumeParseResponse successResponse(ResumeParseResponse.ResumeProfileData data) {

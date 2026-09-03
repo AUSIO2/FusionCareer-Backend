@@ -1,6 +1,7 @@
 package com.fusioncareer.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fusioncareer.common.PageResult;
@@ -28,6 +29,33 @@ public class UserProfileServiceImpl extends ServiceImpl<UserProfileMapper, UserP
         BeanUtils.copyProperties(request, entity);
         entity.setUserId(userId);
         saveOrUpdate(entity);
+    }
+
+    @Transactional
+    @Override
+    public void patchProfile(Long userId, UserProfileRequest request) {
+        LambdaUpdateWrapper<UserProfileEntity> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(UserProfileEntity::getUserId, userId)
+                .set(request.getRealName() != null, UserProfileEntity::getRealName, request.getRealName())
+                .set(request.getGender() != null, UserProfileEntity::getGender, request.getGender())
+                .set(request.getBirthDate() != null, UserProfileEntity::getBirthDate, request.getBirthDate())
+                .set(request.getPoliticalStatus() != null, UserProfileEntity::getPoliticalStatus,
+                        request.getPoliticalStatus())
+                .set(request.getPhone() != null, UserProfileEntity::getPhone, request.getPhone())
+                .set(request.getEmail() != null, UserProfileEntity::getEmail, request.getEmail())
+                .set(request.getWechat() != null, UserProfileEntity::getWechat, request.getWechat())
+                .set(request.getHometown() != null, UserProfileEntity::getHometown, request.getHometown())
+                .set(request.getGrade() != null, UserProfileEntity::getGrade, request.getGrade())
+                .set(request.getMajor() != null, UserProfileEntity::getMajor, request.getMajor())
+                .set(request.getEduLevel() != null, UserProfileEntity::getEduLevel, request.getEduLevel())
+                .set(request.getSupervisor() != null, UserProfileEntity::getSupervisor, request.getSupervisor());
+
+        if (!update(updateWrapper)) {
+            UserProfileEntity entity = new UserProfileEntity();
+            BeanUtils.copyProperties(request, entity);
+            entity.setUserId(userId);
+            save(entity);
+        }
     }
 
     @Override

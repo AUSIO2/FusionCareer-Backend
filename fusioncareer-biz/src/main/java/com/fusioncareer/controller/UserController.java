@@ -106,7 +106,6 @@ public class UserController {
                 resumeFileService.loadAsResource(storedFile.getStoragePath())
         );
         response.setProfileUpdateStatus(outcome.status());
-        response.setUpdatedFields(outcome.updatedFields());
         response.setProfileUpdateMessage(outcome.message());
         return R.success(response);
     }

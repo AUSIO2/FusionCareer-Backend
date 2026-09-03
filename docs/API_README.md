@@ -146,7 +146,6 @@
   "mimeType": "application/pdf",
   "createdAt": "2026-09-03T10:00:00",
   "profileUpdateStatus": "SUCCESS",
-  "updatedFields": ["realName", "grade", "eduLevel", "email"],
   "profileUpdateMessage": "已根据简历更新个人资料"
 }
 ```

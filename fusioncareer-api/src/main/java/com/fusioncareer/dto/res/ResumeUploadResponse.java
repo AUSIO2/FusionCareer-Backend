@@ -4,9 +4,6 @@ import com.fusioncareer.enums.ProfileUpdateStatus;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * 简历文件上传结果，以及可选的个人资料同步结果。
  */
@@ -15,6 +12,5 @@ import java.util.List;
 public class ResumeUploadResponse extends ResumeFileResponse {
 
     private ProfileUpdateStatus profileUpdateStatus;
-    private List<String> updatedFields = new ArrayList<>();
     private String profileUpdateMessage;
 }
