@@ -13,6 +13,10 @@ class FakeResponse:
 
 class FakeSession:
     def get(self, *readArgs, **readOptions):
+        readParams = readOptions["params"]
+        assert readParams["sub_action"] == "list_ex"
+        assert readParams["type"] == "101_1"
+        assert readParams["free_publish_type"] == "1"
         return FakeResponse()
 
 

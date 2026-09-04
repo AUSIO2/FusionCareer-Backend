@@ -85,9 +85,14 @@ def get_articles(
     headers = get_headers(cookie, token)
     params = {
         "sub": "list",
+        "sub_action": "list_ex",
+        "search_field": "null",
         "begin": str(begin),
         "count": str(count),
+        "query": "",
         "fakeid": fakeid,
+        "type": "101_1",
+        "free_publish_type": "1",
         "token": token,
         "lang": "zh_CN",
         "f": "json",
