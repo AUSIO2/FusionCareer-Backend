@@ -29,6 +29,13 @@ from app.skills.business.wechat.store import WechatStore
 
 DATE_PATTERN = re.compile(r"(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})")
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36"
+UESTC_SLUGS = {
+    "NOTICE_ANNOUNCEMENT": "notice",
+    "EMPLOYMENT_NEWS": "news",
+    "JOB_INFORMATION": "jobs",
+    "GOVERNMENT_RECRUITMENT": "recruitment",
+    "INTERNATIONAL_JOB": "international",
+}
 
 
 def parseDate(readText: str) -> int:
@@ -91,6 +98,88 @@ def parseArticles(readHtml: str | bytes, readSource: dict, readStart: int, readE
     return readArticles
 
 
+def parseUestc(readPayload: dict, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    readTypes = set(readSource["types"])
+    for readEntry in readPayload.get("data") or []:
+        readType = readEntry.get("bannerTypeCode")
+        if readType not in readTypes:
+            continue
+        try:
+            readDate = datetime.fromisoformat(readEntry["publishTime"]).replace(tzinfo=BEIJING_TZ)
+        except (KeyError, TypeError, ValueError):
+            continue
+        readTime = int(readDate.timestamp())
+        if readTime < readStart or readTime >= readEnd:
+            continue
+        readSlug = UESTC_SLUGS[readType]
+        readArticles.append(
+            {
+                "title": str(readEntry.get("title") or "").strip(),
+                "link": f"https://jiuye.uestc.edu.cn/career/news/{readSlug}/{readEntry['id']}",
+                "create_time": readTime,
+                "digest": "",
+                "author": readSource["name"],
+                "origin": readSource["listUrl"],
+                "content": readEntry.get("content") or "",
+            }
+        )
+    return [readArticle for readArticle in readArticles if readArticle["title"]]
+
+
+def parseJyxt(readPayload: dict, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    for readEntry in (readPayload.get("object") or {}).get("list") or []:
+        try:
+            readDate = datetime.fromisoformat(readEntry["startTime"]).replace(tzinfo=BEIJING_TZ)
+        except (KeyError, TypeError, ValueError):
+            continue
+        readTime = int(readDate.timestamp())
+        if readTime < readStart or readTime >= readEnd:
+            continue
+        readArticles.append(
+            {
+                "title": str(readEntry.get("title") or "").strip(),
+                "link": urljoin(readSource["homepage"], str(readEntry.get("url") or "")),
+                "create_time": readTime,
+                "digest": str(readEntry.get("corporationName") or "").strip(),
+                "author": readSource["name"],
+                "origin": readSource["listUrl"],
+                "id": str(readEntry.get("id") or ""),
+            }
+        )
+    return [readArticle for readArticle in readArticles if readArticle["title"] and readArticle["link"]]
+
+
+def readJyxt(readSession, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    readPage = 1
+    readPages = int(readSource.get("maxPages", 60))
+    while readPage <= readPages:
+        readResponse = readSession.post(
+            readSource["listUrl"],
+            headers={"User-Agent": USER_AGENT},
+            data={"pageNo": readPage, "pageSize": 100},
+            timeout=60,
+        )
+        readResponse.raise_for_status()
+        readPayload = readResponse.json()
+        readObject = readPayload.get("object") or {}
+        readRows = readObject.get("list") or []
+        readArticles.extend(parseJyxt(readPayload, readSource, readStart, readEnd))
+        readDates = [
+            str(readRow.get("startTime") or "")
+            for readRow in readRows
+            if str(readRow.get("topFlag") or "0") == "0"
+        ]
+        if not readRows or readPage >= int(readObject.get("totalPage") or readPage):
+            break
+        if readDates and min(readDates) < datetime.fromtimestamp(readStart, BEIJING_TZ).isoformat(sep=" "):
+            break
+        readPage += 1
+    return readArticles
+
+
 def readContent(readTree, readXpath: str):
     readNodes = readTree.xpath(readXpath)
     if readNodes:
@@ -119,13 +208,31 @@ def saveArticle(
             manifest_dir=readPaths.manifest_dir,
         )
 
-    readResponse = readSession.get(
-        readArticle["link"],
-        headers={"User-Agent": USER_AGENT},
-        timeout=60,
-    )
-    readResponse.raise_for_status()
-    readTree = parseHtml.fromstring(readResponse.content)
+    if readSource.get("format") == "uestc":
+        readTree = parseHtml.fromstring(readArticle["content"])
+    elif readSource.get("format") == "jyxt":
+        readResponse = readSession.post(
+            urljoin(readSource["homepage"], "/f/recruitmentinfo/ajax_show"),
+            headers={"User-Agent": USER_AGENT},
+            data={"recruitmentId": readArticle["id"]},
+            timeout=60,
+        )
+        readResponse.raise_for_status()
+        readContentHtml = (
+            ((readResponse.json().get("object") or {}).get("recruitmentinfo") or {}).get("content")
+            or ""
+        )
+        if not readContentHtml:
+            return "error"
+        readTree = parseHtml.fromstring(readContentHtml)
+    else:
+        readResponse = readSession.get(
+            readArticle["link"],
+            headers={"User-Agent": USER_AGENT},
+            timeout=60,
+        )
+        readResponse.raise_for_status()
+        readTree = parseHtml.fromstring(readResponse.content)
     readNode = readContent(readTree, readSource["contentXpath"])
     if readNode is None:
         return "error"
@@ -175,11 +282,17 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
         readRun = readStore.startRun("official", readSource["fakeid"])
         saveCount = 0
         try:
-            readResponse = readSession.get(
-                readSource["listUrl"], headers={"User-Agent": USER_AGENT}, timeout=60
-            )
-            readResponse.raise_for_status()
-            readArticles = parseArticles(readResponse.content, readSource, readStart, readEnd)
+            if readSource.get("format") == "jyxt":
+                readArticles = readJyxt(readSession, readSource, readStart, readEnd)
+            else:
+                readResponse = readSession.get(
+                    readSource["listUrl"], headers={"User-Agent": USER_AGENT}, timeout=60
+                )
+                readResponse.raise_for_status()
+                if readSource.get("format") == "uestc":
+                    readArticles = parseUestc(readResponse.json(), readSource, readStart, readEnd)
+                else:
+                    readArticles = parseArticles(readResponse.content, readSource, readStart, readEnd)
             readFound += len(readArticles)
             for readArticle in readArticles:
                 if readStore.hasArticleRecord(readSource["fakeid"], readArticle):

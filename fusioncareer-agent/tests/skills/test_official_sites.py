@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app.skills.business.official_sites import parseArticles
+from app.skills.business.official_sites import parseArticles, parseJyxt, parseUestc
 
 
 def testParseArticles():
@@ -57,3 +57,62 @@ def testCoverAccounts():
     assert len({readAccount["fakeid"] for readAccount in readAccounts}) == 60
     readIds = {readAccount["fakeid"] for readAccount in readAccounts}
     assert all(readSource["fakeid"] in readIds for readSource in readSources)
+
+
+def testParseUestc():
+    readSource = {
+        "name": "成电就业",
+        "listUrl": "https://jiuye.uestc.edu.cn/career/api/home/banner",
+        "types": ["JOB_INFORMATION"],
+    }
+    readPayload = {
+        "data": [
+            {
+                "id": "1",
+                "title": "某公司招聘",
+                "publishTime": "2026-08-06 11:45:14",
+                "bannerTypeCode": "JOB_INFORMATION",
+                "content": "<p>招聘正文</p>",
+            },
+            {
+                "id": "2",
+                "title": "校园新闻",
+                "publishTime": "2026-08-07 11:45:14",
+                "bannerTypeCode": "COLLEGE_NEWS",
+                "content": "<p>新闻正文</p>",
+            },
+        ]
+    }
+    readZone = ZoneInfo("Asia/Shanghai")
+    readStart = int(datetime(2026, 7, 1, tzinfo=readZone).timestamp())
+    readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
+    readFound = parseUestc(readPayload, readSource, readStart, readEnd)
+    assert len(readFound) == 1
+    assert readFound[0]["link"].endswith("/news/jobs/1")
+
+
+def testParseJyxt():
+    readSource = {
+        "name": "CAU就业",
+        "homepage": "https://scc.cau.edu.cn/",
+        "listUrl": "https://scc.cau.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    }
+    readPayload = {
+        "object": {
+            "list": [
+                {
+                    "title": "某公司校园招聘",
+                    "startTime": "2026-08-25 17:25:12",
+                    "corporationName": "某公司",
+                    "url": "/f/recruitmentinfo/show?recruitmentId=1",
+                }
+            ]
+        }
+    }
+    readZone = ZoneInfo("Asia/Shanghai")
+    readStart = int(datetime(2026, 7, 1, tzinfo=readZone).timestamp())
+    readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
+    readFound = parseJyxt(readPayload, readSource, readStart, readEnd)
+    assert len(readFound) == 1
+    assert readFound[0]["digest"] == "某公司"
+    assert readFound[0]["id"] == ""

@@ -70,5 +70,50 @@
     "linkPattern": "/info/\\d+/\\d+\\.htm",
     "contentXpath": "//*[@id='vsb_content']",
     "keywords": ["招聘", "就业", "双选", "实习", "选调", "人才", "访企拓岗"]
+  },
+  {
+    "id": "uestc-career-public",
+    "name": "成电就业",
+    "fakeid": "MzA3MDAxNzIxNQ==",
+    "listUrl": "https://jiuye.uestc.edu.cn/career/api/home/banner?pageNum=1&pageSize=100",
+    "format": "uestc",
+    "contentXpath": "//*",
+    "types": [
+      "NOTICE_ANNOUNCEMENT",
+      "EMPLOYMENT_NEWS",
+      "JOB_INFORMATION",
+      "GOVERNMENT_RECRUITMENT",
+      "INTERNATIONAL_JOB"
+    ]
+  },
+  {
+    "id": "cau-career-jobs",
+    "name": "CAU就业",
+    "fakeid": "MzA3MjA0NjMwMg==",
+    "homepage": "https://scc.cau.edu.cn/",
+    "listUrl": "https://scc.cau.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 10
+  },
+  {
+    "id": "bnu-career-jobs",
+    "name": "京师就业",
+    "fakeid": "MzkyODM3NzEwNw==",
+    "homepage": "https://career.bnu.edu.cn/",
+    "listUrl": "https://career.bnu.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 15
+  },
+  {
+    "id": "whu-career-jobs",
+    "name": "武大就业",
+    "fakeid": "MzAxNDE2ODQxOQ==",
+    "homepage": "https://xsjy.whu.edu.cn/",
+    "listUrl": "https://xsjy.whu.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 60
   }
 ]
