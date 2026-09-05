@@ -17,10 +17,10 @@ from app.integrations.backend import BackendClient
 from app.skills.business.wechat.core import (
     WechatApiError,
     build_http_session,
-    get_articles,
     get_headers,
     is_valid_article_link,
     load_json_file,
+    readArticles,
     readWechatAuth,
     save_url_to_md,
 )
@@ -51,6 +51,7 @@ def filterArticles(readArticles: list[dict], readStart: int, readEnd: int) -> tu
 def readPage(
     readSession,
     readFakeid: str,
+    readAccount: str,
     readToken: str,
     readCookie: str,
     readBegin: int,
@@ -59,7 +60,15 @@ def readPage(
 ) -> list[dict]:
     for readAttempt in range(readMaxRetries + 1):
         try:
-            return get_articles(readSession, readFakeid, readToken, readCookie, readBegin, 10)[0]
+            return readArticles(
+                readSession,
+                readFakeid,
+                readAccount,
+                readToken,
+                readCookie,
+                readBegin,
+                10,
+            )[0]
         except WechatApiError as readError:
             if "freq control" not in str(readError) or readAttempt == readMaxRetries:
                 raise
@@ -94,6 +103,7 @@ def crawlAccounts(
                 readArticles = readPage(
                     readSession,
                     readAccount.fakeid,
+                    readAccount.name,
                     readToken,
                     readCookie,
                     readBegin,
@@ -106,6 +116,8 @@ def crawlAccounts(
                     readStore.saveCheckpoint(readAccount.fakeid, readArticles[0].get("link") or "")
                 createArticles, readFinished = filterArticles(readArticles, readStart, readEnd)
                 for createArticle in createArticles:
+                    if readStore.hasArticleRecord(readAccount.fakeid, createArticle):
+                        continue
                     readStatus = save_url_to_md(
                         readSession,
                         createArticle,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import logging
 import re
 import shutil
@@ -10,9 +11,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 import requests
+from lxml import html as parseHtml
 
 from app.config import settings
 from app.skills.business.wechat.io import (
@@ -29,6 +32,12 @@ logger = logging.getLogger(__name__)
 
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 DEFAULT_ARTICLES_BASE_DIR = "公众号文章"
+SOGOU_SEARCH_URL = "https://weixin.sogou.com/weixin"
+SOGOU_BASE_URL = "https://weixin.sogou.com"
+SOGOU_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 Chrome/151 Safari/537.36"
+)
 
 
 class WechatApiError(RuntimeError):
@@ -124,6 +133,84 @@ def get_articles(
     return articles, int(publish_page.get("total_count", 0))
 
 
+def resolveArticle(readSession: requests.Session, readPath: str) -> str:
+    readUrl = urljoin(SOGOU_BASE_URL, html.unescape(readPath))
+    readHeaders = {
+        "User-Agent": SOGOU_USER_AGENT,
+        "Referer": SOGOU_SEARCH_URL,
+    }
+    readResponse = http_get(readSession, readUrl, headers=readHeaders, timeout=30)
+    readResponse.raise_for_status()
+    readResponse.encoding = "gbk"
+    readParts = re.findall(r"url \+= '([^']*)'", readResponse.text)
+    return "".join(readParts)
+
+
+def searchArticles(
+    readSession: requests.Session,
+    readAccount: str,
+    readPage: int = 1,
+) -> list[dict]:
+    readHeaders = {
+        "User-Agent": SOGOU_USER_AGENT,
+    }
+    readResponse = http_get(
+        readSession,
+        SOGOU_SEARCH_URL,
+        headers=readHeaders,
+        params={"type": "2", "query": readAccount, "page": str(readPage)},
+        timeout=30,
+    )
+    readResponse.raise_for_status()
+    readTree = parseHtml.fromstring(readResponse.text)
+    readArticles = []
+    for readNode in readTree.xpath('//li[starts-with(@id, "sogou_vr_11002601_box_")]'):
+        readNames = readNode.xpath('.//div[contains(@class,"s-p")]/span[1]//text()')
+        if "".join(readNames).strip() != readAccount:
+            continue
+        readLinks = readNode.xpath('.//h3/a/@href')
+        readTitles = readNode.xpath('.//h3/a//text()')
+        readDigests = readNode.xpath('.//p[contains(@class,"txt-info")]//text()')
+        readTimes = readNode.xpath('.//div[contains(@class,"s-p")]/span[2]/script/text()')
+        readMatch = re.search(r"timeConvert\('(\d+)'\)", "".join(readTimes))
+        if not readLinks or not readMatch:
+            continue
+        readLink = resolveArticle(readSession, readLinks[0])
+        if not readLink:
+            continue
+        readArticles.append(
+            {
+                "title": html.unescape("".join(readTitles).strip()),
+                "link": readLink,
+                "create_time": int(readMatch.group(1)),
+                "digest": html.unescape("".join(readDigests).strip()),
+                "author": readAccount,
+                "source": "sogou",
+            }
+        )
+    return readArticles
+
+
+def readArticles(
+    readSession: requests.Session,
+    readFakeid: str,
+    readAccount: str,
+    readToken: str,
+    readCookie: str,
+    readBegin: int = 0,
+    readCount: int = 10,
+) -> tuple[list[dict], int]:
+    try:
+        return get_articles(readSession, readFakeid, readToken, readCookie, readBegin, readCount)
+    except WechatApiError as readError:
+        if "200013" not in str(readError):
+            raise
+        readPage = readBegin // max(1, readCount) + 1
+        readFound = searchArticles(readSession, readAccount, readPage)
+        logger.warning("appmsgpublish unavailable; Sogou returned %s articles for %s", len(readFound), readAccount)
+        return readFound, len(readFound)
+
+
 def json_loads_embedded(raw: str | dict) -> dict:
     import json
 
@@ -152,6 +239,11 @@ def readAccountName(readHtml: str) -> str:
     readMatch = re.search(
         r'class="profile_meta_value">([^<]+)<', readHtml
     )
+    return readMatch.group(1).strip() if readMatch else ""
+
+
+def readAccountId(readHtml: str) -> str:
+    readMatch = re.search(r'var biz = "([^"]+)"', readHtml)
     return readMatch.group(1).strip() if readMatch else ""
 
 
@@ -248,8 +340,13 @@ def save_url_to_md(
 
     try:
         resp = http_get(session, url, headers=headers, timeout=90)
+        resp.raise_for_status()
         resp.encoding = "utf-8"
         content_html = resp.text
+        readId = readAccountId(content_html)
+        if readId and readId != fakeid:
+            logger.warning("article account mismatch %s: %s", title, readId)
+            return "error"
         readName = readAccountName(content_html)
         if readName:
             store.saveName(fakeid, readName)
@@ -268,11 +365,10 @@ def save_url_to_md(
         content_match = re.search(
             r'<div[^>]*id="js_content"[^>]*>(.*?)</div>', content_html, re.DOTALL
         )
-        if content_match:
-            main_content = content_match.group(1)
-        else:
-            body_match = re.search(r"<body[^>]*>(.*?)</body>", content_html, re.DOTALL)
-            main_content = body_match.group(1) if body_match else content_html
+        if not content_match:
+            logger.warning("article content missing %s", title)
+            return "error"
+        main_content = content_match.group(1)
 
         markdown_content = f"# {title}\n\n**Date:** {date_str}\n**Link:** {url}\n"
         markdown_content += f"**Account:** {folder_name}\n"
@@ -346,7 +442,7 @@ def process_account_daily(
     new_articles: list[dict] = []
     found_overlap = False
     while not found_overlap:
-        articles, _ = get_articles(session, fakeid, token, cookie, begin, count)
+        articles, _ = readArticles(session, fakeid, account_name, token, cookie, begin, count)
         if not articles:
             break
         for article in articles:
@@ -365,7 +461,7 @@ def process_account_daily(
     valid = [
         readArticle for readArticle in new_articles
         if is_valid_article_link(readArticle.get("link"))
-        and not store.hasArticle(readArticle.get("link") or "")
+        and not store.hasArticleRecord(fakeid, readArticle)
     ]
     saved_count = 0
     try:
@@ -414,7 +510,14 @@ def process_account_bootstrap(
     articles_base = paths.articles_base_dir(config)
     articles_base.mkdir(parents=True, exist_ok=True)
 
-    articles, _ = get_articles(session, fakeid, token, cookie, begin=0, count=max(article_limit, 10))
+    articles, _ = readArticles(
+        session,
+        fakeid,
+        account_name,
+        token,
+        cookie,
+        readCount=max(article_limit, 10),
+    )
     if not articles:
         store.finishRun(readRun, "SUCCESS")
         return {"account": account_name, "saved_count": 0}
@@ -423,7 +526,7 @@ def process_account_bootstrap(
     for article in articles:
         if len(collected) >= article_limit:
             break
-        if is_valid_article_link(article.get("link")):
+        if is_valid_article_link(article.get("link")) and not store.hasArticleRecord(fakeid, article):
             collected.append(article)
 
     if not collected:

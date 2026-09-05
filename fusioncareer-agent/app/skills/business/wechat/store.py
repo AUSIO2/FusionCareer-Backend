@@ -152,6 +152,22 @@ class WechatStore:
             ).fetchone()
         return readRow is not None
 
+    def hasArticleRecord(self, readFakeid: str, readArticle: dict) -> bool:
+        with self.openDatabase() as readDatabase:
+            readRow = readDatabase.execute(
+                """
+                SELECT 1 FROM articles
+                WHERE url = ? OR (fakeid = ? AND title = ? AND published_at = ?)
+                """,
+                (
+                    readArticle.get("link") or "",
+                    readFakeid,
+                    readArticle.get("title") or "",
+                    str(readArticle.get("create_time") or ""),
+                ),
+            ).fetchone()
+        return readRow is not None
+
     def saveArticle(
         self,
         readFakeid: str,
