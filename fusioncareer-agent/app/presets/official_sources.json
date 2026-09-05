@@ -52,5 +52,23 @@
     "linkPattern": "/index/index/newsdetail\\.html",
     "contentXpath": "//*[@id='mycontent']",
     "keywords": ["招聘", "就业", "双选", "实习", "选调", "人才"]
+  },
+  {
+    "id": "nwafu-career-notices",
+    "name": "西农就业",
+    "fakeid": "MzAxMjY4MTIyNg==",
+    "listUrl": "https://job.nwafu.edu.cn/xwgg/tzgg/index.htm",
+    "linkPattern": "/xwgg/tzgg/.*\\.htm",
+    "contentXpath": "//div[contains(@class,'article')]",
+    "keywords": ["招聘", "就业", "双选", "实习", "选调", "人才"]
+  },
+  {
+    "id": "sdu-career-news",
+    "name": "山东大学就业",
+    "fakeid": "MzA5MzM4MzMwNA==",
+    "listUrl": "https://job.sdu.edu.cn/",
+    "linkPattern": "/info/\\d+/\\d+\\.htm",
+    "contentXpath": "//*[@id='vsb_content']",
+    "keywords": ["招聘", "就业", "双选", "实习", "选调", "人才", "访企拓岗"]
   }
 ]

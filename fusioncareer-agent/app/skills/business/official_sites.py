@@ -39,11 +39,14 @@ def parseDate(readText: str) -> int:
     return int(readDate.timestamp())
 
 
-def readContext(readNode, readPattern: re.Pattern) -> str:
+def readContext(readNode, readPattern: re.Pattern, readBase: str) -> str:
     readParent = readNode
     for _ in range(5):
         readLinks = readParent.xpath(".//a[@href]/@href")
-        if sum(bool(readPattern.search(str(readLink))) for readLink in readLinks) > 1:
+        if sum(
+            bool(readPattern.search(str(readLink)) or readPattern.search(urljoin(readBase, str(readLink))))
+            for readLink in readLinks
+        ) > 1:
             return ""
         readText = " ".join("".join(readParent.itertext()).split())
         if DATE_PATTERN.search(readText):
@@ -63,14 +66,14 @@ def parseArticles(readHtml: str | bytes, readSource: dict, readStart: int, readE
     for readNode in readTree.xpath("//a[@href]"):
         readTitle = " ".join("".join(readNode.itertext()).split())
         readHref = str(readNode.get("href") or "").strip()
-        if not readTitle or not readPattern.search(readHref):
+        readUrl = urljoin(readSource["listUrl"], readHref)
+        if not readTitle or not (readPattern.search(readHref) or readPattern.search(readUrl)):
             continue
         if readKeywords and not any(readWord in readTitle for readWord in readKeywords):
             continue
-        readTime = parseDate(readContext(readNode, readPattern))
+        readTime = parseDate(readContext(readNode, readPattern, readSource["listUrl"]))
         if not readTime or readTime < readStart or readTime >= readEnd:
             continue
-        readUrl = urljoin(readSource["listUrl"], readHref)
         readKey = (readUrl, readTitle, readTime)
         if readKey in readSeen:
             continue

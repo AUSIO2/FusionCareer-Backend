@@ -1,4 +1,6 @@
+import json
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.skills.business.official_sites import parseArticles
@@ -45,3 +47,13 @@ def testIgnoreOuterDate():
     readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
     readFound = parseArticles(readHtml, readSource, readStart, readEnd)
     assert [readArticle["title"] for readArticle in readFound] == ["新招聘"]
+
+
+def testCoverAccounts():
+    readRoot = Path(__file__).resolve().parents[2] / "app" / "presets"
+    readAccounts = json.loads((readRoot / "official_accounts.json").read_text(encoding="utf-8"))
+    readSources = json.loads((readRoot / "official_sources.json").read_text(encoding="utf-8"))
+    assert len(readAccounts) == 60
+    assert len({readAccount["fakeid"] for readAccount in readAccounts}) == 60
+    readIds = {readAccount["fakeid"] for readAccount in readAccounts}
+    assert all(readSource["fakeid"] in readIds for readSource in readSources)
