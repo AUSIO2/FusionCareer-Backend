@@ -28,7 +28,10 @@ from app.skills.business.wechat.paths import WechatPaths
 from app.skills.business.wechat.store import WechatStore
 
 DATE_PATTERN = re.compile(r"(20\d{2})[年./-](\d{1,2})[月./-](\d{1,2})")
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/151 Safari/537.36"
+REVERSE_DATE_PATTERN = re.compile(r"(\d{1,2})\s+(20\d{2})[年./-](\d{1,2})")
+MONTH_DATE_PATTERN = re.compile(r"(\d{1,2})月\s*(\d{1,2})日")
+SHORT_DATE_PATTERN = re.compile(r"(?<!\d)(\d{1,2})[-/.](\d{1,2})(?!\d)")
+USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/151 Safari/537.36"
 UESTC_SLUGS = {
     "NOTICE_ANNOUNCEMENT": "notice",
     "EMPLOYMENT_NEWS": "news",
@@ -38,11 +41,38 @@ UESTC_SLUGS = {
 }
 
 
-def parseDate(readText: str) -> int:
+def cleanTitle(readTitle: str) -> str:
+    readTitle = re.sub(r"^(顶|置顶|\[置顶\]|【置顶】)\s*", "", readTitle.strip())
+    readTitle = re.sub(r"^\d{1,2}\s+20\d{2}[-./]\d{1,2}\s*", "", readTitle)
+    return re.sub(r"^20\d{2}[-./]\d{1,2}[-./]\d{1,2}\s*", "", readTitle).strip()
+
+
+def hasDate(readText: str) -> bool:
+    return bool(
+        DATE_PATTERN.search(readText)
+        or REVERSE_DATE_PATTERN.search(readText)
+        or MONTH_DATE_PATTERN.search(readText)
+        or SHORT_DATE_PATTERN.search(readText)
+    )
+
+
+def parseDate(readText: str, readReference: datetime | None = None) -> int:
     readMatch = DATE_PATTERN.search(readText)
-    if not readMatch:
-        return 0
-    readDate = datetime(*(int(readPart) for readPart in readMatch.groups()), tzinfo=BEIJING_TZ)
+    if readMatch:
+        readParts = tuple(int(readPart) for readPart in readMatch.groups())
+    else:
+        readMatch = REVERSE_DATE_PATTERN.search(readText)
+        if readMatch:
+            readDay, readYear, readMonth = (int(readPart) for readPart in readMatch.groups())
+            readParts = (readYear, readMonth, readDay)
+        else:
+            readMatch = MONTH_DATE_PATTERN.search(readText) or SHORT_DATE_PATTERN.search(readText)
+            if not readMatch or readReference is None:
+                return 0
+            readMonth, readDay = (int(readPart) for readPart in readMatch.groups())
+            readYear = readReference.year - int(readMonth > readReference.month + 1)
+            readParts = (readYear, readMonth, readDay)
+    readDate = datetime(*readParts, tzinfo=BEIJING_TZ)
     return int(readDate.timestamp())
 
 
@@ -56,7 +86,7 @@ def readContext(readNode, readPattern: re.Pattern, readBase: str) -> str:
         ) > 1:
             return ""
         readText = " ".join("".join(readParent.itertext()).split())
-        if DATE_PATTERN.search(readText):
+        if hasDate(readText):
             return readText
         readParent = readParent.getparent()
         if readParent is None:
@@ -68,17 +98,18 @@ def parseArticles(readHtml: str | bytes, readSource: dict, readStart: int, readE
     readTree = parseHtml.fromstring(readHtml)
     readPattern = re.compile(readSource["linkPattern"])
     readKeywords = tuple(readSource.get("keywords") or ())
+    readReference = datetime.fromtimestamp(readEnd - 1, BEIJING_TZ)
     readArticles = []
     readSeen = set()
     for readNode in readTree.xpath("//a[@href]"):
-        readTitle = " ".join("".join(readNode.itertext()).split())
+        readTitle = cleanTitle(" ".join("".join(readNode.itertext()).split()))
         readHref = str(readNode.get("href") or "").strip()
         readUrl = urljoin(readSource["listUrl"], readHref)
         if not readTitle or not (readPattern.search(readHref) or readPattern.search(readUrl)):
             continue
         if readKeywords and not any(readWord in readTitle for readWord in readKeywords):
             continue
-        readTime = parseDate(readContext(readNode, readPattern, readSource["listUrl"]))
+        readTime = parseDate(readContext(readNode, readPattern, readSource["listUrl"]), readReference)
         if not readTime or readTime < readStart or readTime >= readEnd:
             continue
         readKey = (readUrl, readTitle, readTime)
@@ -180,6 +211,33 @@ def readJyxt(readSession, readSource: dict, readStart: int, readEnd: int) -> lis
     return readArticles
 
 
+def parseUstc(readPayload: dict, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    for readHtml in ((readPayload.get("Content") or {}).get("Contentclass") or []):
+        readTree = parseHtml.fromstring(readHtml)
+        readLinks = readTree.xpath("//a[@href]")
+        readDates = readTree.xpath("//td[last()]//text()")
+        if not readLinks or not readDates:
+            continue
+        readMatch = re.search(r"[?&]cid=(\d+)", str(readLinks[0].get("href") or ""))
+        readTime = parseDate(" ".join(readDates))
+        if not readMatch or not readTime or readTime < readStart or readTime >= readEnd:
+            continue
+        readId = readMatch.group(1)
+        readArticles.append(
+            {
+                "title": cleanTitle(" ".join("".join(readLinks[0].itertext()).split())),
+                "link": f"https://job.ustc.edu.cn/Announcement/info.aspx?itemid={readId}",
+                "create_time": readTime,
+                "digest": "",
+                "author": readSource["name"],
+                "origin": readSource["listUrl"],
+                "id": readId,
+            }
+        )
+    return readArticles
+
+
 def readContent(readTree, readXpath: str):
     readNodes = readTree.xpath(readXpath)
     if readNodes:
@@ -210,6 +268,17 @@ def saveArticle(
 
     if readSource.get("format") == "uestc":
         readTree = parseHtml.fromstring(readArticle["content"])
+    elif readSource.get("format") == "ustc":
+        readResponse = readSession.get(
+            readSource["detailUrl"].format(id=readArticle["id"]),
+            headers={"User-Agent": USER_AGENT},
+            timeout=60,
+        )
+        readResponse.raise_for_status()
+        readContentHtml = readResponse.json().get("ContentInfo") or ""
+        if not readContentHtml:
+            return "error"
+        readTree = parseHtml.fromstring(readContentHtml)
     elif readSource.get("format") == "jyxt":
         readResponse = readSession.post(
             urljoin(readSource["homepage"], "/f/recruitmentinfo/ajax_show"),
@@ -291,6 +360,8 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
                 readResponse.raise_for_status()
                 if readSource.get("format") == "uestc":
                     readArticles = parseUestc(readResponse.json(), readSource, readStart, readEnd)
+                elif readSource.get("format") == "ustc":
+                    readArticles = parseUstc(readResponse.json(), readSource, readStart, readEnd)
                 else:
                     readArticles = parseArticles(readResponse.content, readSource, readStart, readEnd)
             readFound += len(readArticles)

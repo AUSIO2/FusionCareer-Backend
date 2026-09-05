@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app.skills.business.official_sites import parseArticles, parseJyxt, parseUestc
+from app.skills.business.official_sites import cleanTitle, parseArticles, parseJyxt, parseUestc, parseUstc
 
 
 def testParseArticles():
@@ -116,3 +116,51 @@ def testParseJyxt():
     assert len(readFound) == 1
     assert readFound[0]["digest"] == "某公司"
     assert readFound[0]["id"] == ""
+
+
+def testCleanTitle():
+    assert cleanTitle("顶 2026-08-20 某公司招聘") == "某公司招聘"
+
+
+def testParseMonthDate():
+    readHtml = '<li><div><p>08月</p><p>25日</p><a href="/jobfair/view/id/1">校园招聘会</a></div></li>'
+    readSource = {
+        "name": "测试就业网",
+        "listUrl": "https://job.example.edu.cn/",
+        "linkPattern": r"/jobfair/view/",
+        "keywords": [],
+    }
+    readZone = ZoneInfo("Asia/Shanghai")
+    readStart = int(datetime(2026, 7, 1, tzinfo=readZone).timestamp())
+    readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
+    assert len(parseArticles(readHtml, readSource, readStart, readEnd)) == 1
+
+
+def testParseShortDate():
+    readHtml = '<li><a href="/news/1.html">校园招聘会</a><span>08/25</span></li>'
+    readSource = {
+        "name": "测试就业网",
+        "listUrl": "https://job.example.edu.cn/",
+        "linkPattern": r"/news/",
+        "keywords": [],
+    }
+    readZone = ZoneInfo("Asia/Shanghai")
+    readStart = int(datetime(2026, 7, 1, tzinfo=readZone).timestamp())
+    readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
+    assert len(parseArticles(readHtml, readSource, readStart, readEnd)) == 1
+
+
+def testParseUstc():
+    readPayload = {
+        "Content": {
+            "Contentclass": [
+                "<tr><td><a href='Article.html?cid=9083'>就业通知</a></td><td>2026-07-29</td></tr>"
+            ]
+        }
+    }
+    readSource = {"name": "科大就业", "listUrl": "https://ustc.example/list"}
+    readZone = ZoneInfo("Asia/Shanghai")
+    readStart = int(datetime(2026, 7, 1, tzinfo=readZone).timestamp())
+    readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
+    readFound = parseUstc(readPayload, readSource, readStart, readEnd)
+    assert readFound[0]["id"] == "9083"

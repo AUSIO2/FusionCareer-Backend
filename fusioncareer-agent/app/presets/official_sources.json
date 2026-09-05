@@ -5,7 +5,7 @@
     "fakeid": "MjM5NjUxMDM2Nw==",
     "listUrl": "https://career.muc.edu.cn/front/channel.jspa?channelId=757",
     "linkPattern": "/front/showContent\\.jspa",
-    "contentXpath": "//div[contains(@class,'entry-content')]",
+    "contentXpath": "//*[@id='js_content'] | //div[contains(@class,'entry-content')]",
     "keywords": ["招聘", "双选", "岗位", "就业", "选调", "人才"]
   },
   {
@@ -115,5 +115,59 @@
     "format": "jyxt",
     "contentXpath": "//*",
     "maxPages": 60
+  },
+  {
+    "id": "cqu-career-public",
+    "name": "重大就业",
+    "fakeid": "MjM5NTE5NjY4Mg==",
+    "listUrl": "https://cqu.cqbys.com/",
+    "linkPattern": "/(news/view|jobfair/view|teachin/view|job/view)/",
+    "contentXpath": "//div[contains(@class,'css-wrapper')]",
+    "keywords": ["招聘", "就业", "双选", "实习", "选调", "人才"]
+  },
+  {
+    "id": "csu-career-public",
+    "name": "中南大学就业指导中心",
+    "fakeid": "MzA3ODQ3NTIzMA==",
+    "listUrl": "https://career.csu.edu.cn/",
+    "linkPattern": "/(teachin/view|jobfair/view|news/view)/",
+    "contentXpath": "//div[contains(@class,'css-wrapper')]",
+    "keywords": []
+  },
+  {
+    "id": "hnu-career-public",
+    "name": "湖南大学毕业生就业",
+    "fakeid": "MzU0MDc5MjgzMg==",
+    "listUrl": "https://scc.hnu.edu.cn/",
+    "linkPattern": "/detail/(news|career|jobfair)\\?",
+    "contentXpath": "//*[@id='data_details']",
+    "keywords": ["招聘", "就业", "求职", "双选", "实习", "选调", "人才"]
+  },
+  {
+    "id": "nankai-career-public",
+    "name": "南开就业",
+    "fakeid": "MzU3MDgzOTE0Nw==",
+    "listUrl": "https://career.nankai.edu.cn/",
+    "linkPattern": "/(recruitment|xuanjianghuis|news)/content/",
+    "contentXpath": "//div[contains(@class,'neirong')]",
+    "keywords": ["招聘", "就业", "求职", "双选", "实习", "选调", "人才"]
+  },
+  {
+    "id": "tju-career-public",
+    "name": "天大就业",
+    "fakeid": "MzA3NTYyMDgwNQ==",
+    "listUrl": "https://job.tju.edu.cn/",
+    "linkPattern": "/(recruitment|xuanjianghuis|news)/content/",
+    "contentXpath": "//div[contains(@class,'right-content')]//div[contains(@class,'content')]",
+    "keywords": ["招聘", "就业", "求职", "双选", "实习", "选调", "人才"]
+  },
+  {
+    "id": "ustc-career-notices",
+    "name": "科大就业",
+    "fakeid": "MjM5MDQxNTA5Mg==",
+    "listUrl": "https://ustc.ahbys.com/API/Web/index10358.ashx?action=contentlist&parentid=1&columnid=1005&pageindex=1&pagesize=100",
+    "detailUrl": "https://ustc.ahbys.com/API/Web/index10358.ashx?action=contentinfo&parentid=1&columnid=1005&cid={id}",
+    "format": "ustc",
+    "contentXpath": "//*"
   }
 ]
