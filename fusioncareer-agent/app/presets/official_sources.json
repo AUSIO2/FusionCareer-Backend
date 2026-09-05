@@ -137,6 +137,26 @@
     "maxPages": 30
   },
   {
+    "id": "xjtu-career-jobs",
+    "name": "西安交大就业创业",
+    "fakeid": "MzA4NzkwNDYxMQ==",
+    "homepage": "https://job.xjtu.edu.cn/",
+    "listUrl": "https://job.xjtu.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 30
+  },
+  {
+    "id": "tongji-career-jobs",
+    "name": "同济就业",
+    "fakeid": "MzI4NTAxNDQyNw==",
+    "homepage": "https://tj91.tongji.edu.cn/",
+    "listUrl": "https://tj91.tongji.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 40
+  },
+  {
     "id": "ecnu-career-jobs",
     "name": "华东师大学生就业",
     "fakeid": "MjM5NDYzOTc2NQ==",

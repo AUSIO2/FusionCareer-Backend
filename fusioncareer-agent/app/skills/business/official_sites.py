@@ -372,10 +372,18 @@ def saveArticle(
             timeout=60,
         )
         readResponse.raise_for_status()
-        readContentHtml = (
-            ((readResponse.json().get("object") or {}).get("recruitmentinfo") or {}).get("content")
-            or ""
-        )
+        readObject = readResponse.json().get("object") or {}
+        readJob = readObject.get("recruitmentinfo") or {}
+        readPositions = readJob.get("recruitmentPositionList") or []
+        readContentHtml = readJob.get("content") or readJob.get("shortContent") or ""
+        if not readContentHtml:
+            readContentHtml = "".join(
+                f"<h2>{readPosition.get('positionName') or ''}</h2>"
+                f"<p>{readPosition.get('positionDescription') or ''}</p>"
+                for readPosition in readPositions
+            )
+        readCompany = readJob.get("corporationinfo") or {}
+        readContentHtml += f"<p>{readCompany.get('corporationinfoIntroduction') or ''}</p>"
         if not readContentHtml:
             return "error"
         readTree = parseHtml.fromstring(readContentHtml)
