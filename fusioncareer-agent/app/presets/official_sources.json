@@ -1,0 +1,56 @@
+[
+  {
+    "id": "muc-career-notices",
+    "name": "中央民族大学就业服务平台",
+    "fakeid": "MjM5NjUxMDM2Nw==",
+    "listUrl": "https://career.muc.edu.cn/front/channel.jspa?channelId=757",
+    "linkPattern": "/front/showContent\\.jspa",
+    "contentXpath": "//div[contains(@class,'entry-content')]",
+    "keywords": ["招聘", "双选", "岗位", "就业", "选调", "人才"]
+  },
+  {
+    "id": "hust-career-jobs",
+    "name": "华中科技大学就业指导与服务中心",
+    "fakeid": "MzA3MzQ5NzIyMw==",
+    "listUrl": "https://job.hust.edu.cn/searchAll_21.do?_lucenesearchtype=1&order=0&q=2027&range=1&searchScope=0",
+    "linkPattern": "/(zpinfo|zjob|jcjob|kzxjh)[^/]*?/[^/]+\\.htm",
+    "contentXpath": "//*[@id='vsb_content_4_1009_u171']",
+    "keywords": []
+  },
+  {
+    "id": "shisu-career-jobs",
+    "name": "上外就业",
+    "fakeid": "MjM5MDIxMzcyNg==",
+    "listUrl": "https://career.shisu.edu.cn/category/zpzq/zpxx.html",
+    "linkPattern": "/20\\d{2}/\\d{2}/\\d{2}/[^/]+\\.html",
+    "contentXpath": "//div[contains(@class,'c-content-con')]",
+    "keywords": []
+  },
+  {
+    "id": "seu-career-notices",
+    "name": "东南大学就业指导中心",
+    "fakeid": "MjM5MDM0MDA0NQ==",
+    "listUrl": "https://xsc.seu.edu.cn/64952/list.htm",
+    "linkPattern": "(^/20\\d{2}/.*\\.htm$|^https://mp\\.weixin\\.qq\\.com/s/)",
+    "contentXpath": "//*[@id='vsb_content'] | //*[starts-with(@id,'vsb_content_')]",
+    "keywords": ["招聘", "双选", "就业", "生源", "选调"]
+  },
+  {
+    "id": "tsinghua-career-notices",
+    "name": "清华就业",
+    "fakeid": "MzUyMjc4NjA4Nw==",
+    "listUrl": "https://career.tsinghua.edu.cn/tzgg.htm",
+    "linkPattern": "(^info/1031/.*\\.htm$|^https://mp\\.weixin\\.qq\\.com/s/)",
+    "contentXpath": "//*[@id='vsb_content']",
+    "keywords": ["招聘", "就业", "双选", "实习"]
+  },
+  {
+    "id": "scu-career-news",
+    "name": "川大就业",
+    "fakeid": "MzA4MDQzNjYzNw==",
+    "listUrl": "https://jy.scu.edu.cn/",
+    "linkPattern": "/index/index/newsdetail\\.html",
+    "contentXpath": "//*[@id='mycontent']",
+    "keywords": ["招聘", "就业", "双选", "实习", "选调", "人才"]
+  }
+]
