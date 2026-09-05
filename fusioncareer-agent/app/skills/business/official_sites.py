@@ -72,15 +72,18 @@ def parseDate(readText: str, readReference: datetime | None = None) -> int:
             readMonth, readDay = (int(readPart) for readPart in readMatch.groups())
             readYear = readReference.year - int(readMonth > readReference.month + 1)
             readParts = (readYear, readMonth, readDay)
-    readDate = datetime(*readParts, tzinfo=BEIJING_TZ)
+    try:
+        readDate = datetime(*readParts, tzinfo=BEIJING_TZ)
+    except ValueError:
+        return 0
     return int(readDate.timestamp())
 
 
-def readContext(readNode, readPattern: re.Pattern, readBase: str) -> str:
+def readContext(readNode, readPattern: re.Pattern, readBase: str, readCustom: bool = False) -> str:
     readParent = readNode
-    for _ in range(5):
+    for _ in range(3 if readCustom else 5):
         readLinks = readParent.xpath(".//a[@href]/@href")
-        if sum(
+        if not readCustom and sum(
             bool(readPattern.search(str(readLink)) or readPattern.search(urljoin(readBase, str(readLink))))
             for readLink in readLinks
         ) > 1:
@@ -101,15 +104,22 @@ def parseArticles(readHtml: str | bytes, readSource: dict, readStart: int, readE
     readReference = datetime.fromtimestamp(readEnd - 1, BEIJING_TZ)
     readArticles = []
     readSeen = set()
-    for readNode in readTree.xpath("//a[@href]"):
-        readTitle = cleanTitle(" ".join("".join(readNode.itertext()).split()))
-        readHref = str(readNode.get("href") or "").strip()
+    readXpath = readSource.get("nodeXpath") or "//a[@href]"
+    readAttribute = readSource.get("linkAttribute") or "href"
+    for readNode in readTree.xpath(readXpath):
+        readTitleNodes = readNode.xpath(readSource["titleXpath"]) if readSource.get("titleXpath") else []
+        readTitleText = "".join(readTitleNodes) if readTitleNodes else "".join(readNode.itertext())
+        readTitle = cleanTitle(" ".join(readTitleText.split()))
+        readHref = str(readNode.get(readAttribute) or "").strip()
         readUrl = urljoin(readSource["listUrl"], readHref)
         if not readTitle or not (readPattern.search(readHref) or readPattern.search(readUrl)):
             continue
         if readKeywords and not any(readWord in readTitle for readWord in readKeywords):
             continue
-        readTime = parseDate(readContext(readNode, readPattern, readSource["listUrl"]), readReference)
+        readTime = parseDate(
+            readContext(readNode, readPattern, readSource["listUrl"], bool(readSource.get("nodeXpath"))),
+            readReference,
+        )
         if not readTime or readTime < readStart or readTime >= readEnd:
             continue
         readKey = (readUrl, readTitle, readTime)
@@ -238,6 +248,50 @@ def parseUstc(readPayload: dict, readSource: dict, readStart: int, readEnd: int)
     return readArticles
 
 
+def parseCareerList(readPayload: dict, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    for readEntry in (readPayload.get("data") or {}).get("list") or []:
+        try:
+            readDate = datetime.fromisoformat(readEntry["fbrq"]).replace(tzinfo=BEIJING_TZ)
+        except (KeyError, TypeError, ValueError):
+            continue
+        readTime = int(readDate.timestamp())
+        if readTime < readStart or readTime >= readEnd:
+            continue
+        readId = str(readEntry.get("zpxxid") or "")
+        readArticles.append(
+            {
+                "title": str(readEntry.get("zpzt") or "").strip(),
+                "link": urljoin(readSource["homepage"], f"/career/zpxx/view/zpxx/{readId}"),
+                "create_time": readTime,
+                "digest": str(readEntry.get("dwmc") or "").strip(),
+                "author": readSource["name"],
+                "origin": readSource["listUrl"],
+                "id": readId,
+            }
+        )
+    return [readArticle for readArticle in readArticles if readArticle["title"] and readArticle["id"]]
+
+
+def readCareerList(readSession, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    for readPage in range(1, int(readSource.get("maxPages", 5)) + 1):
+        readUrl = f"{readSource['listUrl']}/{readPage}/10"
+        readResponse = readSession.post(
+            readUrl, headers={"User-Agent": USER_AGENT}, data={}, timeout=60
+        )
+        readResponse.raise_for_status()
+        readPayload = readResponse.json()
+        if readPayload.get("code") != 200:
+            break
+        readRows = (readPayload.get("data") or {}).get("list") or []
+        readArticles.extend(parseCareerList(readPayload, readSource, readStart, readEnd))
+        readDates = [str(readRow.get("fbrq") or "") for readRow in readRows]
+        if not readRows or (readDates and min(readDates) < datetime.fromtimestamp(readStart, BEIJING_TZ).date().isoformat()):
+            break
+    return readArticles
+
+
 def readContent(readTree, readXpath: str):
     readNodes = readTree.xpath(readXpath)
     if readNodes:
@@ -268,6 +322,37 @@ def saveArticle(
 
     if readSource.get("format") == "uestc":
         readTree = parseHtml.fromstring(readArticle["content"])
+    elif readSource.get("format") == "career_v2":
+        readMatch = re.search(r"/zwxx/view/([^/?]+)", readArticle["link"])
+        if not readMatch:
+            return "error"
+        readUrl = urljoin(readSource["homepage"], f"/career/zwxx/data/{readMatch.group(1)}")
+        readResponse = readSession.get(readUrl, headers={"User-Agent": USER_AGENT}, timeout=60)
+        readResponse.raise_for_status()
+        readJob = readResponse.json().get("data") or {}
+        readContentHtml = (
+            f"<p>单位：{readJob.get('dwmc') or ''}</p>"
+            f"<p>岗位：{readJob.get('zwmc') or ''}</p>"
+            f"<p>地点：{readJob.get('gzdzxx') or readJob.get('gzdz') or ''}</p>"
+            f"<p>学历：{readJob.get('xlyqmc') or ''}</p>"
+            f"<div>{readJob.get('zwms') or ''}</div>"
+            f"<div>{readJob.get('dwjs') or ''}</div>"
+        )
+        readTree = parseHtml.fromstring(readContentHtml)
+    elif readSource.get("format") == "career_list":
+        readUrl = urljoin(readSource["homepage"], f"/career/zpxx/data/zpxx/{readArticle['id']}")
+        readResponse = readSession.post(
+            readUrl, headers={"User-Agent": USER_AGENT}, data={}, timeout=60
+        )
+        readResponse.raise_for_status()
+        readJob = readResponse.json().get("data") or {}
+        readContentHtml = (
+            f"<p>单位：{readJob.get('dwmc') or ''}</p>"
+            f"<p>主题：{readJob.get('zpzt') or ''}</p>"
+            f"<div>{readJob.get('zpxxEditor') or ''}</div>"
+            f"<div>{readJob.get('dwjs') or ''}</div>"
+        )
+        readTree = parseHtml.fromstring(readContentHtml)
     elif readSource.get("format") == "ustc":
         readResponse = readSession.get(
             readSource["detailUrl"].format(id=readArticle["id"]),
@@ -353,6 +438,8 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
         try:
             if readSource.get("format") == "jyxt":
                 readArticles = readJyxt(readSession, readSource, readStart, readEnd)
+            elif readSource.get("format") == "career_list":
+                readArticles = readCareerList(readSession, readSource, readStart, readEnd)
             else:
                 readResponse = readSession.get(
                     readSource["listUrl"], headers={"User-Agent": USER_AGENT}, timeout=60

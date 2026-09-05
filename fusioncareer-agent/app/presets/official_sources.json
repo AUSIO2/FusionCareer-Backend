@@ -117,6 +117,56 @@
     "maxPages": 60
   },
   {
+    "id": "cuc-career-jobs",
+    "name": "CUC中传就业",
+    "fakeid": "MzUxNzk1NzcyMw==",
+    "homepage": "https://jy.cuc.edu.cn/",
+    "listUrl": "https://jy.cuc.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 10
+  },
+  {
+    "id": "ucas-career-jobs",
+    "name": "国科大就业",
+    "fakeid": "Mzg4MjYxMDk5Ng==",
+    "homepage": "https://job.ucas.ac.cn/",
+    "listUrl": "https://job.ucas.ac.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 30
+  },
+  {
+    "id": "ecnu-career-jobs",
+    "name": "华东师大学生就业",
+    "fakeid": "MjM5NDYzOTc2NQ==",
+    "homepage": "https://career.ecnu.edu.cn/",
+    "listUrl": "https://career.ecnu.edu.cn/career/zpxx/search/zpxx",
+    "format": "career_list",
+    "contentXpath": "//*",
+    "maxPages": 5
+  },
+  {
+    "id": "sjtu-career-jobs",
+    "name": "交大就业",
+    "fakeid": "MzA4NzA2MzMxOQ==",
+    "homepage": "https://www.job.sjtu.edu.cn/",
+    "listUrl": "https://www.job.sjtu.edu.cn/career/zpxx/search/zpxx",
+    "format": "career_list",
+    "contentXpath": "//*",
+    "maxPages": 5
+  },
+  {
+    "id": "sufe-career-jobs",
+    "name": "上财就业CEPC",
+    "fakeid": "MzA4NjQzMTcwNw==",
+    "homepage": "https://career.sufe.edu.cn/",
+    "listUrl": "https://career.sufe.edu.cn/career/zpxx/search/zpxx",
+    "format": "career_list",
+    "contentXpath": "//*",
+    "maxPages": 5
+  },
+  {
     "id": "cqu-career-public",
     "name": "重大就业",
     "fakeid": "MjM5NTE5NjY4Mg==",

@@ -3,7 +3,15 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app.skills.business.official_sites import cleanTitle, parseArticles, parseJyxt, parseUestc, parseUstc
+from app.skills.business.official_sites import (
+    cleanTitle,
+    parseArticles,
+    parseCareerList,
+    parseJyxt,
+    parseUestc,
+    parseUstc,
+    parseDate,
+)
 
 
 def testParseArticles():
@@ -164,3 +172,54 @@ def testParseUstc():
     readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
     readFound = parseUstc(readPayload, readSource, readStart, readEnd)
     assert readFound[0]["id"] == "9083"
+
+
+def testParseCustomNode():
+    readHtml = """
+    <article><div class="job-card" data-url="/career/zwxx/view/1">
+      <h3 class="title">算法工程师</h3><span>2026-08-20</span>
+    </div></article>
+    """
+    readSource = {
+        "name": "测试就业网",
+        "listUrl": "https://job.example.edu.cn/career/index",
+        "nodeXpath": "//div[@data-url]",
+        "linkAttribute": "data-url",
+        "titleXpath": ".//h3//text()",
+        "linkPattern": r"/career/zwxx/view/",
+        "keywords": [],
+    }
+    readZone = ZoneInfo("Asia/Shanghai")
+    readStart = int(datetime(2026, 7, 1, tzinfo=readZone).timestamp())
+    readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
+    readFound = parseArticles(readHtml, readSource, readStart, readEnd)
+    assert readFound[0]["title"] == "算法工程师"
+
+
+def testParseCareerList():
+    readPayload = {
+        "data": {
+            "list": [
+                {
+                    "zpxxid": "1",
+                    "zpzt": "银行校园招聘",
+                    "dwmc": "某银行",
+                    "fbrq": "2026-08-20",
+                }
+            ]
+        }
+    }
+    readSource = {
+        "name": "交大就业",
+        "homepage": "https://job.example.edu.cn/",
+        "listUrl": "https://job.example.edu.cn/career/zpxx/search/zpxx",
+    }
+    readZone = ZoneInfo("Asia/Shanghai")
+    readStart = int(datetime(2026, 7, 1, tzinfo=readZone).timestamp())
+    readEnd = int(datetime(2026, 9, 1, tzinfo=readZone).timestamp())
+    readFound = parseCareerList(readPayload, readSource, readStart, readEnd)
+    assert readFound[0]["digest"] == "某银行"
+
+
+def testIgnoreInvalidDate():
+    assert parseDate("14:00-18:00", datetime(2026, 9, 1, tzinfo=ZoneInfo("Asia/Shanghai"))) == 0
