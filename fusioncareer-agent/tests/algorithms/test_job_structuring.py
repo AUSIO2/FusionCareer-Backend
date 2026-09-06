@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.algorithms.job_structuring import structureJobs
 from app.algorithms.job_structuring.normalize import normalizeJob
+from app.algorithms.job_structuring.prompt import JOB_PROMPT
 
 
 READ_FIXTURES = Path(__file__).parents[1] / "fixtures" / "algorithm"
@@ -111,3 +112,8 @@ def testStructureLongArticle():
 
     assert readClient.readCalls == 7
     assert len(readResult["jobs"]) == 7
+
+
+def testLimitLargeJobList():
+    assert "超过20个相似岗位" in JOB_PROMPT
+    assert "招聘岗位汇总" in JOB_PROMPT
