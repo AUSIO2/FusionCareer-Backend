@@ -114,6 +114,8 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
                 createPage(page, size),
                 new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
                         .eq(QuestionnaireAnswerEntity::getJobPostId, jobPostId)
+                        .ne(QuestionnaireAnswerEntity::getSubmissionStatus,
+                                QuestionnaireSubmissionStatus.DRAFT)
                         .orderByDesc(QuestionnaireAnswerEntity::getCreatedAt)
         );
 

@@ -155,6 +155,14 @@ class QuestionnaireExportTest {
     }
 
     @Test
+    void listAnswers() {
+        var readPage = readAnswerService.listByJobPostId(readJobId, 1, 20);
+
+        assertThat(readPage.getTotal()).isEqualTo(1);
+        assertThat(readPage.getList()).extracting("id").containsExactly(readAnswerId);
+    }
+
+    @Test
     void exportZip() throws Exception {
         byte[] readZip = readExportService.buildZip(readJobId, null);
         List<String> readEntries = new ArrayList<>();
