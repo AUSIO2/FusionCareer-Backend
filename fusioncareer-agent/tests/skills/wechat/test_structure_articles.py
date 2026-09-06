@@ -64,3 +64,36 @@ def testKeepPendingArticle(tmp_path: Path):
 
     assert readResult == {"articleCount": 1, "jobCount": 0, "failedCount": 1}
     assert len(readStore.readPendingArticles()) == 1
+
+
+def testStructureConcurrency(tmp_path: Path):
+    class SlowClient(FakeClient):
+        def __init__(self):
+            self.readActive = 0
+            self.readMaximum = 0
+
+        async def chat_json(self, **readOptions):
+            self.readActive += 1
+            self.readMaximum = max(self.readMaximum, self.readActive)
+            await asyncio.sleep(0.01)
+            self.readActive -= 1
+            return await super().chat_json(**readOptions)
+
+    readPaths = WechatPaths(tmp_path)
+    readStore = WechatStore(readPaths.database_file)
+    readStore.saveAccount("fakeid-a", "AccountA", True)
+    for readIndex in range(6):
+        readMarkdown = tmp_path / f"article-{readIndex}.md"
+        readMarkdown.write_text("# 招聘编辑", encoding="utf-8")
+        readArticle = {
+            "title": "招聘编辑",
+            "link": f"https://example.test/article-{readIndex}",
+            "create_time": readIndex + 1,
+        }
+        readStore.saveArticle("fakeid-a", readArticle, readMarkdown, f"hash-{readIndex}")
+
+    readClient = SlowClient()
+    readResult = asyncio.run(structureArticles(readPaths, FakeBackend(), readClient))
+
+    assert readResult == {"articleCount": 6, "jobCount": 6, "failedCount": 0}
+    assert readClient.readMaximum == 5

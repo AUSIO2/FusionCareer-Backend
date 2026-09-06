@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -39,25 +40,30 @@ async def structureArticles(
     readStore = WechatStore(readPaths.database_file)
     readExisting = {buildJobKey(readJob) for readJob in await updateBackend.list_job_posts()}
     readArticles = readStore.readPendingArticles()
-    createCount = 0
-    failCount = 0
-    for readArticle in readArticles:
-        try:
-            readText = Path(readArticle["markdown_path"]).read_text(encoding="utf-8")
-            readResult = await structureJobs(readText, readArticle["url"], "CRAWL", readClient)
-            createJobs = [
-                createJob for createJob in readResult["jobs"]
-                if buildJobKey(createJob) not in readExisting
-            ]
-            await updateBackend.create_job_posts(createJobs)
-            for createJob in createJobs:
-                readExisting.add(buildJobKey(createJob))
-            readStore.markStructured(readArticle["url"])
-            createCount += len(createJobs)
-        except Exception as readError:  # noqa: BLE001 - defer one article and continue the batch
-            logger.warning("structure article failed %s: %s", readArticle["url"], readError)
-            readStore.deferArticle(readArticle["url"])
-            failCount += 1
+    readSemaphore = asyncio.Semaphore(5)
+
+    async def createArticle(readArticle: dict) -> tuple[int, int]:
+        async with readSemaphore:
+            try:
+                readText = Path(readArticle["markdown_path"]).read_text(encoding="utf-8")
+                readResult = await structureJobs(readText, readArticle["url"], "CRAWL", readClient)
+                createJobs = [
+                    createJob for createJob in readResult["jobs"]
+                    if buildJobKey(createJob) not in readExisting
+                ]
+                await updateBackend.create_job_posts(createJobs)
+                for createJob in createJobs:
+                    readExisting.add(buildJobKey(createJob))
+                readStore.markStructured(readArticle["url"])
+                return len(createJobs), 0
+            except Exception as readError:  # noqa: BLE001 - defer one article and continue the batch
+                logger.warning("structure article failed %s: %s", readArticle["url"], readError)
+                readStore.deferArticle(readArticle["url"])
+                return 0, 1
+
+    readResults = await asyncio.gather(*(createArticle(readArticle) for readArticle in readArticles))
+    createCount = sum(readResult[0] for readResult in readResults)
+    failCount = sum(readResult[1] for readResult in readResults)
     return {"articleCount": len(readArticles), "jobCount": createCount, "failedCount": failCount}
 
 
