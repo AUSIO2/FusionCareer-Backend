@@ -1,6 +1,7 @@
 package com.fusioncareer.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fusioncareer.client.PythonServiceClient;
 import com.fusioncareer.client.dto.JobNormalizeAlgorithmResponse;
 import com.fusioncareer.dto.req.JobDescriptionNormalizeRequest;
@@ -8,7 +9,6 @@ import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.exception.ResultCode;
 import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.service.JobDescriptionNormalizationService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
@@ -22,16 +22,18 @@ import java.util.Set;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class JobDescriptionNormalizationServiceImpl implements JobDescriptionNormalizationService {
-
-    private static final Set<String> ENUM_FIELDS = Set.of(
-            "sourceType", "jobCategory", "jobSubCategory", "recruitType", "workDurationType",
-            "workPeriodType", "workMode", "reqEduLevel", "status"
-    );
 
     private final PythonServiceClient pythonServiceClient;
     private final ObjectMapper objectMapper;
+
+    public JobDescriptionNormalizationServiceImpl(PythonServiceClient pythonServiceClient, ObjectMapper objectMapper) {
+        this.pythonServiceClient = pythonServiceClient;
+        // 仅收紧算法结果转换，保留应用的日期模块，不影响其他接口。
+        this.objectMapper = objectMapper.copy()
+                .enable(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS)
+                .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT);
+    }
 
     @Override
     public JobPostRequest normalize(String rawDescription) {
@@ -57,7 +59,6 @@ public class JobDescriptionNormalizationServiceImpl implements JobDescriptionNor
 
         try {
             Map<String, Object> normalizedData = normalizeFieldNames(response.getData());
-            rejectNumericEnums(normalizedData);
             JobPostRequest result = objectMapper.convertValue(normalizedData, JobPostRequest.class);
             if (isBlank(result.getPositionName())
                     && isBlank(result.getCompanyName())
@@ -73,7 +74,15 @@ public class JobDescriptionNormalizationServiceImpl implements JobDescriptionNor
 
     private Map<String, Object> normalizeFieldNames(Map<String, Object> data) {
         Map<String, Object> normalized = new LinkedHashMap<>();
-        data.forEach((key, value) -> normalized.put(toCamelCase(key), value));
+        data.forEach((key, value) -> {
+            String field = toCamelCase(key);
+            // 来源与发布状态由管理员发布流程决定，算法只负责提取岗位内容。
+            if (Set.of("status", "sourceType").contains(field)) return;
+            if (normalized.containsKey(field)) {
+                throw new IllegalArgumentException("duplicate normalized field: " + field);
+            }
+            normalized.put(field, value instanceof String text ? text.strip() : value);
+        });
         return normalized;
     }
 
@@ -89,14 +98,6 @@ public class JobDescriptionNormalizationServiceImpl implements JobDescriptionNor
             }
         }
         return result.toString();
-    }
-
-    private void rejectNumericEnums(Map<String, Object> data) {
-        ENUM_FIELDS.forEach(field -> {
-            if (data.get(field) instanceof Number) {
-                throw new IllegalArgumentException("numeric enum is not supported: " + field);
-            }
-        });
     }
 
     private boolean isBlank(String value) {
