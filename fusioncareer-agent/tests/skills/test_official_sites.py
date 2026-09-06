@@ -1,5 +1,5 @@
-import json
 import base64
+import json
 import zlib
 from datetime import datetime
 from pathlib import Path
@@ -11,10 +11,10 @@ from app.skills.business.official_sites import (
     getPage,
     parseArticles,
     parseCareerList,
+    parseDate,
     parseJyxt,
     parseUestc,
     parseUstc,
-    parseDate,
 )
 
 

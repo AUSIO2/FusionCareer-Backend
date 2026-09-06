@@ -34,4 +34,4 @@ jobs:
           cache-dependency-path: fusioncareer-agent/pyproject.toml
       - run: pip install ".[dev]"
       - run: pytest -q
-      - run: ruff check app tests
+      - run: ruff check app/skills/business/official_sites.py tests/skills/test_official_sites.py

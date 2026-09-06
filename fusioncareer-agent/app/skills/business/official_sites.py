@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import base64
+import hashlib
 import json
 import re
 import time
@@ -673,7 +673,7 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
                 time.sleep(float(readSource.get("delaySeconds", 0)))
             readSaved += saveCount
             readStore.finishRun(readRun, "SUCCESS", saveCount)
-        except Exception as readError:
+        except Exception as readError:  # noqa: BLE001 - one source must not stop the remaining sources
             readStore.finishRun(readRun, "FAILED", saveCount, str(readError))
     return {"sourceCount": len(readSources), "articleCount": readFound, "savedCount": readSaved}
 
