@@ -33,9 +33,11 @@ def _inject_iteration_context(workflow: dict, state_path: str, iteration: int) -
     for node in nodes.values():
         inputs = node.get("inputs") or {}
         if "state_path" in inputs and isinstance(inputs["state_path"], dict):
-            inputs["state_path"] = {"value": state_path}
+            if inputs["state_path"].get("_loop_inject") or "value" not in inputs["state_path"]:
+                inputs["state_path"] = {"value": state_path}
         if "iteration" in inputs and isinstance(inputs["iteration"], dict):
-            inputs["iteration"] = {"value": iteration}
+            if inputs["iteration"].get("_loop_inject") or "value" not in inputs["iteration"]:
+                inputs["iteration"] = {"value": iteration}
     return wf
 
 

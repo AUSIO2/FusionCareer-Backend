@@ -1,0 +1,30 @@
+# 本地开发：使用 deploy/docker-compose.test.yml 的隔离 MySQL。
+server:
+  port: 9100
+
+spring:
+  datasource:
+    url: ${DEV_DB_URL:jdbc:mysql://127.0.0.1:13306/fusioncareer_test?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowMultiQueries=true}
+    username: ${DEV_DB_USERNAME:root}
+    password: ${DEV_DB_PASSWORD:fusioncareer_test}
+
+fudan-sso:
+  mock-login: true
+  mock-student-id: ${DEV_STUDENT_ID:dev-student}
+  mock-username: ${DEV_STUDENT_NAME:本地学生}
+  mock-admin-id: ${DEV_ADMIN_ID:dev-admin}
+  mock-role: ${DEV_USER_ROLE:ADMIN}
+  frontend-redirect-url: http://127.0.0.1:5173/
+
+upload:
+  base-dir: ${DEV_UPLOAD_DIR:${java.io.tmpdir}/fusioncareer-dev-uploads}
+  url-prefix: http://127.0.0.1:9100/files
+
+python-service:
+  base-url: http://127.0.0.1:9
+
+internal-service:
+  token: ${INTERNAL_SERVICE_TOKEN:dev-internal}
+
+sa-token:
+  is-log: false

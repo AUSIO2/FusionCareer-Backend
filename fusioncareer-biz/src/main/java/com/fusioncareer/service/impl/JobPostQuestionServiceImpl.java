@@ -53,7 +53,7 @@ public class JobPostQuestionServiceImpl extends ServiceImpl<JobPostQuestionMappe
             return entity;
         }).toList();
 
-        saveBatch(entities);
+        entities.forEach(this::save);
         log.info("岗位 {} 问卷已更新，共 {} 道题", jobPostId, entities.size());
 
         return entities.stream().map(this::toResponse).toList();

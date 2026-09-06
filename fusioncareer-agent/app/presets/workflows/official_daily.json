@@ -1,0 +1,24 @@
+{
+  "name": "official_daily",
+  "nodes": {
+    "paths": {
+      "skill": "input_json_obj",
+      "inputs": {
+        "json_obj": {"value": {"config_root": ""}}
+      }
+    },
+    "crawl": {
+      "skill": "official_crawl_sites",
+      "inputs": {
+        "paths": {"from": "paths.json_obj"}
+      }
+    },
+    "structure": {
+      "skill": "wechat_structure_articles",
+      "inputs": {
+        "paths": {"from": "paths.json_obj"},
+        "result": {"from": "crawl.json_obj"}
+      }
+    }
+  }
+}

@@ -78,9 +78,11 @@ FusionCareer-Backend/
 |------|------|------|------|
 | GET | `/sys/health` | 健康检查 | ❌ |
 | GET | `/fudan/login` | 重定向至复旦 SSO 登录 | ❌ |
-| GET | `/fudan/callback?code=xxx` | SSO 回调 | ❌ |
+| GET | `/fudan/callback?code=xxx&state=xxx` | SSO 回调 | ❌ |
 | GET | `/fudan/logout` | 主动注销 | ❌ |
+| POST | `/fudan/logout` | 注销并返回 UIS 退出地址 | ✅ |
 | GET | `/fudan/slo?token=xxx` | 被动注销回调 | ❌ |
+| GET | `/user/me` | 当前用户、角色与状态 | ✅ |
 
 ### 用户端接口（需要 `Fusion-Token` 认证）
 
@@ -119,9 +121,19 @@ FusionCareer-Backend/
 | GET | `/questionnaire/my/{jobPostId}` | 查看我的作答 |
 | POST | `/questionnaire/upload` | 上传问卷附件（multipart） |
 
-### 内部管理接口（`/internal/**`，无需认证）
+### 内部服务接口（`/internal/**`，无需认证）
 
-> 供管理后台和 Python 算法服务直接调用。
+> 仅供 Python 等内网服务直连 Java。
+
+浏览器管理后台改用受 `ADMIN` 角色保护的路径：
+
+| 资源 | 路径 |
+|------|------|
+| 岗位管理 | `/admin/job-post/**` |
+| 问卷与投递审核 | `/admin/questionnaire/**` |
+
+`/internal/**` 仅供内网服务直连 Java，公网 Nginx 对 `/api/internal/**` 返回 404。
+管理员可通过 `/admin/questionnaire/answers/job/{jobPostId}/export?format=csv|zip` 导出投递。
 
 #### 用户管理 `/internal/user`
 

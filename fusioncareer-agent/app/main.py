@@ -1,12 +1,7 @@
 """FusionCareer AI Agent — FastAPI 入口"""
 
 import copy
-import json
 import logging
-import shutil
-import subprocess
-import sys
-import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -18,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.api.deps.admin_auth import require_agent_admin
 from app.api.exceptions import register_exception_handlers
 from app.api.routers import admin as admin_router
+from app.api.routers import internal as internal_router
 from app.catalog.catalog import DataClassCatalog
 from app.catalog.ref_index import DataClassRefIndex
 from app.catalog.workflow_catalog import WorkflowCatalog
@@ -25,6 +21,7 @@ from app.config import settings
 from app.core.registry import SkillRegistry
 from app.core.source_skills import is_source_node
 from app.engine import WorkflowEngine, WorkflowNodeError
+from app.engine.loop_runner import LoopControl, run_with_loop, validate_loop
 from app.integrations.backend import BackendClient
 from app.runtime.paths import RuntimePaths
 from app.scheduler.service import SchedulerService
@@ -32,6 +29,7 @@ from app.skills.business.insert_resume import set_backend_client as set_insert_r
 from app.skills.business.insert_user_profile import (
     set_backend_client as set_insert_user_profile_backend,
 )
+from app.skills.business.wechat.structure_articles import set_backend_client as set_wechat_backend
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,6 +50,7 @@ async def lifespan(app: FastAPI):
 
     set_insert_resume_backend(backend_client)
     set_insert_user_profile_backend(backend_client)
+    set_wechat_backend(backend_client)
 
     runtime_paths = RuntimePaths(Path(settings.agent_runtime_dir).resolve())
     runtime_paths.ensure_dirs()
@@ -82,6 +81,7 @@ async def lifespan(app: FastAPI):
         engine,
         workflow_catalog,
         runtime_paths,
+        registry,
         timezone=settings.schedule_timezone,
     )
     scheduler_service.start()
@@ -93,6 +93,7 @@ async def lifespan(app: FastAPI):
     app.state.workflow_catalog = workflow_catalog
     app.state.workflow_engine = engine
     app.state.scheduler_service = scheduler_service
+    app.state.backend_client = backend_client
 
     logger.info(
         "启动完成: %d Skill, %d 工作流, %d 数据类, %d 定时任务",
@@ -117,6 +118,7 @@ app = FastAPI(
 
 register_exception_handlers(app)
 app.include_router(admin_router.router)
+app.include_router(internal_router.router)
 
 
 class RunWorkflowRequest(BaseModel):
@@ -128,13 +130,6 @@ class RunWorkflowRequest(BaseModel):
 class RunPresetRequest(BaseModel):
     overrides: dict = Field(default_factory=dict)
     loop: dict | None = None
-
-
-class LoopControl(BaseModel):
-    judge_skill: str
-    max_iterations: int = Field(gt=0)
-    judge_inputs: dict[str, Any] = Field(default_factory=dict)
-    initial_globals: dict[str, Any] = Field(default_factory=dict)
 
 
 def _validate_overrides(workflow: dict, overrides: dict) -> list[str]:
@@ -168,96 +163,9 @@ def _validate_or_422(workflow: dict, *, overrides: dict | None = None) -> None:
 
 
 def _validate_loop_or_422(loop: LoopControl | None) -> None:
-    if loop is None:
-        return
-    try:
-        skill = registry.get(loop.judge_skill)
-    except KeyError:
-        raise HTTPException(
-            status_code=422,
-            detail={"errors": [f"judge_skill '{loop.judge_skill}' 不存在"]},
-        ) from None
-    defn = skill.define()
-    out_def = defn.get("outputs") or {}
-    if out_def.get("continue") != "bool":
-        raise HTTPException(
-            status_code=422,
-            detail={"errors": [f"judge_skill '{loop.judge_skill}' 必须输出 continue(bool)"]},
-        )
-    required_inputs = set((defn.get("inputs") or {}).keys()) - {"state_path", "iteration"}
-    missing = sorted(slot for slot in required_inputs if slot not in loop.judge_inputs)
-    if missing:
-        raise HTTPException(
-            status_code=422,
-            detail={"errors": [f"judge_inputs 缺少必需字段: {', '.join(missing)}"]},
-        )
-
-
-def _run_workflow_subprocess(workflow: dict, state_path: Path, iteration: int) -> dict[str, Any]:
-    run_root = state_path.parent
-    payload_path = run_root / f"iter_{iteration}.json"
-    payload_path.write_text(
-        json.dumps(
-            {
-                "workflow": workflow,
-                "state_path": str(state_path),
-                "iteration": iteration,
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-    proc = subprocess.run(
-        [sys.executable, "-m", "app.engine.for_worker", str(payload_path)],
-        cwd=str(Path(__file__).resolve().parents[1]),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"iteration={iteration} 子进程失败 rc={proc.returncode}: {proc.stderr.strip()}"
-        )
-    lines = [line for line in proc.stdout.splitlines() if line.strip()]
-    if not lines:
-        return {}
-    return json.loads(lines[-1])
-
-
-async def _run_with_loop(workflow_name: str, workflow: dict, loop: LoopControl) -> dict[str, Any]:
-    run_id = str(uuid.uuid4())
-    run_root = Path(settings.agent_runtime_dir).resolve() / "runs" / run_id
-    run_root.mkdir(parents=True, exist_ok=True)
-    state_path = run_root / "state.json"
-    state_path.write_text(json.dumps(loop.initial_globals, ensure_ascii=False), encoding="utf-8")
-
-    judge = registry.get(loop.judge_skill)
-    iterations_executed = 0
-    stopped_by_judge = False
-    last_result: dict[str, Any] = {}
-    try:
-        for i in range(loop.max_iterations):
-            judge_inputs = dict(loop.judge_inputs)
-            if "state_path" in (judge.define().get("inputs") or {}):
-                judge_inputs["state_path"] = str(state_path)
-            if "iteration" in (judge.define().get("inputs") or {}):
-                judge_inputs["iteration"] = i
-            decision = await judge.execute(judge_inputs)
-            if not bool(decision.get("continue", False)):
-                stopped_by_judge = True
-                break
-            last_result = _run_workflow_subprocess(workflow, state_path, i)
-            iterations_executed += 1
-    finally:
-        shutil.rmtree(run_root, ignore_errors=True)
-    return {
-        "status": "completed",
-        "workflow": workflow_name,
-        "run_id": run_id,
-        "iterations_executed": iterations_executed,
-        "stopped_by_judge": stopped_by_judge,
-        "outputs": (last_result.get("outputs") or {}),
-    }
+    errors = validate_loop(registry, loop)
+    if errors:
+        raise HTTPException(status_code=422, detail={"errors": errors})
 
 
 async def _run_response(
@@ -271,7 +179,7 @@ async def _run_response(
     _validate_loop_or_422(loop)
     try:
         if loop is not None:
-            return await _run_with_loop(workflow_name, workflow, loop)
+            return await run_with_loop(registry, workflow_name, workflow, loop)
         outputs = await engine.run(workflow)
         return {
             "status": "completed",

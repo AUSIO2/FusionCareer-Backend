@@ -9,6 +9,8 @@ import com.fusioncareer.entity.UserEntity;
 import com.fusioncareer.entity.UserProfileEntity;
 import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.enums.UserStatus;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.service.FudanSsoService;
 import com.fusioncareer.service.ResumeService;
 import com.fusioncareer.service.UserProfileService;
@@ -20,16 +22,22 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
@@ -42,20 +50,45 @@ public class FudanSsoServiceImpl implements FudanSsoService {
     private final UserProfileService userProfileService;
     private final ResumeService resumeService;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+    private final Environment environment;
 
     // 在内存中映射 Fudan 的 access_token -> Sa-Token 的 tokenValue
     private final Map<String, String> ssoToSaTokenMap = new ConcurrentHashMap<>();
 
     @Override
-    public String buildLoginUrl() {
-        String redirectUri = URLEncoder.encode(ssoProperties.getRedirectUri(), StandardCharsets.UTF_8);
-        return String.format("%s?client_id=%s&response_type=code&redirect_uri=%s",
-                ssoProperties.getAuthUrl(), ssoProperties.getClientId(), redirectUri);
+    public String createState() {
+        return UUID.randomUUID().toString();
     }
 
     @Override
-    public String processCallback(String code) {
+    public boolean useMockLogin() {
+        return environment.acceptsProfiles(Profiles.of("dev")) && ssoProperties.isMockLogin();
+    }
+
+    @Override
+    public void verifyState(String readExpected, String readActual) {
+        if (readExpected == null || readActual == null || !MessageDigest.isEqual(
+                readExpected.getBytes(StandardCharsets.UTF_8),
+                readActual.getBytes(StandardCharsets.UTF_8))) {
+            throw ServiceException.of(ResultCode.VALIDATE_FAILED, "SSO state 无效或已使用");
+        }
+    }
+
+    @Override
+    public String buildLoginUrl(String readState) {
+        return UriComponentsBuilder.fromUriString(ssoProperties.getAuthUrl())
+                .queryParam("client_id", ssoProperties.getClientId())
+                .queryParam("response_type", "code")
+                .queryParam("redirect_uri", ssoProperties.getRedirectUri())
+                .queryParam("state", readState)
+                .build()
+                .encode()
+                .toUriString();
+    }
+
+    @Override
+    public String processCallback(String code, boolean openAdmin) {
         try {
             // 1. 获取 Access Token
             String accessToken = getAccessToken(code);
@@ -67,7 +100,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             JsonNode userInfo = getUserInfo(accessToken);
             String userId = resolveFudanUserId(userInfo);
             if (userId == null || userId.isBlank()) {
-                log.error("Fudan userInfo missing user id, body={}", userInfo);
+                log.error("Fudan userInfo missing user id");
                 throw new RuntimeException("Failed to get user info");
             }
 
@@ -107,7 +140,11 @@ public class FudanSsoServiceImpl implements FudanSsoService {
                 resume.setCreatedAt(LocalDateTime.now());
                 resumeService.save(resume);
 
-                log.info("Registered new user and synced profile from Fudan SSO: {}", userId);
+                log.info("Registered new user from Fudan SSO");
+            }
+
+            if (user.getStatus() == UserStatus.DISABLED) {
+                throw ServiceException.of(ResultCode.FORBIDDEN, "用户已禁用");
             }
 
             // 4. Sa-Token 登录
@@ -117,19 +154,64 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             // 记录 ssoToken 和 saToken 的关系，供被动登出使用
             ssoToSaTokenMap.put(accessToken, saTokenValue);
 
-            // 构造重定向 URL
-            return ssoProperties.getFrontendRedirectUrl() + "?token=" + saTokenValue;
+            boolean allowAdmin = openAdmin && user.getRole() == UserRole.ADMIN;
+            String readRoute = allowAdmin ? "#/admin" : "#/home";
+            String readNotice = openAdmin && !allowAdmin ? "&notice=admin_forbidden" : "";
+            return ssoProperties.getFrontendRedirectUrl() + readRoute
+                    + "?token=" + saTokenValue + readNotice;
 
         } catch (Exception e) {
-            log.error("Fudan SSO callback processing error", e);
-            throw new RuntimeException("SSO Login Error: " + e.getMessage());
+            log.error("Fudan SSO callback failed: {}", e.getClass().getSimpleName());
+            throw new RuntimeException("SSO login failed");
         }
+    }
+
+    @Override
+    @Transactional
+    public String loginMock(UserRole readRole, boolean openAdmin) {
+        UserRole createRole = readRole == null ? ssoProperties.getMockRole() : readRole;
+        String readStudentId = createRole == UserRole.ADMIN
+                ? ssoProperties.getMockAdminId()
+                : ssoProperties.getMockStudentId();
+        String readUsername = createRole == UserRole.ADMIN
+                ? "本地管理员"
+                : ssoProperties.getMockUsername();
+        UserEntity readUser = userService.lambdaQuery()
+                .eq(UserEntity::getStudentId, readStudentId)
+                .one();
+        if (readUser == null) {
+            readUser = new UserEntity();
+            readUser.setStudentId(readStudentId);
+            readUser.setUsername(readUsername);
+            readUser.setRole(createRole);
+            readUser.setStatus(UserStatus.NORMAL);
+            readUser.setCreatedAt(LocalDateTime.now());
+            userService.save(readUser);
+
+            UserProfileEntity createProfile = new UserProfileEntity();
+            createProfile.setUserId(readUser.getId());
+            createProfile.setRealName(readUsername);
+            createProfile.setCreatedAt(LocalDateTime.now());
+            userProfileService.save(createProfile);
+
+            ResumeEntity createResume = new ResumeEntity();
+            createResume.setUserId(readUser.getId());
+            createResume.setCreatedAt(LocalDateTime.now());
+            resumeService.save(createResume);
+        }
+        StpUtil.login(readUser.getId());
+        String readRoute = openAdmin && createRole == UserRole.ADMIN ? "#/admin" : "#/home";
+        return ssoProperties.getFrontendRedirectUrl()
+                + readRoute + "?token=" + StpUtil.getTokenValue();
     }
 
     @Override
     public String processLogout() {
         if (StpUtil.isLogin()) {
             StpUtil.logout();
+        }
+        if (useMockLogin()) {
+            return ssoProperties.getFrontendRedirectUrl() + "#/login";
         }
         String redirectUrl = URLEncoder.encode(ssoProperties.getFrontendRedirectUrl(), StandardCharsets.UTF_8);
         return String.format("%s?redirectToLogin=false&redirectToUrl=%s",
@@ -141,9 +223,9 @@ public class FudanSsoServiceImpl implements FudanSsoService {
         String saTokenValue = ssoToSaTokenMap.remove(token);
         if (saTokenValue != null) {
             StpUtil.logoutByTokenValue(saTokenValue);
-            log.info("Successfully logged out Sa-Token value corresponding to Fudan SSO token");
+            log.info("Processed Fudan SSO logout");
         } else {
-            log.warn("Fudan SSO token not found in local map: {}", token);
+            log.warn("Fudan SSO token not found in local map");
         }
     }
 
@@ -200,7 +282,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
         );
 
         String body = response.getBody();
-        log.info("Fudan userInfo HTTP {} body={}", response.getStatusCode(), body);
+        log.info("Fudan userInfo HTTP {}", response.getStatusCode());
 
         if (response.getStatusCode().is2xxSuccessful() && body != null && !body.isBlank()) {
             JsonNode root = objectMapper.readTree(body);

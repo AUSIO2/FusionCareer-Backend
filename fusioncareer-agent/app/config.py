@@ -20,9 +20,15 @@ class Settings(BaseSettings):
 
     # 管理员 API（PUT /api/admin/*）；未配置则管理接口返回 503
     agent_admin_token: str = ""
+    internal_service_token: str = ""
 
     # 定时任务时区
     schedule_timezone: str = "Asia/Shanghai"
+
+    # 微信公众号爬虫数据目录（config.json / gzh.txt / history.json 等）
+    wechat_config_root: str = ""
+    wechat_token: str = ""
+    wechat_cookie: str = ""
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

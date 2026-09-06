@@ -48,7 +48,7 @@ public class InternalJobPostController {
     @GetMapping("/list")
     @Operation(summary = "分页查询岗位列表")
     public R<PageResult<JobPostResponse>> list(JobPostQueryRequest query) {
-        return R.success(jobPostService.listJobPosts(query));
+        return R.success(jobPostService.listJobs(query));
     }
 
     @PutMapping("/{id}")

@@ -110,7 +110,7 @@ curl -I http://fusioncareer.fudan.edu.cn/fudan/login
 
 1. 打开 `https://fusioncareer.fudan.edu.cn/fudan/login`（Python Nginx → Java）
 2. 跳转复旦认证 → 回调 `.../fudan/callback`（仍经 Python Nginx → Java）
-3. 重定向 `https://fusioncareer.fudan.edu.cn/?token=...`（前端读 token）
+3. 重定向 `https://fusioncareer.fudan.edu.cn/#/login?token=...`（前端从 fragment 读取 token，避免进入访问日志）
 
 ---
 

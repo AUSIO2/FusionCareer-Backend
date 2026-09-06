@@ -6,6 +6,10 @@
 > ```json
 > { "code": 200, "message": "操作成功", "data": ... }
 > ```
+> 请求错误仍使用相同结构且 `data` 为 `null`。标准错误的 HTTP 状态与
+> `code` 一致：参数错误 400、未登录 401、无权限 403、资源不存在 404、
+> 状态冲突 409、服务异常 500；模块业务码（如 410xx、420xx）保持在响应体
+> `code` 中，由客户端读取并展示 `message`。
 
 ---
 
@@ -19,7 +23,7 @@
   - [3.3 简历文件](#33-简历文件)
   - [3.4 岗位浏览](#34-岗位浏览)
   - [3.5 岗位投递问卷](#35-岗位投递问卷)
-- [4. 内部管理接口（无需登录）](#4-内部管理接口无需登录)
+- [4. 管理员与内部接口](#4-管理员与内部接口)
   - [4.1 用户管理](#41-用户管理)
   - [4.2 用户资料管理](#42-用户资料管理)
   - [4.3 简历管理](#43-简历管理)
@@ -48,12 +52,25 @@
 
 | 方法 | 路径 | 说明 | 认证 |
 |------|------|------|------|
-| GET | `/fudan/login` | 重定向至复旦统一认证登录 | ❌ |
-| GET | `/fudan/callback?code=xxx` | 认证回调（复旦认证中心调用） | ❌ |
+| GET | `/fudan/login?target=user|admin` | 重定向至复旦统一认证登录，并保存登录目标 | ❌ |
+| GET | `/fudan/callback?code=xxx&state=xxx` | 认证回调（复旦认证中心调用） | ❌ |
 | GET | `/fudan/logout` | 主动注销，重定向至复旦退出 | ❌ |
+| POST | `/fudan/logout` | 注销本地会话并返回 UIS 退出地址 | ✅ |
 | GET | `/fudan/slo?token=xxx` | 被动注销回调（复旦认证中心调用） | ❌ |
 
-> 登录成功后，回调接口会自动创建/更新用户并生成 Sa-Token，通过 Cookie 或 URL 参数返回给前端。
+> 登录请求和回调必须携带匹配的一次性 `state`。`target` 只决定登录后的落地页，管理员权限仍由数据库角色和 `/admin/**` 后端鉴权决定。登录成功后生成 Sa-Token，并重定向到 `/#/home?token=...` 或 `/#/admin?token=...`；fragment 不会进入 Nginx 请求日志。普通用户请求管理端时回到首页并携带 `notice=admin_forbidden`。
+
+POST 退出响应：
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "redirectUrl": "https://id.fudan.edu.cn/..."
+  }
+}
+```
 
 ---
 
@@ -65,8 +82,11 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| GET | `/user/me` | 获取当前用户、角色和状态 |
 | GET | `/user/profile/get` | 获取个人资料 |
 | PUT | `/user/profile/save` | 保存个人资料 |
+
+`GET /user/me` 返回 `UserResponse`，其中 `role` 为 `NORMAL` 或 `ADMIN`，`status` 为 `NORMAL` 或 `DISABLED`。管理员路由必须以后端角色校验结果为准。
 
 **PUT 请求体** `UserProfileRequest`:
 ```json
@@ -156,8 +176,18 @@
 | `workDurationType` | enum | 工作时长类型 |
 | `workPeriodType` | enum | 实习时长 |
 | `workMode` | enum | 工作形式 |
+| `workProvince` | string | 工作省份 |
 | `workCity` | string | 工作城市 |
+| `salaryMin` | int | 查询薪资下限，与岗位薪资区间相交 |
+| `salaryMax` | int | 查询薪资上限，与岗位薪资区间相交 |
+| `sortBy` | enum | `NEWEST`（默认）或 `DEADLINE` |
+| `recommended` | boolean | 是否只查询推荐岗位 |
 | `sourceType` | enum | 来源类型 |
+
+岗位响应额外包含：
+
+- `recommended`：是否推荐。
+- `applicationCount`：已提交和已审核的投递数，不包含草稿。
 
 ### 3.5 岗位投递问卷
 
@@ -195,9 +225,37 @@
 
 ---
 
-## 4. 内部管理接口（无需登录）
+## 4. 管理员与内部接口
 
-> 路径前缀 `/internal/**`，不经过 Sa-Token 拦截器，供管理后台和 Python 算法服务直接调用。
+### 4.0 浏览器管理员接口
+
+浏览器管理接口需要 `Fusion-Token`，且当前用户角色必须为 `ADMIN`：
+
+| 资源 | 路径 | 能力 |
+|------|------|------|
+| 岗位 | `/admin/job-post/**` | 列表、详情、创建、批量创建、更新、删除 |
+| 问卷题目 | `/admin/questionnaire/questions/**` | 读取、整组保存、删除 |
+| 投递审核 | `/admin/questionnaire/answers/**` | 列表、详情、单条审核、批量审核、导出 |
+
+未登录返回 HTTP 401，普通用户返回 HTTP 403。
+
+投递导出：
+
+```text
+GET /admin/questionnaire/answers/job/{jobPostId}/export?format=csv
+GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
+```
+
+- `answerIds` 可选，可重复传递或使用逗号分隔，只导出选中的投递。
+- CSV 带 UTF-8 BOM，可直接用 Excel 打开。
+- ZIP 包含 `applications.csv` 和问卷文件题引用的简历附件。
+- 草稿不会进入导出结果。
+
+### 内部服务接口
+
+> 路径前缀 `/internal/**`，不经过 Sa-Token 拦截器，仅供 Python 等内网服务直接调用。
+
+浏览器和公网客户端不得调用 `/internal/**`；生产 Nginx 对 `/api/internal/**` 返回 404。该路径只允许 Python 等服务在隔离网络中直连 Java。
 
 ### 4.1 用户管理
 
@@ -277,6 +335,7 @@
   "reqGradYear": "2026届",
   "reqSkills": "Office 办公软件",
   "reqOther": "认真负责",
+  "recommended": true,
   "status": "PUBLISHED"
 }
 ```

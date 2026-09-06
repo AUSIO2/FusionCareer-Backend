@@ -16,6 +16,7 @@ spring:
 # ===== 复旦 SSO 统一身份认证 =====
 # client-id / client-secret 通过环境变量注入，禁止硬编码
 fudan-sso:
+  mock-login: false
   client-id: ${FUDAN_SSO_CLIENT_ID}
   client-secret: ${FUDAN_SSO_CLIENT_SECRET}
   redirect-uri: ${FUDAN_SSO_REDIRECT_URI:https://fusioncareer.fudan.edu.cn/fudan/callback}
@@ -30,6 +31,9 @@ upload:
 # ===== AI Agent 服务（双机部署时通过环境变量指向 Python 机内网 IP） =====
 python-service:
   base-url: ${PYTHON_SERVICE_BASE_URL:http://127.0.0.1:8900}
+
+internal-service:
+  token: ${INTERNAL_SERVICE_TOKEN}
 
 # ===== 关闭 SQL 日志 =====
 mybatis-plus:

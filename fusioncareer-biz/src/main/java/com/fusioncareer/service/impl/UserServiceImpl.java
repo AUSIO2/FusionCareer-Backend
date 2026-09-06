@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import static com.fusioncareer.util.PaginationUtil.createPage;
+
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> implements UserService {
 
@@ -37,11 +39,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
         wrapper.like(StringUtils.hasText(username), UserEntity::getUsername, username)
                .orderByDesc(UserEntity::getCreatedAt);
 
-        Page<UserEntity> result = page(new Page<>(page, size), wrapper);
+        Page<UserEntity> readUsers = page(createPage(page, size), wrapper);
 
-        PageResult<UserResponse> pageResult = new PageResult<>(result.getTotal(), page, size);
-        result.getRecords().forEach(e -> pageResult.add(toResponse(e)));
-        return pageResult;
+        PageResult<UserResponse> readPage = new PageResult<>(readUsers.getTotal(),
+                (int) readUsers.getCurrent(), (int) readUsers.getSize());
+        readUsers.getRecords().forEach(e -> readPage.add(toResponse(e)));
+        return readPage;
     }
 
     @Transactional
