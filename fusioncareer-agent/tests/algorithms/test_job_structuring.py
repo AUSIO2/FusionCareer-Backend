@@ -3,13 +3,18 @@ import json
 from pathlib import Path
 
 from app.algorithms.job_structuring import structureJobs
+from app.algorithms.job_structuring.normalize import normalizeJob
 
 
 READ_FIXTURES = Path(__file__).parents[1] / "fixtures" / "algorithm"
 
 
 class FakeJobClient:
+    def __init__(self):
+        self.readOptions = {}
+
     async def chat_json(self, **readOptions):
+        self.readOptions = readOptions
         return {
             "jobs": [
                 {
@@ -42,14 +47,16 @@ class FakeJobClient:
 def testStructureJobs():
     readArticle = (READ_FIXTURES / "job_article.md").read_text(encoding="utf-8")
     readContract = json.loads((READ_FIXTURES / "job_contract.json").read_text(encoding="utf-8"))
+    readClient = FakeJobClient()
     readResult = asyncio.run(structureJobs(
         readArticle,
         "https://example.test/jobs/2026-campus",
         "PLATFORM",
-        FakeJobClient(),
+        readClient,
     ))
 
     assert readResult == readContract
+    assert readClient.readOptions["max_tokens"] == 16384
 
 
 def testSkipInvalidJob():
@@ -60,3 +67,22 @@ def testSkipInvalidJob():
     readResult = asyncio.run(structureJobs("招聘信息", readClient=FakeInvalidClient()))
     assert readResult["jobs"] == []
     assert "missing positionName" in readResult["warnings"][0]
+
+
+def testNormalizeModelVariants():
+    readJob, readWarnings = normalizeJob(
+        {
+            "单位名称": "示例公司",
+            "岗位名称": "示例岗位",
+            "招聘类型": "暑期提前批实习",
+            "学历要求": "本科及以上",
+            "工作城市": "城市" * 30,
+        },
+        "https://example.test/job",
+        "CRAWL",
+    )
+
+    assert readWarnings == []
+    assert readJob["recruitType"] == "OTHER"
+    assert "reqEduLevel" not in readJob
+    assert len(readJob["workCity"]) == 32

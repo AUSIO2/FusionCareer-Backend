@@ -22,7 +22,7 @@ async def structureJobs(
         user_message=readText[:28000],
         system_prompt=JOB_PROMPT,
         temperature=0.1,
-        max_tokens=8192,
+        max_tokens=16384,
     )
     readItems = readResponse.get("jobs", []) if isinstance(readResponse, dict) else []
     if not isinstance(readItems, list):

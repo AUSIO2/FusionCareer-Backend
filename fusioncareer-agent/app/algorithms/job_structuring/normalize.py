@@ -73,6 +73,20 @@ SUB_PARENTS = {
 }
 INT_FIELDS = {"headcount", "workDaysPerWeek", "salaryMin", "salaryMax"}
 DATE_FIELDS = {"workStartDate", "workEndDate"}
+TEXT_LIMITS = {
+    "sourceUrl": 512,
+    "companyName": 128,
+    "department": 128,
+    "positionName": 128,
+    "workCity": 32,
+    "workProvince": 32,
+    "workLocation": 128,
+    "salaryDisplay": 64,
+    "reqMajor": 256,
+    "reqGradYear": 16,
+    "reqSkills": 512,
+    "reqOther": 512,
+}
 
 
 def normalizeText(readValue: Any) -> str:
@@ -97,7 +111,7 @@ def normalizeJob(
         readValue = readFlat.get(readField)
         if readField in ENUM_MAPS:
             readText = normalizeText(readValue)
-            createJob[readField] = ENUM_MAPS[readField].get(readText, readText or None)
+            createJob[readField] = ENUM_MAPS[readField].get(readText)
         elif readField in INT_FIELDS:
             try:
                 createJob[readField] = int(readValue) if readValue not in (None, "") else None
@@ -109,7 +123,8 @@ def normalizeJob(
         elif readField == "recommended":
             createJob[readField] = bool(readValue) if readValue is not None else False
         else:
-            createJob[readField] = normalizeText(readValue) or None
+            readText = normalizeText(readValue)
+            createJob[readField] = readText[:TEXT_LIMITS.get(readField, len(readText))] or None
 
     createJob["sourceType"] = readSourceType
     createJob["sourceUrl"] = readSourceUrl or createJob.get("sourceUrl")
