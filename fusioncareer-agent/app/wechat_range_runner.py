@@ -28,7 +28,6 @@ from app.skills.business.wechat.paths import WechatPaths
 from app.skills.business.wechat.store import WechatStore
 from app.skills.business.wechat.structure_articles import structureArticles
 
-
 readZone = ZoneInfo("Asia/Shanghai")
 
 
@@ -154,6 +153,8 @@ async def structurePending(readPaths: WechatPaths) -> None:
             print(json.dumps({"event": "structure", **createResult}), flush=True)
             if createResult["articleCount"] == 0:
                 return
+            if createResult["failedCount"] == createResult["articleCount"]:
+                raise RuntimeError("all pending articles failed to structure")
     finally:
         await createBackend.close()
 

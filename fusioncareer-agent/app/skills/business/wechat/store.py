@@ -258,6 +258,13 @@ class WechatStore:
                 "UPDATE articles SET structured = 1 WHERE url = ?", (readUrl,)
             )
 
+    def deferArticle(self, readUrl: str) -> None:
+        updateTime = datetime.now(timezone.utc).isoformat()
+        with self.openDatabase() as updateDatabase:
+            updateDatabase.execute(
+                "UPDATE articles SET created_at = ? WHERE url = ?", (updateTime, readUrl)
+            )
+
     @staticmethod
     def buildFallback(readFakeid: str) -> str:
         readHash = hashlib.sha256(readFakeid.encode("utf-8")).hexdigest()[:8]

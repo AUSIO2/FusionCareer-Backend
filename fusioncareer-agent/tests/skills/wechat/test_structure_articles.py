@@ -1,8 +1,6 @@
 import asyncio
 from pathlib import Path
 
-import pytest
-
 from app.skills.business.wechat.paths import WechatPaths
 from app.skills.business.wechat.store import WechatStore
 from app.skills.business.wechat.structure_articles import structureArticles
@@ -48,7 +46,7 @@ def testStructureArticles(tmp_path: Path):
 
     readResult = asyncio.run(structureArticles(readPaths, readBackend, FakeClient()))
 
-    assert readResult == {"articleCount": 1, "jobCount": 1}
+    assert readResult == {"articleCount": 1, "jobCount": 1, "failedCount": 0}
     assert readBackend.createJobs[0]["status"] == "OFFLINE"
     assert readStore.readPendingArticles() == []
 
@@ -62,7 +60,7 @@ def testKeepPendingArticle(tmp_path: Path):
     readArticle = {"title": "招聘编辑", "link": "https://example.test/article", "create_time": 1}
     readStore.saveArticle("fakeid-a", readArticle, readMarkdown, "hash")
 
-    with pytest.raises(RuntimeError):
-        asyncio.run(structureArticles(readPaths, FakeBackend(readFail=True), FakeClient()))
+    readResult = asyncio.run(structureArticles(readPaths, FakeBackend(readFail=True), FakeClient()))
 
+    assert readResult == {"articleCount": 1, "jobCount": 0, "failedCount": 1}
     assert len(readStore.readPendingArticles()) == 1

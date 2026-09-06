@@ -79,6 +79,7 @@ class LLMClient:
         system_prompt: str = "",
         model: str | None = None,
         temperature: float = 0.1,
+        max_tokens: int = 4096,
     ) -> dict:
         """
         发送聊天请求，要求返回 JSON 格式，自动解析。
@@ -88,19 +89,24 @@ class LLMClient:
         """
         import json
 
-        raw = await self.chat(
-            user_message=user_message,
-            system_prompt=system_prompt,
-            model=model,
-            temperature=temperature,
-            response_format={"type": "json_object"},
-        )
+        for readAttempt in range(2):
+            raw = await self.chat(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+            )
 
-        # 容错：去除可能的 markdown 包裹
-        text = raw.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            text = "\n".join(lines)
-
-        return json.loads(text)
+            text = raw.strip()
+            if text.startswith("```"):
+                lines = text.split("\n")
+                lines = [readLine for readLine in lines if not readLine.strip().startswith("```")]
+                text = "\n".join(lines)
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                if readAttempt:
+                    raise
+        raise RuntimeError("LLM JSON retry exhausted")
