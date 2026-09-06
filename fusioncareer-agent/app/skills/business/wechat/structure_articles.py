@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,20 @@ def buildJobKey(readJob: dict) -> tuple[str, str, str]:
     )
 
 
+def createSummary(readArticle: dict, readText: str) -> dict:
+    return {
+        "sourceType": "CRAWL",
+        "sourceUrl": readArticle["url"],
+        "companyName": str(readArticle["title"])[:128],
+        "positionName": "招聘岗位汇总",
+        "jobCategory": "OTHER",
+        "jobSubCategory": "OTHER",
+        "recruitType": "OTHER",
+        "jobDesc": readText[:12000],
+        "status": "OFFLINE",
+    }
+
+
 async def structureArticles(
     readPaths: WechatPaths,
     updateBackend: BackendClient,
@@ -56,6 +71,16 @@ async def structureArticles(
                     readExisting.add(buildJobKey(createJob))
                 readStore.markStructured(readArticle["url"])
                 return len(createJobs), 0
+            except json.JSONDecodeError:
+                try:
+                    createJob = createSummary(readArticle, readText)
+                    await updateBackend.create_job_posts([createJob])
+                    readStore.markStructured(readArticle["url"])
+                    return 1, 0
+                except Exception as readError:  # noqa: BLE001 - defer failed Java write
+                    logger.warning("structure summary failed %s: %s", readArticle["url"], readError)
+                    readStore.deferArticle(readArticle["url"])
+                    return 0, 1
             except Exception as readError:  # noqa: BLE001 - defer one article and continue the batch
                 logger.warning("structure article failed %s: %s", readArticle["url"], readError)
                 readStore.deferArticle(readArticle["url"])

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 from app.skills.business.wechat.paths import WechatPaths
@@ -97,3 +98,28 @@ def testStructureConcurrency(tmp_path: Path):
 
     assert readResult == {"articleCount": 6, "jobCount": 6, "failedCount": 0}
     assert readClient.readMaximum == 5
+
+
+def testCreateSummary(tmp_path: Path):
+    class BrokenClient:
+        async def chat_json(self, **readOptions):
+            raise json.JSONDecodeError("broken", "{", 1)
+
+    readPaths = WechatPaths(tmp_path)
+    readStore = WechatStore(readPaths.database_file)
+    readStore.saveAccount("fakeid-a", "AccountA", True)
+    readMarkdown = tmp_path / "article.md"
+    readMarkdown.write_text("# 超大招聘名单", encoding="utf-8")
+    readArticle = {
+        "title": "超大招聘名单",
+        "link": "https://example.test/large",
+        "create_time": 1,
+    }
+    readStore.saveArticle("fakeid-a", readArticle, readMarkdown, "hash")
+    readBackend = FakeBackend()
+
+    readResult = asyncio.run(structureArticles(readPaths, readBackend, BrokenClient()))
+
+    assert readResult == {"articleCount": 1, "jobCount": 1, "failedCount": 0}
+    assert readBackend.createJobs[0]["positionName"] == "招聘岗位汇总"
+    assert readStore.readPendingArticles() == []
