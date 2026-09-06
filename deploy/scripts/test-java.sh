@@ -73,6 +73,7 @@ waitBackend() {
 runSchemathesis() {
   mkdir -p "$readRoot/schemathesis-report"
   docker run --rm \
+    --user "$(id -u):$(id -g)" \
     --add-host=host.docker.internal:host-gateway \
     -e SCHEMATHESIS_TELEMETRY=false \
     -v "$readRoot/schemathesis-report:/app/schemathesis-report" \
