@@ -69,6 +69,17 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     }
 
     @Override
+    public PageResult<JobPostResponse> listJobs(JobPostQueryRequest readQuery) {
+        Page<JobPostEntity> readJobs = page(
+                createPage(readQuery.getPage(), readQuery.getSize()), buildJobQuery(readQuery));
+        List<JobPostResponse> readItems = readJobs.getRecords().stream().map(this::toResponse).toList();
+        PageResult<JobPostResponse> readPage = new PageResult<>(
+                readJobs.getTotal(), (int) readJobs.getCurrent(), (int) readJobs.getSize());
+        readPage.addAll(readItems);
+        return readPage;
+    }
+
+    @Override
     public PageResult<JobPostResponse> listPublishedJobPosts(JobPostQueryRequest query) {
         LambdaQueryWrapper<JobPostEntity> buildQuery = buildJobQuery(query);
         buildQuery.eq(JobPostEntity::getStatus, JobPostStatus.PUBLISHED);

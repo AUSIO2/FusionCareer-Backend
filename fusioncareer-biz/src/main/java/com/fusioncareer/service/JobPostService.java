@@ -19,6 +19,8 @@ public interface JobPostService extends IService<JobPostEntity> {
 
     PageResult<JobPostResponse> listJobPosts(JobPostQueryRequest query);
 
+    PageResult<JobPostResponse> listJobs(JobPostQueryRequest query);
+
     PageResult<JobPostResponse> listPublishedJobPosts(JobPostQueryRequest query);
 
     void updateJobPost(Long id, JobPostRequest request);
