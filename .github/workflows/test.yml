@@ -1,0 +1,37 @@
+name: test
+
+on:
+  pull_request:
+  push:
+    branches: [main, database]
+
+permissions:
+  contents: read
+
+jobs:
+  java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - run: ./deploy/scripts/test-java.sh
+
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fusioncareer-agent
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: fusioncareer-agent/pyproject.toml
+      - run: pip install ".[dev]"
+      - run: pytest -q
+      - run: ruff check app tests
