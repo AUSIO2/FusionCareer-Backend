@@ -52,13 +52,13 @@
 
 | 方法 | 路径 | 说明 | 认证 |
 |------|------|------|------|
-| GET | `/fudan/login` | 重定向至复旦统一认证登录 | ❌ |
+| GET | `/fudan/login?target=user|admin` | 重定向至复旦统一认证登录，并保存登录目标 | ❌ |
 | GET | `/fudan/callback?code=xxx&state=xxx` | 认证回调（复旦认证中心调用） | ❌ |
 | GET | `/fudan/logout` | 主动注销，重定向至复旦退出 | ❌ |
 | POST | `/fudan/logout` | 注销本地会话并返回 UIS 退出地址 | ✅ |
 | GET | `/fudan/slo?token=xxx` | 被动注销回调（复旦认证中心调用） | ❌ |
 
-> 登录请求和回调必须携带匹配的一次性 `state`。登录成功后生成 Sa-Token，并重定向到 `/#/login?token=...`；fragment 不会进入 Nginx 请求日志。
+> 登录请求和回调必须携带匹配的一次性 `state`。`target` 只决定登录后的落地页，管理员权限仍由数据库角色和 `/admin/**` 后端鉴权决定。登录成功后生成 Sa-Token，并重定向到 `/#/home?token=...` 或 `/#/admin?token=...`；fragment 不会进入 Nginx 请求日志。普通用户请求管理端时回到首页并携带 `notice=admin_forbidden`。
 
 POST 退出响应：
 

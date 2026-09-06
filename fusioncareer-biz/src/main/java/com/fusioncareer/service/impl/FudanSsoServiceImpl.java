@@ -88,7 +88,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
     }
 
     @Override
-    public String processCallback(String code) {
+    public String processCallback(String code, boolean openAdmin) {
         try {
             // 1. 获取 Access Token
             String accessToken = getAccessToken(code);
@@ -154,8 +154,11 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             // 记录 ssoToken 和 saToken 的关系，供被动登出使用
             ssoToSaTokenMap.put(accessToken, saTokenValue);
 
-            // 构造重定向 URL
-            return ssoProperties.getFrontendRedirectUrl() + "#/login?token=" + saTokenValue;
+            boolean allowAdmin = openAdmin && user.getRole() == UserRole.ADMIN;
+            String readRoute = allowAdmin ? "#/admin" : "#/home";
+            String readNotice = openAdmin && !allowAdmin ? "&notice=admin_forbidden" : "";
+            return ssoProperties.getFrontendRedirectUrl() + readRoute
+                    + "?token=" + saTokenValue + readNotice;
 
         } catch (Exception e) {
             log.error("Fudan SSO callback failed: {}", e.getClass().getSimpleName());
@@ -165,7 +168,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
 
     @Override
     @Transactional
-    public String loginMock(UserRole readRole) {
+    public String loginMock(UserRole readRole, boolean openAdmin) {
         UserRole createRole = readRole == null ? ssoProperties.getMockRole() : readRole;
         String readStudentId = createRole == UserRole.ADMIN
                 ? ssoProperties.getMockAdminId()
@@ -197,8 +200,9 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             resumeService.save(createResume);
         }
         StpUtil.login(readUser.getId());
+        String readRoute = openAdmin && createRole == UserRole.ADMIN ? "#/admin" : "#/home";
         return ssoProperties.getFrontendRedirectUrl()
-                + "#/login?token=" + StpUtil.getTokenValue();
+                + readRoute + "?token=" + StpUtil.getTokenValue();
     }
 
     @Override

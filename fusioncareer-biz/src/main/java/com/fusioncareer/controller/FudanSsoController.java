@@ -1,6 +1,7 @@
 package com.fusioncareer.controller;
 
 import com.fusioncareer.common.R;
+import com.fusioncareer.config.FudanOAuth2Properties;
 import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.service.FudanSsoService;
 import jakarta.servlet.http.HttpSession;
@@ -30,8 +31,11 @@ import java.util.Map;
 public class FudanSsoController {
 
     private static final String SSO_STATE = "FUDAN_SSO_STATE";
+    private static final String SSO_TARGET = "FUDAN_SSO_TARGET";
+    private static final String ADMIN_TARGET = "admin";
 
     private final FudanSsoService fudanSsoService;
+    private final FudanOAuth2Properties ssoProperties;
 
     /**
      * 主动发起登录：重定向至 Fudan 统一认证中心
@@ -40,13 +44,16 @@ public class FudanSsoController {
     @Operation(summary = "主动发起登录")
     public RedirectView login(
             @RequestParam(name = "role", required = false) UserRole readRole,
+            @RequestParam(name = "target", required = false) String readTarget,
             HttpSession updateSession) {
+        boolean openAdmin = ADMIN_TARGET.equalsIgnoreCase(readTarget);
         if (fudanSsoService.useMockLogin()) {
             log.warn("Using dev mock login");
-            return new RedirectView(fudanSsoService.loginMock(readRole));
+            return new RedirectView(fudanSsoService.loginMock(readRole, openAdmin));
         }
         String createState = fudanSsoService.createState();
         updateSession.setAttribute(SSO_STATE, createState);
+        updateSession.setAttribute(SSO_TARGET, openAdmin ? ADMIN_TARGET : "user");
         String readUrl = fudanSsoService.buildLoginUrl(createState);
         log.info("Redirecting to Fudan SSO login");
         return new RedirectView(readUrl);
@@ -61,15 +68,19 @@ public class FudanSsoController {
                                  @RequestParam("state") String readActualState,
                                  HttpSession updateSession) {
         String readExpectedState = (String) updateSession.getAttribute(SSO_STATE);
+        String readTarget = (String) updateSession.getAttribute(SSO_TARGET);
         updateSession.removeAttribute(SSO_STATE);
+        updateSession.removeAttribute(SSO_TARGET);
         try {
             fudanSsoService.verifyState(readExpectedState, readActualState);
-            String readUrl = fudanSsoService.processCallback(readCode);
+            String readUrl = fudanSsoService.processCallback(
+                    readCode, ADMIN_TARGET.equals(readTarget));
             log.info("Fudan SSO login completed");
             return new RedirectView(readUrl);
         } catch (Exception e) {
             log.warn("Fudan SSO login rejected");
-            return new RedirectView("/error?msg=sso_login_failed");
+            return new RedirectView(ssoProperties.getFrontendRedirectUrl()
+                    + "#/login?error=sso_login_failed");
         }
     }
 

@@ -46,7 +46,10 @@ class FudanDevLoginTest {
     }
 
     private String readToken(String readRole) throws Exception {
-        MvcResult readLogin = readMockMvc.perform(get("/fudan/login").param("role", readRole))
+        String readTarget = "ADMIN".equals(readRole) ? "admin" : "user";
+        MvcResult readLogin = readMockMvc.perform(get("/fudan/login")
+                        .param("role", readRole)
+                        .param("target", readTarget))
                 .andExpect(status().is3xxRedirection())
                 .andReturn();
         String readUrl = readLogin.getResponse().getRedirectedUrl();

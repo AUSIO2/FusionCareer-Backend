@@ -99,22 +99,48 @@ class FudanSsoTest {
                         .param("state", "wrong-state")
                         .session(updateSession))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/error?msg=sso_login_failed"));
+                .andExpect(redirectedUrl("http://127.0.0.1:5173/#/login?error=sso_login_failed"));
 
         readMockMvc.perform(get("/fudan/callback")
                         .param("code", "test-code")
                         .param("state", readState)
                         .session(updateSession))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/error?msg=sso_login_failed"));
+                .andExpect(redirectedUrl("http://127.0.0.1:5173/#/login?error=sso_login_failed"));
         verifyNoInteractions(readRestClient);
     }
 
     @Test
     void hideToken() throws Exception {
         String readUrl = loginUser("test-hide");
-        assertThat(readUrl).startsWith("http://127.0.0.1:5173/#/login?token=");
+        assertThat(readUrl).startsWith("http://127.0.0.1:5173/#/home?token=");
         assertThat(readUrl.substring(0, readUrl.indexOf('#'))).doesNotContain("token=");
+    }
+
+    @Test
+    void routeAdmin() throws Exception {
+        createUser("test-admin-target", UserRole.ADMIN, UserStatus.NORMAL);
+
+        assertThat(loginUser("test-admin-target", "admin"))
+                .startsWith("http://127.0.0.1:5173/#/admin?token=")
+                .doesNotContain("notice=");
+    }
+
+    @Test
+    void rejectAdminTarget() throws Exception {
+        createUser("test-normal-target", UserRole.NORMAL, UserStatus.NORMAL);
+
+        assertThat(loginUser("test-normal-target", "admin"))
+                .startsWith("http://127.0.0.1:5173/#/home?token=")
+                .endsWith("&notice=admin_forbidden");
+    }
+
+    @Test
+    void normalizeTarget() throws Exception {
+        createUser("test-invalid-target", UserRole.ADMIN, UserStatus.NORMAL);
+
+        assertThat(loginUser("test-invalid-target", "unexpected"))
+                .startsWith("http://127.0.0.1:5173/#/home?token=");
     }
 
     @Test
@@ -156,7 +182,7 @@ class FudanSsoTest {
         createUser("test-disabled", UserRole.ADMIN, UserStatus.DISABLED);
 
         assertThat(loginUser("test-disabled"))
-                .isEqualTo("/error?msg=sso_login_failed");
+                .isEqualTo("http://127.0.0.1:5173/#/login?error=sso_login_failed");
     }
 
     @Test
@@ -225,8 +251,16 @@ class FudanSsoTest {
     }
 
     private String loginUser(String readStudentId) throws Exception {
+        return loginUser(readStudentId, null);
+    }
+
+    private String loginUser(String readStudentId, String readTarget) throws Exception {
         mockIdentity(readStudentId);
-        MvcResult readLogin = readMockMvc.perform(get("/fudan/login")).andReturn();
+        var createLogin = get("/fudan/login");
+        if (readTarget != null) {
+            createLogin.param("target", readTarget);
+        }
+        MvcResult readLogin = readMockMvc.perform(createLogin).andReturn();
         MockHttpSession updateSession = (MockHttpSession) readLogin.getRequest().getSession(false);
         MvcResult readCallback = readMockMvc.perform(get("/fudan/callback")
                         .param("code", "test-code")
