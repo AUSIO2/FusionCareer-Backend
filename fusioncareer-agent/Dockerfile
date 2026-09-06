@@ -9,8 +9,12 @@ RUN sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.o
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml .
+RUN mkdir app && touch app/__init__.py \
+    && pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 300 ".[ocr]" \
+    && rm -rf app
+
 COPY app/ app/
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --timeout 300 ".[ocr]"
+RUN pip install --no-cache-dir --no-deps .
 
 COPY UPSTREAM.md ./
 COPY THIRD_PARTY_LICENSES/ THIRD_PARTY_LICENSES/
