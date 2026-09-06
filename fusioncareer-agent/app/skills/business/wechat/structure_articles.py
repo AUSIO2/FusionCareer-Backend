@@ -20,8 +20,9 @@ from app.skills.business.wechat.store import WechatStore
 readBackend: BackendClient | None = None
 logger = logging.getLogger(__name__)
 CONTACT_PATTERN = re.compile(
-    r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|(?<!\d)1[3-9]\d{9}(?!\d)|"
-    r"(?<!\d)0\d{2,3}[- ]?\d{7,8}(?!\d)|联系人\s*[:：]\s*\S+|"
+    r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,}|"
+    r"(?<!\d)1[3-9]\d{9}(?!\d)|(?<!\d)0\d{2,3}[- ]?\d{7,8}(?!\d)|"
+    r"联系人\s*[:：]\s*\S{1,32}|"
     r"(网申|投递|报名|申请|招聘官网|简历|应聘).{0,80}(https?://|邮箱|邮件|二维码|扫码|入口|系统)|"
     r"(二维码|扫码).{0,30}(投递|报名|申请|应聘)"
 )
