@@ -239,5 +239,50 @@
     "detailUrl": "https://ustc.ahbys.com/API/Web/index10358.ashx?action=contentinfo&parentid=1&columnid=1005&cid={id}",
     "format": "ustc",
     "contentXpath": "//*"
+  },
+  {
+    "id": "jlu-career-recruitment",
+    "name": "吉大就业创业",
+    "fakeid": "MjM5MjE0MzY2NQ==",
+    "listUrl": "https://jdjyw.jlu.edu.cn/portal/jyzp/recruit/list?type=1&pageNo=1&pageSize=12",
+    "pageUrl": "https://jdjyw.jlu.edu.cn/portal/jyzp/recruit/list?type=1&pageNo={page}&pageSize=12",
+    "maxPages": 6,
+    "linkPattern": "/portal/jyzp/recruit/details\\?id=",
+    "contentXpath": "//div[contains(@class,'m-content-container')]",
+    "keywords": []
+  },
+  {
+    "id": "hit-career-notices",
+    "name": "哈工大就业",
+    "fakeid": "MzAxOTA4OTM5NQ==",
+    "homepage": "https://career.hit.edu.cn/zhxy-xszyfzpt/",
+    "listUrl": "https://career.hit.edu.cn/zhxy-xszyfzpt/tzgg/listTzgg",
+    "detailUrl": "https://career.hit.edu.cn/zhxy-xszyfzpt/tzgg/getTzggXq",
+    "format": "hit",
+    "contentXpath": "//*"
+  },
+  {
+    "id": "sysu-career-campus",
+    "name": "中大就业",
+    "fakeid": "MzI5Mzc1MzUyNg==",
+    "listUrl": "https://career.sysu.edu.cn/campus",
+    "pageUrl": "https://career.sysu.edu.cn/campus/index/page/{page}",
+    "maxPages": 25,
+    "delaySeconds": 1.5,
+    "linkPattern": "/campus/view/id/",
+    "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
+    "keywords": []
+  },
+  {
+    "id": "xmu-career-campus",
+    "name": "厦大就业",
+    "fakeid": "Mzg2NzA0MjQ2MA==",
+    "listUrl": "https://jy.xmu.edu.cn/campus",
+    "pageUrl": "https://jy.xmu.edu.cn/campus/index/page/{page}",
+    "maxPages": 36,
+    "delaySeconds": 1.5,
+    "linkPattern": "/campus/view/id/",
+    "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
+    "keywords": []
   }
 ]

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import re
+import time
+import zlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -39,6 +42,18 @@ UESTC_SLUGS = {
     "GOVERNMENT_RECRUITMENT": "recruitment",
     "INTERNATIONAL_JOB": "international",
 }
+
+
+def decodeHtml(readHtml: str | bytes) -> str | bytes:
+    readBytes = readHtml.encode() if isinstance(readHtml, str) else readHtml
+    readMatch = re.search(rb'Base64\.decode\(unzip\("([^"]+)', readBytes)
+    if not readMatch:
+        return readHtml
+    try:
+        readOuter = zlib.decompress(base64.b64decode(readMatch.group(1))).decode()
+        return base64.b64decode(readOuter[38:]).decode()[79:]
+    except (ValueError, UnicodeDecodeError, zlib.error):
+        return readHtml
 
 
 def cleanTitle(readTitle: str) -> str:
@@ -98,7 +113,7 @@ def readContext(readNode, readPattern: re.Pattern, readBase: str, readCustom: bo
 
 
 def parseArticles(readHtml: str | bytes, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
-    readTree = parseHtml.fromstring(readHtml)
+    readTree = parseHtml.fromstring(decodeHtml(readHtml))
     readPattern = re.compile(readSource["linkPattern"])
     readKeywords = tuple(readSource.get("keywords") or ())
     readReference = datetime.fromtimestamp(readEnd - 1, BEIJING_TZ)
@@ -137,6 +152,53 @@ def parseArticles(readHtml: str | bytes, readSource: dict, readStart: int, readE
             }
         )
     return readArticles
+
+
+def readPages(readSession, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    readPages = int(readSource.get("maxPages", 1))
+    for readPage in range(1, readPages + 1):
+        readUrl = readSource.get("pageUrl", readSource["listUrl"]).format(page=readPage)
+        readResponse = readSession.get(readUrl, headers={"User-Agent": USER_AGENT}, timeout=60)
+        readResponse.raise_for_status()
+        readArticles.extend(parseArticles(readResponse.content, readSource, readStart, readEnd))
+        time.sleep(float(readSource.get("delaySeconds", 0)))
+    return list({readArticle["link"]: readArticle for readArticle in readArticles}.values())
+
+
+def parseHit(readPayload: dict, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    for readEntry in (readPayload.get("module") or {}).get("data") or []:
+        readTime = parseDate(str(readEntry.get("fbsj") or ""))
+        if not readTime or readTime < readStart or readTime >= readEnd:
+            continue
+        readId = str(readEntry.get("id") or "")
+        readArticles.append(
+            {
+                "title": cleanTitle(str(readEntry.get("fbxxbt") or "")),
+                "link": urljoin(
+                    readSource["homepage"],
+                    f"tzgg/tzggxq?id={base64.b64encode(readId.encode()).decode()}",
+                ),
+                "create_time": readTime,
+                "digest": "",
+                "author": readSource["name"],
+                "origin": readSource["listUrl"],
+                "id": readId,
+            }
+        )
+    return [readArticle for readArticle in readArticles if readArticle["title"] and readArticle["id"]]
+
+
+def readHit(readSession, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readResponse = readSession.post(
+        readSource["listUrl"],
+        headers={"User-Agent": USER_AGENT},
+        data={"info": json.dumps({"page": 1, "pageSize": 1000, "take": 1000, "skip": 0, "xxfl": "100"})},
+        timeout=60,
+    )
+    readResponse.raise_for_status()
+    return parseHit(readResponse.json(), readSource, readStart, readEnd)
 
 
 def parseUestc(readPayload: dict, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
@@ -322,6 +384,18 @@ def saveArticle(
 
     if readSource.get("format") == "uestc":
         readTree = parseHtml.fromstring(readArticle["content"])
+    elif readSource.get("format") == "hit":
+        readResponse = readSession.post(
+            readSource["detailUrl"],
+            headers={"User-Agent": USER_AGENT},
+            data={"info": json.dumps({"id": readArticle["id"]})},
+            timeout=60,
+        )
+        readResponse.raise_for_status()
+        readContentHtml = (((readResponse.json().get("module") or {}).get("xwtz_xq") or {}).get("pcdxxnr") or "")
+        if not readContentHtml:
+            return "error"
+        readTree = parseHtml.fromstring(readContentHtml)
     elif readSource.get("format") == "career_v2":
         readMatch = re.search(r"/zwxx/view/([^/?]+)", readArticle["link"])
         if not readMatch:
@@ -394,7 +468,7 @@ def saveArticle(
             timeout=60,
         )
         readResponse.raise_for_status()
-        readTree = parseHtml.fromstring(readResponse.content)
+        readTree = parseHtml.fromstring(decodeHtml(readResponse.content))
     readNode = readContent(readTree, readSource["contentXpath"])
     if readNode is None:
         return "error"
@@ -448,6 +522,10 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
                 readArticles = readJyxt(readSession, readSource, readStart, readEnd)
             elif readSource.get("format") == "career_list":
                 readArticles = readCareerList(readSession, readSource, readStart, readEnd)
+            elif readSource.get("format") == "hit":
+                readArticles = readHit(readSession, readSource, readStart, readEnd)
+            elif readSource.get("pageUrl"):
+                readArticles = readPages(readSession, readSource, readStart, readEnd)
             else:
                 readResponse = readSession.get(
                     readSource["listUrl"], headers={"User-Agent": USER_AGENT}, timeout=60
@@ -465,6 +543,7 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
                     continue
                 if saveArticle(readSession, readPaths, readStore, readSource, readArticle) == "saved":
                     saveCount += 1
+                time.sleep(float(readSource.get("delaySeconds", 0)))
             readSaved += saveCount
             readStore.finishRun(readRun, "SUCCESS", saveCount)
         except Exception as readError:
