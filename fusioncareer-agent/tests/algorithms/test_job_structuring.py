@@ -86,3 +86,28 @@ def testNormalizeModelVariants():
     assert readJob["recruitType"] == "OTHER"
     assert "reqEduLevel" not in readJob
     assert len(readJob["workCity"]) == 32
+
+
+def testStructureLongArticle():
+    class ChunkClient:
+        def __init__(self):
+            self.readCalls = 0
+
+        async def chat_json(self, **readOptions):
+            self.readCalls += 1
+            return {
+                "jobs": [{
+                    "单位名称": "示例公司",
+                    "岗位名称": f"岗位{self.readCalls}",
+                    "岗位大类": "企业公司",
+                    "岗位二级分类": "民企",
+                    "招聘类型": "应届生招聘",
+                }],
+                "warnings": [],
+            }
+
+    readClient = ChunkClient()
+    readResult = asyncio.run(structureJobs("招聘" * 7000, readClient=readClient))
+
+    assert readClient.readCalls == 3
+    assert len(readResult["jobs"]) == 3

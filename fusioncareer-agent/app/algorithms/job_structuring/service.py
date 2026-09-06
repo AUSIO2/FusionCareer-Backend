@@ -18,25 +18,32 @@ async def structureJobs(
     if not readText.strip():
         raise ValueError("job text is required")
     createClient = readClient or LLMClient()
-    readResponse = await createClient.chat_json(
-        user_message=readText[:28000],
-        system_prompt=JOB_PROMPT,
-        temperature=0.1,
-        max_tokens=16384,
-    )
-    readItems = readResponse.get("jobs", []) if isinstance(readResponse, dict) else []
-    if not isinstance(readItems, list):
-        raise ValueError("model jobs must be a list")
-
     readJobs = []
-    readWarnings = list(readResponse.get("warnings", [])) if isinstance(readResponse, dict) else []
-    for readIndex, readItem in enumerate(readItems):
-        if not isinstance(readItem, dict):
-            readWarnings.append(f"job {readIndex + 1} is not an object")
-            continue
-        createJob, createWarnings = normalizeJob(readItem, readSourceUrl, readSourceType)
-        if createWarnings:
-            readWarnings.extend(f"job {readIndex + 1}: {readWarning}" for readWarning in createWarnings)
-            continue
-        readJobs.append(createJob)
+    readWarnings = []
+    readBody = readText[:28000]
+    readHeader = readBody[:1000]
+    readParts = [readBody] if len(readBody) <= 6000 else [
+        f"{readHeader}\n\n--- 原文分段 ---\n\n{readBody[readStart:readStart + 6000]}"
+        for readStart in range(0, len(readBody), 6000)
+    ]
+    for readPart in readParts:
+        readResponse = await createClient.chat_json(
+            user_message=readPart,
+            system_prompt=JOB_PROMPT,
+            temperature=0.1,
+            max_tokens=16384,
+        )
+        readItems = readResponse.get("jobs", []) if isinstance(readResponse, dict) else []
+        if not isinstance(readItems, list):
+            raise TypeError("model jobs must be a list")
+        readWarnings.extend(readResponse.get("warnings", []) if isinstance(readResponse, dict) else [])
+        for readIndex, readItem in enumerate(readItems):
+            if not isinstance(readItem, dict):
+                readWarnings.append(f"job {readIndex + 1} is not an object")
+                continue
+            createJob, createWarnings = normalizeJob(readItem, readSourceUrl, readSourceType)
+            if createWarnings:
+                readWarnings.extend(f"job {readIndex + 1}: {readWarning}" for readWarning in createWarnings)
+                continue
+            readJobs.append(createJob)
     return {"jobs": deduplicateJobs(readJobs), "warnings": readWarnings}
