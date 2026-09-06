@@ -109,5 +109,5 @@ def testStructureLongArticle():
     readClient = ChunkClient()
     readResult = asyncio.run(structureJobs("招聘" * 7000, readClient=readClient))
 
-    assert readClient.readCalls == 3
-    assert len(readResult["jobs"]) == 3
+    assert readClient.readCalls == 7
+    assert len(readResult["jobs"]) == 7

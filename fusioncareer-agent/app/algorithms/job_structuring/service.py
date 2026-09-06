@@ -21,10 +21,11 @@ async def structureJobs(
     readJobs = []
     readWarnings = []
     readBody = readText[:28000]
-    readHeader = readBody[:1000]
-    readParts = [readBody] if len(readBody) <= 6000 else [
-        f"{readHeader}\n\n--- 原文分段 ---\n\n{readBody[readStart:readStart + 6000]}"
-        for readStart in range(0, len(readBody), 6000)
+    readHeader = readBody[:300]
+    readParts = [readBody] if len(readBody) <= 2000 else [
+        f"以下开头仅供识别单位，不要重复抽取其中岗位：\n{readHeader}"
+        f"\n\n--- 只抽取以下原文分段 ---\n\n{readBody[readStart:readStart + 2000]}"
+        for readStart in range(0, len(readBody), 2000)
     ]
     for readPart in readParts:
         readResponse = await createClient.chat_json(
