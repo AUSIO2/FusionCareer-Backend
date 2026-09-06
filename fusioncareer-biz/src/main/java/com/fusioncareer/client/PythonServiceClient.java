@@ -1,7 +1,11 @@
 package com.fusioncareer.client;
 
+import com.fusioncareer.client.dto.JobNormalizeAlgorithmResponse;
+import com.fusioncareer.dto.req.JobDescriptionNormalizeRequest;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
+import org.springframework.web.service.annotation.PostExchange;
 
 /**
  * AI 算法服务端点接口 (基于 Spring 6 HTTP Interfaces)
@@ -19,6 +23,10 @@ public interface PythonServiceClient {
      */
     @GetExchange("/ping")
     String ping();
-    
-    // TODO: 后续在这里添加具体业务接口（如 @PostExchange("/resume/optimize")）
+
+    /**
+     * 将管理员粘贴的岗位描述转换为标准岗位字段。
+     */
+    @PostExchange(value = "/job/normalize", contentType = "application/json")
+    JobNormalizeAlgorithmResponse normalizeJob(@RequestBody JobDescriptionNormalizeRequest request);
 }

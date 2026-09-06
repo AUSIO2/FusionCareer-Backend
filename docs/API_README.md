@@ -241,12 +241,32 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| POST | `/internal/job-post/normalize` | 将原始岗位描述转换为标准岗位信息 |
 | POST | `/internal/job-post` | 创建岗位 |
 | POST | `/internal/job-post/batch` | 批量创建岗位 |
 | GET | `/internal/job-post/{id}` | 获取岗位详情 |
 | GET | `/internal/job-post/list` | 分页查询岗位列表（含所有状态） |
 | PUT | `/internal/job-post/{id}` | 更新岗位 |
 | DELETE | `/internal/job-post/{id}` | 删除岗位 |
+
+**POST `/internal/job-post/normalize` 请求体**:
+
+```json
+{
+  "rawDescription": "岗位名称：新媒体运营实习生……"
+}
+```
+
+接口返回 `JobPostRequest` 标准字段，但不会直接创建或发布岗位。管理员可编辑识别结果，
+再调用创建或更新岗位接口。算法服务暂定调用 `POST /api/v1/job/normalize`，字段协议确认后
+只需调整后端算法适配层。当前适配 camelCase 和 snake_case 字段名；枚举值暂使用后端枚举名称，
+例如 `MEDIA`、`DAILY_INTERNSHIP`、`UNDERGRADUATE`，不接受数字或数字字符串枚举。
+日期使用 `YYYY-MM-DD`，人数等整数字段不接受小数。同一字段不能同时使用两种命名
+（如 `positionName` 和 `position_name`）；重复字段会返回格式错误。
+算法返回的 `status` 和 `sourceType` 会被忽略，由管理员后续创建或发布岗位时确定。
+
+该接口沿用现有 `/internal/**` 访问规则，当前没有管理员鉴权；部署前须完成访问控制。
+算法 HTTP 接口及最终字段协议仍待算法团队确认，当前测试使用模拟算法响应。
 
 **POST 请求体** `JobPostRequest`:
 ```json

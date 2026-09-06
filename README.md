@@ -68,7 +68,7 @@ FusionCareer-Backend/
 
 ---
 
-## API 接口总览（47 个）
+## API 接口总览（48 个）
 
 > 详细文档（含请求体/响应体示例、枚举值参考）见 [`docs/API_README.md`](docs/API_README.md)
 
@@ -165,6 +165,7 @@ FusionCareer-Backend/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| POST | `/internal/job-post/normalize` | 标准化原始岗位描述 |
 | POST | `/internal/job-post` | 创建岗位 |
 | POST | `/internal/job-post/batch` | 批量创建 |
 | GET | `/internal/job-post/{id}` | 获取详情 |
