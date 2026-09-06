@@ -241,12 +241,26 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| POST | `/internal/job-post/normalize` | 将原始岗位描述转换为标准岗位信息 |
 | POST | `/internal/job-post` | 创建岗位 |
 | POST | `/internal/job-post/batch` | 批量创建岗位 |
 | GET | `/internal/job-post/{id}` | 获取岗位详情 |
 | GET | `/internal/job-post/list` | 分页查询岗位列表（含所有状态） |
 | PUT | `/internal/job-post/{id}` | 更新岗位 |
 | DELETE | `/internal/job-post/{id}` | 删除岗位 |
+
+**POST `/internal/job-post/normalize` 请求体**:
+
+```json
+{
+  "rawDescription": "岗位名称：新媒体运营实习生……"
+}
+```
+
+接口返回 `JobPostRequest` 标准字段，但不会直接创建或发布岗位。管理员可编辑识别结果，
+再调用创建或更新岗位接口。算法服务暂定调用 `POST /api/v1/job/normalize`，字段协议确认后
+只需调整后端算法适配层。当前适配 camelCase 和 snake_case 字段名；枚举值暂使用后端枚举名称，
+例如 `MEDIA`、`DAILY_INTERNSHIP`、`UNDERGRADUATE`，不接受数字枚举。
 
 **POST 请求体** `JobPostRequest`:
 ```json

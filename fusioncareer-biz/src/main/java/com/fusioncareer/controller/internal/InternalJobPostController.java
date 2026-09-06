@@ -2,10 +2,13 @@ package com.fusioncareer.controller.internal;
 
 import com.fusioncareer.common.PageResult;
 import com.fusioncareer.common.R;
+import com.fusioncareer.dto.req.JobDescriptionNormalizeRequest;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
+import com.fusioncareer.service.JobDescriptionNormalizationService;
 import com.fusioncareer.service.JobPostService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,6 +28,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public class InternalJobPostController {
 
     private final JobPostService jobPostService;
+    private final JobDescriptionNormalizationService jobDescriptionNormalizationService;
+
+    @PostMapping("/normalize")
+    @Operation(summary = "将原始岗位描述转换为标准岗位信息")
+    public R<JobPostRequest> normalize(@Valid @RequestBody JobDescriptionNormalizeRequest request) {
+        return R.success(jobDescriptionNormalizationService.normalize(request.getRawDescription()));
+    }
 
     @PostMapping
     @Operation(summary = "创建岗位")
