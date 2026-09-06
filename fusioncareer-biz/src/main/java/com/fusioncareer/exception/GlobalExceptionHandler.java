@@ -11,7 +11,6 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.lang.NonNull;
@@ -21,8 +20,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
-
-import java.text.MessageFormat;
 
 /**
  * 全局异常处理 (进阶规范版)
@@ -39,12 +36,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(
             @NonNull Exception e, @Nullable Object body, @NonNull HttpHeaders headers, @NonNull HttpStatusCode status, @NonNull WebRequest request) {
-        String errorMessage = e.getMessage();
-        if (body instanceof ProblemDetail problemDetail) {
-            errorMessage = MessageFormat.format("{0}({1})", problemDetail.getTitle(), problemDetail.getDetail());
+        if (status.is5xxServerError()) {
+            log.error("系统内部错误(Spring), Status={}", status.value(), e);
+            return new ResponseEntity<>(R.failed(ResultCode.INTERNAL_SERVER_ERROR), headers, status);
         }
-        log.error("系统内部错误(Spring), Status={}, Msg={}", status.value(), errorMessage, e);
-        R<Void> customBody = new R<>(status.value(), "系统内部错误: " + errorMessage, null);
+
+        log.warn("请求处理失败(Spring), Status={}, Type={}", status.value(), e.getClass().getSimpleName());
+        R<Void> customBody = new R<>(status.value(), resolveMessage(status.value()), null);
         return new ResponseEntity<>(customBody, headers, status);
     }
 
@@ -65,7 +63,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(ServiceException.class)
     public R<Void> handleServiceException(ServiceException e, HttpServletResponse response) {
-        response.setStatus(e.getCode() == HttpServletResponse.SC_INTERNAL_SERVER_ERROR ? HttpServletResponse.SC_INTERNAL_SERVER_ERROR : HttpServletResponse.SC_OK);
+        response.setStatus(resolveHttpStatus(e.getCode()));
         log.warn("业务异常: code={}, msg={}", e.getCode(), e.getMessage());
         return new R<>(e.getCode(), e.getMessage(), null);
     }
@@ -120,5 +118,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             return R.failed(ResultCode.INTERNAL_SERVER_ERROR);
         }
     }
-}
 
+    private int resolveHttpStatus(int code) {
+        return switch (code) {
+            case 400, 401, 403, 404, 409, 500 -> code;
+            default -> HttpServletResponse.SC_OK;
+        };
+    }
+
+    private String resolveMessage(int status) {
+        return switch (status) {
+            case 400 -> ResultCode.VALIDATE_FAILED.getMessage();
+            case 401 -> ResultCode.USER_NOT_LOGGED_IN.getMessage();
+            case 403 -> ResultCode.FORBIDDEN.getMessage();
+            case 404 -> ResultCode.NOT_FOUND.getMessage();
+            case 409 -> ResultCode.CONFLICT.getMessage();
+            default -> "请求处理失败";
+        };
+    }
+}
