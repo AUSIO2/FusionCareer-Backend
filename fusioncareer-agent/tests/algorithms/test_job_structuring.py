@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app.algorithms.job_structuring import structureJobs
 from app.algorithms.job_structuring.normalize import normalizeJob
-from app.algorithms.job_structuring.prompt import JOB_PROMPT
+from app.algorithms.job_structuring.prompt import JOB_INDEX_PROMPT, JOB_PROMPT
 
 
 READ_FIXTURES = Path(__file__).parents[1] / "fixtures" / "algorithm"
@@ -93,25 +93,40 @@ def testStructureLongArticle():
     class ChunkClient:
         def __init__(self):
             self.readCalls = 0
+            self.readBatches = []
 
         async def chat_json(self, **readOptions):
             self.readCalls += 1
+            if readOptions["system_prompt"] == JOB_INDEX_PROMPT:
+                return {
+                    "count": 17,
+                    "jobs": [
+                        {"companyName": "示例公司", "positionName": f"岗位{readIndex}"}
+                        for readIndex in range(17)
+                    ],
+                }
+            readTargets = json.loads(readOptions["system_prompt"].split("TARGET_JOBS_JSON=", 1)[1])
+            self.readBatches.append(len(readTargets))
             return {
-                "jobs": [{
-                    "单位名称": "示例公司",
-                    "岗位名称": f"岗位{self.readCalls}",
-                    "岗位大类": "企业公司",
-                    "岗位二级分类": "民企",
-                    "招聘类型": "应届生招聘",
-                }],
+                "jobs": [
+                    {
+                        "单位名称": readTarget["companyName"],
+                        "岗位名称": readTarget["positionName"],
+                        "岗位大类": "企业公司",
+                        "岗位二级分类": "民企",
+                        "招聘类型": "应届生招聘",
+                    }
+                    for readTarget in readTargets
+                ],
                 "warnings": [],
             }
 
     readClient = ChunkClient()
     readResult = asyncio.run(structureJobs("招聘" * 7000, readClient=readClient))
 
-    assert readClient.readCalls == 7
-    assert len(readResult["jobs"]) == 7
+    assert readClient.readCalls == 4
+    assert readClient.readBatches == [8, 8, 1]
+    assert len(readResult["jobs"]) == 17
 
 
 def testLimitLargeJobList():

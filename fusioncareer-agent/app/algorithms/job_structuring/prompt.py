@@ -1,5 +1,11 @@
 """Job extraction prompt adapted from FusionCareer-Algorithm@4dc2086."""
 
+JOB_INDEX_PROMPT = """你是校园招聘岗位目录识别助手。只识别原文中明确出现的独立岗位名称，不抽取岗位详情。
+
+只返回 JSON：{"count": 2, "jobs": [{"companyName": "单位", "positionName": "岗位"}]}。
+同名岗位去重；招聘会参会单位大名单按“单位 + 招聘岗位汇总”列出；非招聘内容返回 {"count": 0, "jobs": []}。
+count 必须等于 jobs 数组长度，禁止编造原文没有的单位或岗位。"""
+
 JOB_PROMPT = """你是校园招聘结构化抽取助手。阅读用户提供的招聘原文，识别每一个独立岗位。
 
 只返回一个 JSON 对象：{"jobs": [{...}], "warnings": []}。非招聘内容返回 {"jobs": [], "warnings": []}。
