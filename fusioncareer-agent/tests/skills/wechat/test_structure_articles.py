@@ -38,7 +38,7 @@ def testStructureArticles(tmp_path: Path):
     readStore = WechatStore(readPaths.database_file)
     readStore.saveAccount("fakeid-a", "AccountA", True)
     readMarkdown = tmp_path / "article.md"
-    readMarkdown.write_text("# 招聘编辑", encoding="utf-8")
+    readMarkdown.write_text("# 招聘编辑\n投递邮箱：job@example.com", encoding="utf-8")
     readArticle = {
         "title": "招聘编辑", "link": "https://example.test/article", "create_time": 1,
     }
@@ -47,7 +47,7 @@ def testStructureArticles(tmp_path: Path):
 
     readResult = asyncio.run(structureArticles(readPaths, readBackend, FakeClient()))
 
-    assert readResult == {"articleCount": 1, "jobCount": 1, "failedCount": 0}
+    assert readResult == {"articleCount": 1, "jobCount": 1, "failedCount": 0, "skippedCount": 0}
     assert readBackend.createJobs[0]["status"] == "OFFLINE"
     assert readStore.readPendingArticles() == []
 
@@ -57,13 +57,13 @@ def testKeepPendingArticle(tmp_path: Path):
     readStore = WechatStore(readPaths.database_file)
     readStore.saveAccount("fakeid-a", "AccountA", True)
     readMarkdown = tmp_path / "article.md"
-    readMarkdown.write_text("# 招聘编辑", encoding="utf-8")
+    readMarkdown.write_text("# 招聘编辑\n投递邮箱：job@example.com", encoding="utf-8")
     readArticle = {"title": "招聘编辑", "link": "https://example.test/article", "create_time": 1}
     readStore.saveArticle("fakeid-a", readArticle, readMarkdown, "hash")
 
     readResult = asyncio.run(structureArticles(readPaths, FakeBackend(readFail=True), FakeClient()))
 
-    assert readResult == {"articleCount": 1, "jobCount": 0, "failedCount": 1}
+    assert readResult == {"articleCount": 1, "jobCount": 0, "failedCount": 1, "skippedCount": 0}
     assert len(readStore.readPendingArticles()) == 1
 
 
@@ -85,7 +85,7 @@ def testStructureConcurrency(tmp_path: Path):
     readStore.saveAccount("fakeid-a", "AccountA", True)
     for readIndex in range(6):
         readMarkdown = tmp_path / f"article-{readIndex}.md"
-        readMarkdown.write_text("# 招聘编辑", encoding="utf-8")
+        readMarkdown.write_text("# 招聘编辑\n投递邮箱：job@example.com", encoding="utf-8")
         readArticle = {
             "title": "招聘编辑",
             "link": f"https://example.test/article-{readIndex}",
@@ -96,7 +96,7 @@ def testStructureConcurrency(tmp_path: Path):
     readClient = SlowClient()
     readResult = asyncio.run(structureArticles(readPaths, FakeBackend(), readClient))
 
-    assert readResult == {"articleCount": 6, "jobCount": 6, "failedCount": 0}
+    assert readResult == {"articleCount": 6, "jobCount": 6, "failedCount": 0, "skippedCount": 0}
     assert readClient.readMaximum == 5
 
 
@@ -109,7 +109,7 @@ def testCreateSummary(tmp_path: Path):
     readStore = WechatStore(readPaths.database_file)
     readStore.saveAccount("fakeid-a", "AccountA", True)
     readMarkdown = tmp_path / "article.md"
-    readMarkdown.write_text("# 超大招聘名单", encoding="utf-8")
+    readMarkdown.write_text("# 超大招聘名单\n投递邮箱：job@example.com", encoding="utf-8")
     readArticle = {
         "title": "超大招聘名单",
         "link": "https://example.test/large",
@@ -120,6 +120,45 @@ def testCreateSummary(tmp_path: Path):
 
     readResult = asyncio.run(structureArticles(readPaths, readBackend, BrokenClient()))
 
-    assert readResult == {"articleCount": 1, "jobCount": 1, "failedCount": 0}
+    assert readResult == {"articleCount": 1, "jobCount": 1, "failedCount": 0, "skippedCount": 0}
     assert readBackend.createJobs[0]["positionName"] == "招聘岗位汇总"
     assert readStore.readPendingArticles() == []
+
+
+def testSkipUnactionableArticle(tmp_path: Path):
+    readPaths = WechatPaths(tmp_path)
+    readStore = WechatStore(readPaths.database_file)
+    readStore.saveAccount("fakeid-a", "AccountA", True)
+    readMarkdown = tmp_path / "article.md"
+    readMarkdown.write_text("# 外校校内讲座\n欢迎参加职业讲座。", encoding="utf-8")
+    readArticle = {
+        "title": "外校校内讲座",
+        "link": "https://example.test/talk",
+        "create_time": 1,
+    }
+    readStore.saveArticle("fakeid-a", readArticle, readMarkdown, "hash")
+    readBackend = FakeBackend()
+
+    readResult = asyncio.run(structureArticles(readPaths, readBackend, FakeClient()))
+
+    assert readResult == {"articleCount": 1, "jobCount": 0, "failedCount": 0, "skippedCount": 1}
+    assert readBackend.createJobs == []
+    assert readStore.readPendingArticles() == []
+
+
+def testSkipRestrictedArticle(tmp_path: Path):
+    readPaths = WechatPaths(tmp_path)
+    readStore = WechatStore(readPaths.database_file)
+    readStore.saveAccount("fakeid-a", "AccountA", True)
+    readMarkdown = tmp_path / "article.md"
+    readMarkdown.write_text("# 外校招聘会\n仅限本校学生，联系 job@example.com", encoding="utf-8")
+    readArticle = {
+        "title": "外校招聘会",
+        "link": "https://example.test/fair",
+        "create_time": 1,
+    }
+    readStore.saveArticle("fakeid-a", readArticle, readMarkdown, "hash")
+
+    readResult = asyncio.run(structureArticles(readPaths, FakeBackend(), FakeClient()))
+
+    assert readResult["skippedCount"] == 1
