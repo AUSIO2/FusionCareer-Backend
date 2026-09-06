@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from app.skills.business.official_sites import (
     cleanTitle,
     decodeHtml,
+    getPage,
     parseArticles,
     parseCareerList,
     parseJyxt,
@@ -25,6 +26,28 @@ def testDecodeHtml():
         f'<script>Base64.decode(unzip("{readPayload}").substr(2)).substr(2)</script>'
     )
     assert decodeHtml(readHtml) == "<ul><li>招聘信息</li></ul>"
+
+
+def testRetryLimitedPage():
+    class ReadResponse:
+        def __init__(self, readText):
+            self.text = readText
+
+        def raise_for_status(self):
+            return None
+
+    class ReadSession:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            return ReadResponse("非法访问" if self.calls < 3 else "正常页面")
+
+    readSession = ReadSession()
+    readSource = {"id": "test", "limitRetries": 2, "limitDelaySeconds": 0}
+    assert getPage(readSession, readSource, "https://example.edu.cn/").text == "正常页面"
+    assert readSession.calls == 3
 
 
 def testParseArticles():

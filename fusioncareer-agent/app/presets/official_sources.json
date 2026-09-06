@@ -270,6 +270,7 @@
     "maxPages": 25,
     "delaySeconds": 1.5,
     "limitDelaySeconds": 610,
+    "limitRetries": 6,
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []
@@ -283,6 +284,7 @@
     "maxPages": 36,
     "delaySeconds": 1.5,
     "limitDelaySeconds": 610,
+    "limitRetries": 6,
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []
@@ -368,6 +370,7 @@
     "maxPages": 17,
     "delaySeconds": 1.5,
     "limitDelaySeconds": 610,
+    "limitRetries": 6,
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []
@@ -381,6 +384,7 @@
     "maxPages": 2,
     "delaySeconds": 1.5,
     "limitDelaySeconds": 610,
+    "limitRetries": 6,
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []

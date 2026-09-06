@@ -60,6 +60,23 @@ def decodeHtml(readHtml: str | bytes) -> str | bytes:
         return readHtml
 
 
+def getPage(readSession, readSource: dict, readUrl: str):
+    readRetries = int(readSource.get("limitRetries", 0))
+    for readAttempt in range(readRetries + 1):
+        readResponse = readSession.get(
+            readUrl,
+            headers={"User-Agent": USER_AGENT},
+            timeout=60,
+            verify=readSource.get("verify", True),
+        )
+        readResponse.raise_for_status()
+        if "非法访问" not in readResponse.text:
+            return readResponse
+        if readAttempt < readRetries:
+            time.sleep(float(readSource.get("limitDelaySeconds", 0)))
+    raise RuntimeError(f"official source rate limit persisted: {readSource['id']}")
+
+
 def cleanTitle(readTitle: str) -> str:
     readTitle = re.sub(r"^(顶|置顶|\[置顶\]|【置顶】)\s*", "", readTitle.strip())
     readTitle = re.sub(r"^\d{1,2}\s+20\d{2}[-./]\d{1,2}\s*", "", readTitle)
@@ -163,22 +180,7 @@ def readPages(readSession, readSource: dict, readStart: int, readEnd: int) -> li
     readPages = int(readSource.get("maxPages", 1))
     for readPage in range(1, readPages + 1):
         readUrl = readSource.get("pageUrl", readSource["listUrl"]).format(page=readPage)
-        readResponse = readSession.get(
-            readUrl,
-            headers={"User-Agent": USER_AGENT},
-            timeout=60,
-            verify=readSource.get("verify", True),
-        )
-        readResponse.raise_for_status()
-        if "非法访问" in readResponse.text:
-            time.sleep(float(readSource.get("limitDelaySeconds", 0)))
-            readResponse = readSession.get(
-                readUrl,
-                headers={"User-Agent": USER_AGENT},
-                timeout=60,
-                verify=readSource.get("verify", True),
-            )
-            readResponse.raise_for_status()
+        readResponse = getPage(readSession, readSource, readUrl)
         readArticles.extend(parseArticles(readResponse.content, readSource, readStart, readEnd))
         time.sleep(float(readSource.get("delaySeconds", 0)))
     return list({readArticle["link"]: readArticle for readArticle in readArticles}.values())
@@ -591,22 +593,7 @@ def saveArticle(
             return "error"
         readTree = parseHtml.fromstring(readContentHtml)
     else:
-        readResponse = readSession.get(
-            readArticle["link"],
-            headers={"User-Agent": USER_AGENT},
-            timeout=60,
-            verify=readSource.get("verify", True),
-        )
-        readResponse.raise_for_status()
-        if "非法访问" in readResponse.text:
-            time.sleep(float(readSource.get("limitDelaySeconds", 0)))
-            readResponse = readSession.get(
-                readArticle["link"],
-                headers={"User-Agent": USER_AGENT},
-                timeout=60,
-                verify=readSource.get("verify", True),
-            )
-            readResponse.raise_for_status()
+        readResponse = getPage(readSession, readSource, readArticle["link"])
         readTree = parseHtml.fromstring(decodeHtml(readResponse.content))
     readNode = readContent(readTree, readSource["contentXpath"])
     if readNode is None:
@@ -670,13 +657,7 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
             elif readSource.get("pageUrl"):
                 readArticles = readPages(readSession, readSource, readStart, readEnd)
             else:
-                readResponse = readSession.get(
-                    readSource["listUrl"],
-                    headers={"User-Agent": USER_AGENT},
-                    timeout=60,
-                    verify=readSource.get("verify", True),
-                )
-                readResponse.raise_for_status()
+                readResponse = getPage(readSession, readSource, readSource["listUrl"])
                 if readSource.get("format") == "uestc":
                     readArticles = parseUestc(readResponse.json(), readSource, readStart, readEnd)
                 elif readSource.get("format") == "ustc":
