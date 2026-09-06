@@ -1,10 +1,13 @@
 import json
+import base64
+import zlib
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.skills.business.official_sites import (
     cleanTitle,
+    decodeHtml,
     parseArticles,
     parseCareerList,
     parseJyxt,
@@ -12,6 +15,16 @@ from app.skills.business.official_sites import (
     parseUstc,
     parseDate,
 )
+
+
+def testDecodeHtml():
+    readInner = "前缀" + "<ul><li>招聘信息</li></ul>"
+    readOuter = "占位" + base64.b64encode(readInner.encode()).decode()
+    readPayload = base64.b64encode(zlib.compress(readOuter.encode())).decode()
+    readHtml = (
+        f'<script>Base64.decode(unzip("{readPayload}").substr(2)).substr(2)</script>'
+    )
+    assert decodeHtml(readHtml) == "<ul><li>招聘信息</li></ul>"
 
 
 def testParseArticles():
@@ -65,6 +78,18 @@ def testCoverAccounts():
     assert len({readAccount["fakeid"] for readAccount in readAccounts}) == 60
     readIds = {readAccount["fakeid"] for readAccount in readAccounts}
     assert all(readSource["fakeid"] in readIds for readSource in readSources)
+    readSourceIds = {readSource["id"] for readSource in readSources}
+    readSourceAccounts = {readSource["fakeid"] for readSource in readSources}
+    assert not any(readAccount["status"] == "probe" for readAccount in readAccounts)
+    for readAccount in readAccounts:
+        if readAccount["status"] == "integrated":
+            assert (
+                readAccount["fakeid"] in readSourceAccounts
+                or readAccount.get("sourceId") in readSourceIds
+            )
+        else:
+            assert readAccount["reason"]
+            assert readAccount["alternative"]
 
 
 def testParseUestc():

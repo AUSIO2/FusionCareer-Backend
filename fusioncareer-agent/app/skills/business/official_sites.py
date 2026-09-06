@@ -46,12 +46,16 @@ UESTC_SLUGS = {
 
 def decodeHtml(readHtml: str | bytes) -> str | bytes:
     readBytes = readHtml.encode() if isinstance(readHtml, str) else readHtml
-    readMatch = re.search(rb'Base64\.decode\(unzip\("([^"]+)', readBytes)
+    readMatch = re.search(
+        rb'Base64\.decode\(unzip\("([^"]+)"\)\.substr\((\d+)\)\)\.substr\((\d+)\)',
+        readBytes,
+    )
     if not readMatch:
         return readHtml
     try:
         readOuter = zlib.decompress(base64.b64decode(readMatch.group(1))).decode()
-        return base64.b64decode(readOuter[38:]).decode()[79:]
+        readInner = base64.b64decode(readOuter[int(readMatch.group(2)) :]).decode()
+        return readInner[int(readMatch.group(3)) :]
     except (ValueError, UnicodeDecodeError, zlib.error):
         return readHtml
 
@@ -199,6 +203,93 @@ def readHit(readSession, readSource: dict, readStart: int, readEnd: int) -> list
     )
     readResponse.raise_for_status()
     return parseHit(readResponse.json(), readSource, readStart, readEnd)
+
+
+def readFudan(readSession, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readCommon = {
+        "login_user_id": 1,
+        "login_admin_school_id": readSource["schoolId"],
+        "login_admin_school_code": readSource["schoolCode"],
+    }
+    readResponse = readSession.get(readSource["authUrl"], params=readCommon, timeout=60)
+    readResponse.raise_for_status()
+    readAuth = (readResponse.json().get("data") or {}).get("lock")
+    if not readAuth:
+        raise ValueError("Fudan public API did not return an auth lock")
+    readSource["_auth"] = readAuth
+    readSource["_common"] = readCommon
+    readArticles = []
+    for readType in readSource.get("types", [1, 2, 3]):
+        readPayload = {
+            **readCommon,
+            "school_id": readSource["schoolId"],
+            "type": readType,
+            "page": 1,
+            "size": 1000,
+        }
+        readResponse = readSession.post(
+            readSource["listUrl"], headers={"auth": readAuth}, data=readPayload, timeout=60
+        )
+        readResponse.raise_for_status()
+        for readEntry in (readResponse.json().get("data") or {}).get("list") or []:
+            readTime = int(readEntry.get("addtime") or 0)
+            if readTime < readStart or readTime >= readEnd:
+                continue
+            readId = str(readEntry.get("id") or "")
+            readArticles.append(
+                {
+                    "title": str(readEntry.get("title") or "").strip(),
+                    "link": urljoin(
+                        readSource["homepage"],
+                        f"/Zhaopin/xiaozhao.html?type={readType}&id={readId}",
+                    ),
+                    "create_time": readTime,
+                    "digest": str(readEntry.get("com_id_name") or "").strip(),
+                    "author": readSource["name"],
+                    "origin": readSource["listUrl"],
+                    "id": readId,
+                }
+            )
+    return list(
+        {
+            readArticle["id"]: readArticle
+            for readArticle in readArticles
+            if readArticle["title"] and readArticle["id"]
+        }.values()
+    )
+
+
+def readRuc(readSession, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
+    readArticles = []
+    for readCategory in readSource.get("categories", ["pc95"]):
+        readResponse = readSession.post(
+            readSource["listUrl"],
+            headers={"User-Agent": USER_AGENT},
+            json={"current": 1, "size": 1000, "category": readCategory},
+            timeout=60,
+        )
+        readResponse.raise_for_status()
+        for readEntry in (readResponse.json().get("data") or {}).get("records") or []:
+            readTime = parseDate(str(readEntry.get("publishTime") or ""))
+            if not readTime or readTime < readStart or readTime >= readEnd:
+                continue
+            readId = str(readEntry.get("postId") or "")
+            readLink = str(readEntry.get("externalUrl") or "").strip()
+            if not readLink:
+                readLink = urljoin(readSource["homepage"], f"recruit-detail?id={readId}")
+            readArticles.append(
+                {
+                    "title": str(readEntry.get("title") or "").strip(),
+                    "link": readLink,
+                    "create_time": readTime,
+                    "digest": "",
+                    "author": readSource["name"],
+                    "origin": readSource["listUrl"],
+                    "id": readId,
+                    "category": readCategory,
+                }
+            )
+    return list({readArticle["id"]: readArticle for readArticle in readArticles}.values())
 
 
 def parseUestc(readPayload: dict, readSource: dict, readStart: int, readEnd: int) -> list[dict]:
@@ -396,6 +487,30 @@ def saveArticle(
         if not readContentHtml:
             return "error"
         readTree = parseHtml.fromstring(readContentHtml)
+    elif readSource.get("format") == "fudan":
+        readResponse = readSession.post(
+            readSource["detailUrl"],
+            headers={"auth": readSource["_auth"]},
+            data={**readSource["_common"], "id": readArticle["id"]},
+            timeout=60,
+        )
+        readResponse.raise_for_status()
+        readContentHtml = (readResponse.json().get("data") or {}).get("remarks") or ""
+        if not readContentHtml:
+            return "error"
+        readTree = parseHtml.fromstring(readContentHtml)
+    elif readSource.get("format") == "ruc":
+        readResponse = readSession.post(
+            readSource["detailUrl"],
+            headers={"User-Agent": USER_AGENT},
+            json={"category": readArticle["category"], "post_id": readArticle["id"]},
+            timeout=60,
+        )
+        readResponse.raise_for_status()
+        readContentHtml = (readResponse.json().get("data") or {}).get("content") or ""
+        if not readContentHtml:
+            return "error"
+        readTree = parseHtml.fromstring(readContentHtml)
     elif readSource.get("format") == "career_v2":
         readMatch = re.search(r"/zwxx/view/([^/?]+)", readArticle["link"])
         if not readMatch:
@@ -524,6 +639,10 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
                 readArticles = readCareerList(readSession, readSource, readStart, readEnd)
             elif readSource.get("format") == "hit":
                 readArticles = readHit(readSession, readSource, readStart, readEnd)
+            elif readSource.get("format") == "fudan":
+                readArticles = readFudan(readSession, readSource, readStart, readEnd)
+            elif readSource.get("format") == "ruc":
+                readArticles = readRuc(readSession, readSource, readStart, readEnd)
             elif readSource.get("pageUrl"):
                 readArticles = readPages(readSession, readSource, readStart, readEnd)
             else:

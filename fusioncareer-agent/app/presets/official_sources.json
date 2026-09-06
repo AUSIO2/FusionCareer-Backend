@@ -284,5 +284,128 @@
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []
+  },
+  {
+    "id": "fudan-career-enrollment",
+    "name": "复旦就业",
+    "fakeid": "Mzg3MTA4NjA4MQ==",
+    "homepage": "https://career.fudan.edu.cn/",
+    "authUrl": "https://career.fudan.edu.cn/mobile.php/wx/getselock",
+    "listUrl": "https://career.fudan.edu.cn/mobile.php/enrollment/getlist",
+    "detailUrl": "https://career.fudan.edu.cn/mobile.php/enrollment/detail",
+    "schoolId": "5f431052-b4af-0969-a37a-955f7903c8d5",
+    "schoolCode": "10246",
+    "types": [1, 2, 3],
+    "format": "fudan",
+    "contentXpath": "//*"
+  },
+  {
+    "id": "fudan-econ-recruitment",
+    "name": "SOE Career",
+    "fakeid": "MzkyMDIwNjc1NA==",
+    "listUrl": "https://econ.fudan.edu.cn/xstd1/zyfz/zpxx.htm",
+    "linkPattern": "/info/[0-9]+/[0-9]+\\.htm",
+    "contentXpath": "//div[contains(@class,'v_news_content')]",
+    "keywords": []
+  },
+  {
+    "id": "fudan-fdsm-alumni-jobs",
+    "name": "复旦管院职业发展中心CDO",
+    "fakeid": "MzkyNDUxMjYxMw==",
+    "listUrl": "https://www.fdsm.fudan.edu.cn/alumni/development.html",
+    "linkPattern": "mp\\.weixin\\.qq\\.com/s/",
+    "contentXpath": "//*",
+    "keywords": ["招聘", "求职", "职业"]
+  },
+  {
+    "id": "lzu-career-notices",
+    "name": "兰大就业",
+    "fakeid": "MzkxMDUwOTIwMg==",
+    "listUrl": "https://job.lzu.edu.cn/html/68/article/list/list_1.html",
+    "linkPattern": "/html/68/article/20[0-9]{2}/[0-9]+\\.html|mp\\.weixin\\.qq\\.com/s/",
+    "contentXpath": "//*[@id='news']",
+    "keywords": []
+  },
+  {
+    "id": "lzu-career-school-jobs",
+    "name": "兰大就业",
+    "fakeid": "MzkxMDUwOTIwMg==",
+    "listUrl": "https://job.lzu.edu.cn/html/74/article/list/list_1.html",
+    "linkPattern": "/html/74/article/20[0-9]{2}/[0-9]+\\.html|mp\\.weixin\\.qq\\.com/s/",
+    "contentXpath": "//*[@id='news']",
+    "keywords": []
+  },
+  {
+    "id": "lzu-career-company-jobs",
+    "name": "兰大就业",
+    "fakeid": "MzkxMDUwOTIwMg==",
+    "listUrl": "https://job.lzu.edu.cn/html/22/article/list/list_1.html",
+    "linkPattern": "/html/22/article/20[0-9]{2}/[0-9]+\\.html|mp\\.weixin\\.qq\\.com/s/",
+    "contentXpath": "//*[@id='news']",
+    "keywords": []
+  },
+  {
+    "id": "lzu-career-internships",
+    "name": "兰大就业",
+    "fakeid": "MzkxMDUwOTIwMg==",
+    "listUrl": "https://job.lzu.edu.cn/html/76/article/list/list_1.html",
+    "linkPattern": "/html/76/article/20[0-9]{2}/[0-9]+\\.html|mp\\.weixin\\.qq\\.com/s/",
+    "contentXpath": "//*[@id='news']",
+    "keywords": []
+  },
+  {
+    "id": "sfc-career-campus",
+    "name": "四川电影电视学院就业指导中心",
+    "fakeid": "MzI1NjkwMzk2NA==",
+    "listUrl": "https://sfc.jysd.com/campus",
+    "pageUrl": "https://sfc.jysd.com/campus/index/page/{page}",
+    "maxPages": 17,
+    "delaySeconds": 1.5,
+    "linkPattern": "/campus/view/id/",
+    "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
+    "keywords": []
+  },
+  {
+    "id": "cuz-career-campus",
+    "name": "浙传创就业",
+    "fakeid": "MzA4OTU4NjEwOQ==",
+    "listUrl": "https://cuz.jysd.com/campus",
+    "pageUrl": "https://cuz.jysd.com/campus/index/page/{page}",
+    "maxPages": 2,
+    "delaySeconds": 1.5,
+    "linkPattern": "/campus/view/id/",
+    "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
+    "keywords": []
+  },
+  {
+    "id": "cufe-career-jobs",
+    "name": "中财就业",
+    "fakeid": "MjM5MzUzODIzNQ==",
+    "homepage": "http://scc.cufe.edu.cn/",
+    "listUrl": "http://scc.cufe.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 10
+  },
+  {
+    "id": "ucass-career-jobs",
+    "name": "社科大就业",
+    "fakeid": "Mzg3NjAxNTM0Ng==",
+    "homepage": "https://jyzd.ucass.edu.cn/",
+    "listUrl": "https://jyzd.ucass.edu.cn/f/recruitmentinfo/ajax_frontRecruitinfo",
+    "format": "jyxt",
+    "contentXpath": "//*",
+    "maxPages": 10
+  },
+  {
+    "id": "ruc-career-posts",
+    "name": "人大就业创业",
+    "fakeid": "MjM5MTE5MTY4Mw==",
+    "homepage": "https://career.ruc.edu.cn/",
+    "listUrl": "https://career.ruc.edu.cn/open/api/v1/posts",
+    "detailUrl": "https://career.ruc.edu.cn/open/api/v1/posts/show",
+    "categories": ["pc95", "pc91"],
+    "format": "ruc",
+    "contentXpath": "//*"
   }
 ]
