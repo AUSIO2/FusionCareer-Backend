@@ -165,6 +165,12 @@ def readPages(readSession, readSource: dict, readStart: int, readEnd: int) -> li
         readUrl = readSource.get("pageUrl", readSource["listUrl"]).format(page=readPage)
         readResponse = readSession.get(readUrl, headers={"User-Agent": USER_AGENT}, timeout=60)
         readResponse.raise_for_status()
+        if "非法访问" in readResponse.text:
+            time.sleep(float(readSource.get("limitDelaySeconds", 0)))
+            readResponse = readSession.get(
+                readUrl, headers={"User-Agent": USER_AGENT}, timeout=60
+            )
+            readResponse.raise_for_status()
         readArticles.extend(parseArticles(readResponse.content, readSource, readStart, readEnd))
         time.sleep(float(readSource.get("delaySeconds", 0)))
     return list({readArticle["link"]: readArticle for readArticle in readArticles}.values())
@@ -583,6 +589,14 @@ def saveArticle(
             timeout=60,
         )
         readResponse.raise_for_status()
+        if "非法访问" in readResponse.text:
+            time.sleep(float(readSource.get("limitDelaySeconds", 0)))
+            readResponse = readSession.get(
+                readArticle["link"],
+                headers={"User-Agent": USER_AGENT},
+                timeout=60,
+            )
+            readResponse.raise_for_status()
         readTree = parseHtml.fromstring(decodeHtml(readResponse.content))
     readNode = readContent(readTree, readSource["contentXpath"])
     if readNode is None:

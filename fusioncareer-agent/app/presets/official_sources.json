@@ -269,6 +269,7 @@
     "pageUrl": "https://career.sysu.edu.cn/campus/index/page/{page}",
     "maxPages": 25,
     "delaySeconds": 1.5,
+    "limitDelaySeconds": 610,
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []
@@ -281,6 +282,7 @@
     "pageUrl": "https://jy.xmu.edu.cn/campus/index/page/{page}",
     "maxPages": 36,
     "delaySeconds": 1.5,
+    "limitDelaySeconds": 610,
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []
@@ -361,6 +363,7 @@
     "pageUrl": "https://sfc.jysd.com/campus/index/page/{page}",
     "maxPages": 17,
     "delaySeconds": 1.5,
+    "limitDelaySeconds": 610,
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []
@@ -373,6 +376,7 @@
     "pageUrl": "https://cuz.jysd.com/campus/index/page/{page}",
     "maxPages": 2,
     "delaySeconds": 1.5,
+    "limitDelaySeconds": 610,
     "linkPattern": "/campus/view/id/",
     "contentXpath": "//div[contains(@class,'view-content')] | //div[contains(@class,'content')]",
     "keywords": []
