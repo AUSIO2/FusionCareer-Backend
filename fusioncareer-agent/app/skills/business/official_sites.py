@@ -163,12 +163,20 @@ def readPages(readSession, readSource: dict, readStart: int, readEnd: int) -> li
     readPages = int(readSource.get("maxPages", 1))
     for readPage in range(1, readPages + 1):
         readUrl = readSource.get("pageUrl", readSource["listUrl"]).format(page=readPage)
-        readResponse = readSession.get(readUrl, headers={"User-Agent": USER_AGENT}, timeout=60)
+        readResponse = readSession.get(
+            readUrl,
+            headers={"User-Agent": USER_AGENT},
+            timeout=60,
+            verify=readSource.get("verify", True),
+        )
         readResponse.raise_for_status()
         if "非法访问" in readResponse.text:
             time.sleep(float(readSource.get("limitDelaySeconds", 0)))
             readResponse = readSession.get(
-                readUrl, headers={"User-Agent": USER_AGENT}, timeout=60
+                readUrl,
+                headers={"User-Agent": USER_AGENT},
+                timeout=60,
+                verify=readSource.get("verify", True),
             )
             readResponse.raise_for_status()
         readArticles.extend(parseArticles(readResponse.content, readSource, readStart, readEnd))
@@ -587,6 +595,7 @@ def saveArticle(
             readArticle["link"],
             headers={"User-Agent": USER_AGENT},
             timeout=60,
+            verify=readSource.get("verify", True),
         )
         readResponse.raise_for_status()
         if "非法访问" in readResponse.text:
@@ -595,6 +604,7 @@ def saveArticle(
                 readArticle["link"],
                 headers={"User-Agent": USER_AGENT},
                 timeout=60,
+                verify=readSource.get("verify", True),
             )
             readResponse.raise_for_status()
         readTree = parseHtml.fromstring(decodeHtml(readResponse.content))
@@ -661,7 +671,10 @@ def crawlSites(readPaths: WechatPaths, readStart: int, readEnd: int) -> dict[str
                 readArticles = readPages(readSession, readSource, readStart, readEnd)
             else:
                 readResponse = readSession.get(
-                    readSource["listUrl"], headers={"User-Agent": USER_AGENT}, timeout=60
+                    readSource["listUrl"],
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=60,
+                    verify=readSource.get("verify", True),
                 )
                 readResponse.raise_for_status()
                 if readSource.get("format") == "uestc":

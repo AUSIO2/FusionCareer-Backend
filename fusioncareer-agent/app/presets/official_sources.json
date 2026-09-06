@@ -324,6 +324,7 @@
     "name": "兰大就业",
     "fakeid": "MzkxMDUwOTIwMg==",
     "listUrl": "https://job.lzu.edu.cn/html/68/article/list/list_1.html",
+    "verify": false,
     "linkPattern": "/html/68/article/20[0-9]{2}/[0-9]+\\.html|mp\\.weixin\\.qq\\.com/s/",
     "contentXpath": "//*[@id='news']",
     "keywords": []
@@ -333,6 +334,7 @@
     "name": "兰大就业",
     "fakeid": "MzkxMDUwOTIwMg==",
     "listUrl": "https://job.lzu.edu.cn/html/74/article/list/list_1.html",
+    "verify": false,
     "linkPattern": "/html/74/article/20[0-9]{2}/[0-9]+\\.html|mp\\.weixin\\.qq\\.com/s/",
     "contentXpath": "//*[@id='news']",
     "keywords": []
@@ -342,6 +344,7 @@
     "name": "兰大就业",
     "fakeid": "MzkxMDUwOTIwMg==",
     "listUrl": "https://job.lzu.edu.cn/html/22/article/list/list_1.html",
+    "verify": false,
     "linkPattern": "/html/22/article/20[0-9]{2}/[0-9]+\\.html|mp\\.weixin\\.qq\\.com/s/",
     "contentXpath": "//*[@id='news']",
     "keywords": []
@@ -351,6 +354,7 @@
     "name": "兰大就业",
     "fakeid": "MzkxMDUwOTIwMg==",
     "listUrl": "https://job.lzu.edu.cn/html/76/article/list/list_1.html",
+    "verify": false,
     "linkPattern": "/html/76/article/20[0-9]{2}/[0-9]+\\.html|mp\\.weixin\\.qq\\.com/s/",
     "contentXpath": "//*[@id='news']",
     "keywords": []
