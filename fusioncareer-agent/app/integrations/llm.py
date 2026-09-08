@@ -91,7 +91,7 @@ class LLMClient:
         """
         import json
 
-        for readAttempt in range(2):
+        for readAttempt in range(3):
             raw = await self.chat(
                 user_message=user_message,
                 system_prompt=system_prompt,
@@ -109,6 +109,6 @@ class LLMClient:
             try:
                 return json.loads(text)
             except json.JSONDecodeError:
-                if readAttempt:
+                if readAttempt == 2:
                     raise
         raise RuntimeError("LLM JSON retry exhausted")

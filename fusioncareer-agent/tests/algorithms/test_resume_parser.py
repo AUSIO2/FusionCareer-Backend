@@ -56,9 +56,15 @@ def testNormalizeResume():
 
 def testParseText():
     class FakeResumeClient:
+        def __init__(self):
+            self.readOptions = {}
+
         async def chat_json(self, **readOptions):
+            self.readOptions = readOptions
             return {"profilePatch": {"realName": "张同学"}, "resumePatch": {"skills": "Python"}}
 
-    readResult = asyncio.run(parseText("姓名：张同学", FakeResumeClient()))
+    readClient = FakeResumeClient()
+    readResult = asyncio.run(parseText("姓名：张同学", readClient))
     assert readResult["profilePatch"]["realName"] == "张同学"
     assert readResult["resumePatch"]["skills"] == "Python"
+    assert readClient.readOptions["max_tokens"] == 8192

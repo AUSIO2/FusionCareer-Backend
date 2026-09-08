@@ -20,6 +20,7 @@ async def parseText(readText: str, readClient: LLMClient | None = None) -> dict[
         user_message=readText[:40_000],
         system_prompt=RESUME_PROMPT,
         temperature=0.1,
+        max_tokens=8192,
     )
     if not isinstance(readResponse, dict):
         raise ValueError("resume response must be an object")
