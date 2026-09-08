@@ -37,14 +37,15 @@ class JobPostQueryTest {
 
     @BeforeEach
     void createJobs() {
+        LocalDate readToday = LocalDate.now();
         createJob("alpha", "上海", "上海", 100, 200,
-                LocalDate.of(2026, 9, 20), LocalDateTime.of(2026, 8, 1, 8, 0));
+                readToday.plusDays(12), LocalDateTime.of(2026, 8, 1, 8, 0));
         createJob("beta", "上海", "上海", 250, 400,
-                LocalDate.of(2026, 9, 10), LocalDateTime.of(2026, 8, 3, 8, 0));
+                readToday.plusDays(2), LocalDateTime.of(2026, 8, 3, 8, 0));
         createJob("gamma", "广东", "广州", 500, 600,
                 null, LocalDateTime.of(2026, 8, 2, 8, 0));
         createJob("delta", "广东", "深圳", 150, 300,
-                LocalDate.of(2026, 9, 30), LocalDateTime.of(2026, 8, 4, 8, 0));
+                readToday.plusDays(22), LocalDateTime.of(2026, 8, 4, 8, 0));
     }
 
     @Test
@@ -135,6 +136,39 @@ class JobPostQueryTest {
                 .isEqualTo(2L);
     }
 
+    @Test
+    void hideExpiredJobs() {
+        readJobService.lambdaUpdate()
+                .eq(JobPostEntity::getPositionName, "alpha")
+                .set(JobPostEntity::getApplicationDeadline, LocalDate.now().minusDays(1))
+                .update();
+        readJobService.lambdaUpdate()
+                .eq(JobPostEntity::getPositionName, "beta")
+                .set(JobPostEntity::getWorkEndDate, LocalDate.now().minusDays(1))
+                .update();
+
+        PageResult<JobPostResponse> readJobs = readJobService.listPublishedJobPosts(
+                new JobPostQueryRequest());
+
+        assertThat(readJobs.getList()).extracting(JobPostResponse::getPositionName)
+                .containsExactly("delta", "gamma");
+    }
+
+    @Test
+    void filterInternalApply() {
+        readJobService.lambdaUpdate()
+                .eq(JobPostEntity::getPositionName, "beta")
+                .set(JobPostEntity::getSourceUrl, "https://example.test/apply")
+                .update();
+        JobPostQueryRequest readQuery = new JobPostQueryRequest();
+        readQuery.setInternalApply(true);
+
+        PageResult<JobPostResponse> readJobs = readJobService.listJobPosts(readQuery);
+
+        assertThat(readJobs.getList()).extracting(JobPostResponse::getPositionName)
+                .containsExactlyInAnyOrder("alpha", "gamma", "delta");
+    }
+
     private void createJob(String createName, String createProvince, String createCity,
                            int createSalaryMin, int createSalaryMax, LocalDate createDeadline,
                            LocalDateTime createTime) {
@@ -148,7 +182,8 @@ class JobPostQueryTest {
         createJob.setWorkCity(createCity);
         createJob.setSalaryMin(createSalaryMin);
         createJob.setSalaryMax(createSalaryMax);
-        createJob.setWorkEndDate(createDeadline);
+        createJob.setWorkEndDate(LocalDate.now().plusDays(30));
+        createJob.setApplicationDeadline(createDeadline);
         createJob.setCreatedAt(createTime);
         readJobService.save(createJob);
     }

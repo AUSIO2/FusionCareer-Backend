@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -82,7 +83,12 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     @Override
     public PageResult<JobPostResponse> listPublishedJobPosts(JobPostQueryRequest query) {
         LambdaQueryWrapper<JobPostEntity> buildQuery = buildJobQuery(query);
-        buildQuery.eq(JobPostEntity::getStatus, JobPostStatus.PUBLISHED);
+        LocalDate readToday = LocalDate.now();
+        buildQuery.eq(JobPostEntity::getStatus, JobPostStatus.PUBLISHED)
+                .and(readJob -> readJob.isNull(JobPostEntity::getApplicationDeadline)
+                        .or().ge(JobPostEntity::getApplicationDeadline, readToday))
+                .and(readJob -> readJob.isNull(JobPostEntity::getWorkEndDate)
+                        .or().ge(JobPostEntity::getWorkEndDate, readToday));
 
         Page<JobPostEntity> readJobs = page(
                 createPage(query.getPage(), query.getSize()), buildQuery);
@@ -115,6 +121,9 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
          .eq(readQuery.getRecommended() != null, JobPostEntity::getRecommended, readQuery.getRecommended())
          .eq(readQuery.getStatus() != null, JobPostEntity::getStatus, readQuery.getStatus())
          .eq(readQuery.getSourceType() != null, JobPostEntity::getSourceType, readQuery.getSourceType())
+         .and(Boolean.TRUE.equals(readQuery.getInternalApply()), readSource -> readSource
+                 .isNull(JobPostEntity::getSourceUrl)
+                 .or().eq(JobPostEntity::getSourceUrl, ""))
          .and(StringUtils.hasText(readQuery.getKeyword()), readKeyword -> readKeyword
                  .like(JobPostEntity::getPositionName, readQuery.getKeyword())
                  .or()
@@ -125,7 +134,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
 
     private void sortJobs(LambdaQueryWrapper<JobPostEntity> buildQuery, JobPostSort readSort) {
         if (readSort == JobPostSort.DEADLINE) {
-            buildQuery.last("ORDER BY work_end_date IS NULL, work_end_date ASC, created_at DESC");
+            buildQuery.last("ORDER BY application_deadline IS NULL, application_deadline ASC, created_at DESC");
             return;
         }
         buildQuery.orderByDesc(JobPostEntity::getCreatedAt);

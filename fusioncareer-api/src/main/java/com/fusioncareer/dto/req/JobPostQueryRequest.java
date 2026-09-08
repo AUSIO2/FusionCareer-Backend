@@ -27,5 +27,6 @@ public class JobPostQueryRequest {
     private Boolean recommended;
     private JobPostStatus status;
     private SourceType sourceType;
+    private Boolean internalApply;
     private String keyword;
 }

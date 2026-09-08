@@ -78,6 +78,7 @@ def testNormalizeModelVariants():
             "招聘类型": "暑期提前批实习",
             "学历要求": "本科及以上",
             "工作城市": "城市" * 30,
+            "投递截止日": "2026-10-31",
         },
         "https://example.test/job",
         "CRAWL",
@@ -87,6 +88,7 @@ def testNormalizeModelVariants():
     assert readJob["recruitType"] == "OTHER"
     assert "reqEduLevel" not in readJob
     assert len(readJob["workCity"]) == 32
+    assert readJob["applicationDeadline"] == "2026-10-31"
 
 
 def testStructureLongArticle():

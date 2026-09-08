@@ -213,7 +213,8 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         if (job == null) {
             throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND);
         }
-        if (QuestionnaireDeadlineUtil.isExpired(job.getWorkEndDate())) {
+        if (QuestionnaireDeadlineUtil.isExpired(
+                job.getApplicationDeadline(), job.getWorkEndDate())) {
             throw ServiceException.of(QuestionnaireErrorCode.QUESTIONNAIRE_DEADLINE_PASSED);
         }
         return job;
@@ -244,10 +245,9 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         return entity;
     }
 
-    /** 岗位 → 列表项：忽略与作答记录冲突的字段，并映射截止日期字段名 */
+    /** 岗位 → 列表项：忽略与作答记录冲突的字段 */
     private static final CopyOptions JOB_TO_LIST_ITEM_OPTIONS = CopyOptions.create()
-            .setIgnoreProperties("id", "createdAt", "updatedAt")
-            .setFieldMapping(Map.of("workEndDate", "questionnaireDeadline"));
+            .setIgnoreProperties("id", "createdAt", "updatedAt");
 
     private void clearReviewMetadata(QuestionnaireAnswerEntity entity) {
         entity.setReviewedAt(null);
@@ -311,7 +311,9 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         MyQuestionnaireListItemResponse item = new MyQuestionnaireListItemResponse();
         BeanUtil.copyProperties(answer, item);
         BeanUtil.copyProperties(job, item, JOB_TO_LIST_ITEM_OPTIONS);
-        item.setExpired(QuestionnaireDeadlineUtil.isExpired(job.getWorkEndDate()));
+        item.setQuestionnaireDeadline(job.getApplicationDeadline());
+        item.setExpired(QuestionnaireDeadlineUtil.isExpired(
+                job.getApplicationDeadline(), job.getWorkEndDate()));
         applyStatusLabel(item, answer.getSubmissionStatus());
         return item;
     }

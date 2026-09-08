@@ -36,6 +36,7 @@ public class JobPostEntity implements Serializable {
     private Integer headcount;
     private LocalDate workStartDate;
     private LocalDate workEndDate;
+    private LocalDate applicationDeadline;
     private Integer workDaysPerWeek;
     private WorkDurationType workDurationType;
     private WorkPeriodType workPeriodType;

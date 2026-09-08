@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     -- 工作要求
     `work_start_date`   DATE                   DEFAULT NULL COMMENT '工作开始时间',
     `work_end_date`     DATE                   DEFAULT NULL COMMENT '工作结束时间',
+    `application_deadline` DATE                DEFAULT NULL COMMENT '岗位投递截止日期',
     `work_days_per_week` TINYINT               DEFAULT NULL COMMENT '每周工作天数，如：3（即一周3天及以上）',
     `work_duration_type` TINYINT               DEFAULT NULL COMMENT '工作时长类型：1-一周1-2天 2-一周3-4天 3-一周5天',
     `work_period_type`  TINYINT                DEFAULT NULL COMMENT '实习时长：1-3个月以内 2-3到6个月 3-6个月以上',
@@ -157,6 +158,7 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     KEY `idx_job_category`  (`job_category`),
     KEY `idx_recruit_type`  (`recruit_type`),
     KEY `idx_work_city`     (`work_city`),
+    KEY `idx_application_deadline` (`application_deadline`),
     KEY `idx_work_mode`     (`work_mode`),
     KEY `idx_recommended`   (`recommended`),
     KEY `idx_status`        (`status`),
@@ -213,4 +215,3 @@ CREATE TABLE IF NOT EXISTS `fc_questionnaire_answer`
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COMMENT = '学生问卷作答表';
-
