@@ -1,5 +1,7 @@
 """LLM Client — OpenAI 标准格式，兼容 DeepSeek 等"""
 
+import ast
+import json
 import logging
 from typing import Any
 
@@ -8,6 +10,75 @@ from openai import AsyncOpenAI
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def extractObject(readText: str) -> str:
+    readStart = readText.find("{")
+    if readStart < 0:
+        return readText
+    readDepth = 0
+    readQuote = ""
+    readEscape = False
+    for readIndex, readChar in enumerate(readText[readStart:], readStart):
+        if readQuote:
+            if readEscape:
+                readEscape = False
+            elif readChar == "\\":
+                readEscape = True
+            elif readChar == readQuote:
+                readQuote = ""
+            continue
+        if readChar in {'"', "'"}:
+            readQuote = readChar
+        elif readChar == "{":
+            readDepth += 1
+        elif readChar == "}":
+            readDepth -= 1
+            if readDepth == 0:
+                return readText[readStart:readIndex + 1]
+    return readText[readStart:]
+
+
+def removeCommas(readText: str) -> str:
+    createText = []
+    readQuote = ""
+    readEscape = False
+    for readIndex, readChar in enumerate(readText):
+        if readQuote:
+            createText.append(readChar)
+            if readEscape:
+                readEscape = False
+            elif readChar == "\\":
+                readEscape = True
+            elif readChar == readQuote:
+                readQuote = ""
+            continue
+        if readChar in {'"', "'"}:
+            readQuote = readChar
+        if readChar == "," and readText[readIndex + 1:].lstrip().startswith(("}", "]")):
+            continue
+        createText.append(readChar)
+    return "".join(createText)
+
+
+def parseJson(readText: str) -> dict:
+    readObject = extractObject(readText.strip())
+    readCandidates = (readText.strip(), readObject, removeCommas(readObject))
+    readError: json.JSONDecodeError | None = None
+    for readCandidate in dict.fromkeys(readCandidates):
+        try:
+            readValue, _ = json.JSONDecoder(strict=False).raw_decode(readCandidate.lstrip())
+            if isinstance(readValue, dict):
+                return readValue
+        except json.JSONDecodeError as createError:
+            readError = createError
+    try:
+        readValue = ast.literal_eval(removeCommas(readObject))
+        if isinstance(readValue, dict):
+            return readValue
+    except (SyntaxError, ValueError):
+        pass
+    raise readError or json.JSONDecodeError("response is not a JSON object", readText, 0)
 
 
 class LLMClient:
@@ -89,8 +160,6 @@ class LLMClient:
         Returns:
             解析后的 dict
         """
-        import json
-
         for readAttempt in range(3):
             raw = await self.chat(
                 user_message=user_message,
@@ -101,13 +170,8 @@ class LLMClient:
                 response_format={"type": "json_object"},
             )
 
-            text = raw.strip()
-            if text.startswith("```"):
-                lines = text.split("\n")
-                lines = [readLine for readLine in lines if not readLine.strip().startswith("```")]
-                text = "\n".join(lines)
             try:
-                return json.loads(text)
+                return parseJson(raw)
             except json.JSONDecodeError:
                 if readAttempt == 2:
                     raise
