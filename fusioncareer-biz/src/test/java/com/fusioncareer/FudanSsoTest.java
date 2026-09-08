@@ -6,6 +6,7 @@ import com.fusioncareer.client.PythonServiceClient;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.res.JobStructureResponse;
 import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.entity.UserProfileEntity;
 import com.fusioncareer.enums.JobCategory;
 import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.enums.RecruitType;
@@ -14,6 +15,7 @@ import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.enums.UserStatus;
 import com.fusioncareer.service.FudanSsoService;
 import com.fusioncareer.service.UserService;
+import com.fusioncareer.service.UserProfileService;
 import com.fusioncareer.service.JobPostService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -61,6 +63,9 @@ class FudanSsoTest {
 
     @Autowired
     private UserService readUserService;
+
+    @Autowired
+    private UserProfileService readProfileService;
 
     @Autowired
     private StpInterface readRoleProvider;
@@ -170,6 +175,36 @@ class FudanSsoTest {
     }
 
     @Test
+    void createCleanProfile() throws Exception {
+        loginPayload("{\"data\":{\"userId\":\"test-clean\","
+                + "\"realName\":\"测试用户\",\"email\":null,\"department\":\"100286\"}}");
+
+        UserEntity readUser = readUserService.lambdaQuery()
+                .eq(UserEntity::getStudentId, "test-clean").one();
+        UserProfileEntity readProfile = readProfileService.getById(readUser.getId());
+        assertThat(readProfile.getRealName()).isEqualTo("测试用户");
+        assertThat(readProfile.getEmail()).isNull();
+        assertThat(readProfile.getMajor()).isNull();
+    }
+
+    @Test
+    void repairProfileOnLogin() throws Exception {
+        UserEntity readUser = createUser("test-repair", UserRole.NORMAL, UserStatus.NORMAL);
+        UserProfileEntity createProfile = new UserProfileEntity();
+        createProfile.setUserId(readUser.getId());
+        createProfile.setRealName("test-repair");
+        readProfileService.save(createProfile);
+        loginPayload("{\"data\":{\"userId\":\"test-repair\","
+                + "\"cn\":\"修复用户\",\"mail\":\"user@example.test\",\"majorName\":\"新闻学\"}}");
+
+        UserProfileEntity readProfile = readProfileService.getById(readUser.getId());
+        assertThat(readProfile.getRealName()).isEqualTo("修复用户");
+        assertThat(readProfile.getEmail()).isEqualTo("user@example.test");
+        assertThat(readProfile.getMajor()).isEqualTo("新闻学");
+        assertThat(readUserService.getById(readUser.getId()).getUsername()).isEqualTo("修复用户");
+    }
+
+    @Test
     void readRoles() {
         UserEntity createUser = createUser("test-admin", UserRole.ADMIN, UserStatus.NORMAL);
 
@@ -256,6 +291,15 @@ class FudanSsoTest {
 
     private String loginUser(String readStudentId, String readTarget) throws Exception {
         mockIdentity(readStudentId);
+        return loginCallback(readTarget);
+    }
+
+    private String loginPayload(String readPayload) throws Exception {
+        mockIdentityPayload(readPayload);
+        return loginCallback(null);
+    }
+
+    private String loginCallback(String readTarget) throws Exception {
         var createLogin = get("/fudan/login");
         if (readTarget != null) {
             createLogin.param("target", readTarget);
@@ -282,6 +326,11 @@ class FudanSsoTest {
     }
 
     private void mockIdentity(String readStudentId) {
+        mockIdentityPayload("{\"userId\":\"" + readStudentId
+                + "\",\"userName\":\"Test User\"}");
+    }
+
+    private void mockIdentityPayload(String readPayload) {
         when(readRestClient.exchange(
                 eq(readSsoProperties.getTokenUrl()),
                 eq(HttpMethod.POST),
@@ -293,7 +342,6 @@ class FudanSsoTest {
                 eq(HttpMethod.GET),
                 any(HttpEntity.class),
                 eq(String.class)))
-                .thenReturn(ResponseEntity.ok("{\"userId\":\"" + readStudentId
-                        + "\",\"userName\":\"Test User\"}"));
+                .thenReturn(ResponseEntity.ok(readPayload));
     }
 }

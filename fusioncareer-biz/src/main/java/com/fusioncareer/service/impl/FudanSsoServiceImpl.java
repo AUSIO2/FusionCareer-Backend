@@ -88,6 +88,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
     }
 
     @Override
+    @Transactional
     public String processCallback(String code, boolean openAdmin) {
         try {
             // 1. 获取 Access Token
@@ -105,6 +106,9 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             }
 
             String userName = resolveFudanUserName(userInfo, userId);
+            String readPhone = readFudanValue(userInfo, "mobile", "phone", "mobilePhone");
+            String readEmail = readFudanValue(userInfo, "email", "mail");
+            String readMajor = readFudanValue(userInfo, "major", "majorName", "major_name");
 
             // 3. 业务系统登录注册逻辑
             UserEntity user = userService.lambdaQuery().eq(UserEntity::getStudentId, userId).one();
@@ -121,16 +125,10 @@ public class FudanSsoServiceImpl implements FudanSsoService {
                 // 同步复旦 UIS 用户资料到 UserProfile
                 UserProfileEntity profile = new UserProfileEntity();
                 profile.setUserId(user.getId());
-                profile.setRealName(userName);
-                if (userInfo.has("mobile")) {
-                    profile.setPhone(userInfo.get("mobile").asText());
-                }
-                if (userInfo.has("email")) {
-                    profile.setEmail(userInfo.get("email").asText());
-                }
-                if (userInfo.has("department")) {
-                    profile.setMajor(userInfo.get("department").asText());
-                }
+                profile.setRealName(userName.equals(userId) ? null : userName);
+                profile.setPhone(readPhone);
+                profile.setEmail(readEmail);
+                profile.setMajor(readMajor);
                 profile.setCreatedAt(LocalDateTime.now());
                 userProfileService.save(profile);
 
@@ -141,6 +139,8 @@ public class FudanSsoServiceImpl implements FudanSsoService {
                 resumeService.save(resume);
 
                 log.info("Registered new user from Fudan SSO");
+            } else {
+                updateSsoProfile(user, userId, userName, readPhone, readEmail, readMajor);
             }
 
             if (user.getStatus() == UserStatus.DISABLED) {
@@ -297,35 +297,63 @@ public class FudanSsoServiceImpl implements FudanSsoService {
 
     /** 兼容复旦 / OIDC 多种学号字段名 */
     private String resolveFudanUserId(JsonNode userInfo) {
-        if (userInfo == null) {
-            return null;
-        }
-        for (String field : new String[]{"userId", "sub", "uid", "username", "user_id"}) {
-            if (userInfo.hasNonNull(field) && !userInfo.get(field).asText().isBlank()) {
-                return userInfo.get(field).asText();
-            }
-        }
-        if (userInfo.has("data") && userInfo.get("data").isObject()) {
-            return resolveFudanUserId(userInfo.get("data"));
-        }
-        return null;
+        return readFudanValue(userInfo, "userId", "sub", "uid", "username", "user_id");
     }
 
     private String resolveFudanUserName(JsonNode userInfo, String fallback) {
-        if (userInfo == null) {
-            return fallback;
+        String readName = readFudanValue(
+                userInfo, "userName", "name", "realName", "real_name", "displayName", "nickname", "cn");
+        return readName == null ? fallback : readName;
+    }
+
+    private String readFudanValue(JsonNode readInfo, String... readFields) {
+        if (readInfo == null || !readInfo.isObject()) {
+            return null;
         }
-        for (String field : new String[]{"userName", "name", "displayName", "nickname"}) {
-            if (userInfo.hasNonNull(field) && !userInfo.get(field).asText().isBlank()) {
-                return userInfo.get(field).asText();
+        for (String readField : readFields) {
+            if (!readInfo.hasNonNull(readField)) {
+                continue;
+            }
+            String readValue = readInfo.get(readField).asText().trim();
+            if (!readValue.isBlank() && !"null".equalsIgnoreCase(readValue)) {
+                return readValue;
             }
         }
-        if (userInfo.has("data") && userInfo.get("data").isObject()) {
-            String nested = resolveFudanUserName(userInfo.get("data"), fallback);
-            if (!nested.equals(fallback)) {
-                return nested;
-            }
+        return readInfo.has("data") && readInfo.get("data").isObject()
+                ? readFudanValue(readInfo.get("data"), readFields)
+                : null;
+    }
+
+    private void updateSsoProfile(
+            UserEntity updateUser,
+            String readUserId,
+            String readUserName,
+            String readPhone,
+            String readEmail,
+            String readMajor) {
+        if (readUserId.equals(updateUser.getUsername()) && !readUserName.equals(readUserId)) {
+            updateUser.setUsername(readUserName);
+            userService.updateById(updateUser);
         }
-        return fallback;
+        UserProfileEntity updateProfile = userProfileService.getById(updateUser.getId());
+        if (updateProfile == null) {
+            updateProfile = new UserProfileEntity();
+            updateProfile.setUserId(updateUser.getId());
+            updateProfile.setCreatedAt(LocalDateTime.now());
+        }
+        if ((updateProfile.getRealName() == null || updateProfile.getRealName().equals(readUserId))
+                && !readUserName.equals(readUserId)) {
+            updateProfile.setRealName(readUserName);
+        }
+        if (updateProfile.getPhone() == null && readPhone != null) {
+            updateProfile.setPhone(readPhone);
+        }
+        if (updateProfile.getEmail() == null && readEmail != null) {
+            updateProfile.setEmail(readEmail);
+        }
+        if (updateProfile.getMajor() == null && readMajor != null) {
+            updateProfile.setMajor(readMajor);
+        }
+        userProfileService.saveOrUpdate(updateProfile);
     }
 }

@@ -37,7 +37,7 @@ def testParseResume(client: TestClient):
     readResponse = client.post(
         "/api/internal/resume/parse",
         headers=readHeaders(),
-        json={"userId": "700000000000000001", "fileId": "700000000000000002"},
+        json={"userId": 700000000000000001, "fileId": 700000000000000002},
     )
     assert readResponse.status_code == 200
     assert readResponse.json()["profilePatch"]["gender"] == "FEMALE"
@@ -46,7 +46,7 @@ def testParseResume(client: TestClient):
 def testProtectResume(client: TestClient):
     readResponse = client.post(
         "/api/internal/resume/parse",
-        json={"userId": "1", "fileId": "2"},
+        json={"userId": 1, "fileId": 2},
     )
     assert readResponse.status_code == 403
 

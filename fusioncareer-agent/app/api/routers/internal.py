@@ -33,8 +33,8 @@ class JobStructureResult(BaseModel):
 
 
 class ResumeParseBody(BaseModel):
-    userId: str = Field(pattern=r"^\d+$")
-    fileId: str = Field(pattern=r"^\d+$")
+    userId: int = Field(gt=0)
+    fileId: int = Field(gt=0)
 
 
 class ResumeParseResult(BaseModel):
@@ -65,8 +65,8 @@ async def readResumeFile(
 async def parseResumeFile(readBody: ResumeParseBody, readRequest: Request) -> dict[str, Any]:
     readFile, readBytes = await readResumeFile(
         readRequest.app.state.backend_client,
-        int(readBody.userId),
-        int(readBody.fileId),
+        readBody.userId,
+        readBody.fileId,
     )
     if len(readBytes) > 20 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="resume file exceeds 20 MB")
