@@ -75,7 +75,7 @@ def testNormalizeModelVariants():
         {
             "单位名称": "示例公司",
             "岗位名称": "示例岗位",
-            "招聘类型": "暑期提前批实习",
+            "招聘类型": "其他",
             "学历要求": "本科及以上",
             "工作城市": "城市" * 30,
             "投递截止日": "2026-10-31",
@@ -86,9 +86,28 @@ def testNormalizeModelVariants():
 
     assert readWarnings == []
     assert readJob["recruitType"] == "OTHER"
-    assert "reqEduLevel" not in readJob
+    assert readJob["reqEduLevel"] == "UNDERGRADUATE"
     assert len(readJob["workCity"]) == 32
     assert readJob["applicationDeadline"] == "2026-10-31"
+
+
+def testRejectInvalidModelFields():
+    _, readWarnings = normalizeJob(
+        {
+            "positionName": "编辑",
+            "position_name": "记者",
+            "jobCategory": 2,
+            "headcount": 2.5,
+            "workStartDate": "2026-99-99",
+        },
+        "",
+        "PLATFORM",
+    )
+
+    assert "duplicate positionName" in readWarnings
+    assert "invalid jobCategory: 2" in readWarnings
+    assert "invalid headcount: 2.5" in readWarnings
+    assert "invalid workStartDate: 2026-99-99" in readWarnings
 
 
 def testStructureLongArticle():

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import Any
 
 
@@ -58,6 +59,7 @@ ENUM_MAPS = {
     "workMode": {"线上": "ONLINE", "线下": "OFFLINE", "线上线下均可": "HYBRID"},
     "reqEduLevel": {
         "本科生": "UNDERGRADUATE", "学术硕士研究生": "ACADEMIC_MASTER",
+        "本科及以上": "UNDERGRADUATE",
         "硕士研究生": "ACADEMIC_MASTER", "专业硕士研究生": "PROFESSIONAL_MASTER",
         "博士研究生": "DOCTORAL",
     },
@@ -96,15 +98,35 @@ def normalizeText(readValue: Any) -> str:
     return re.sub(r"\s+", " ", str(readValue).strip())
 
 
+def normalizeKey(readKey: str) -> str:
+    return ZH_FIELDS.get(
+        readKey,
+        re.sub(r"_([a-z])", lambda readMatch: readMatch.group(1).upper(), readKey),
+    )
+
+
+def normalizeDate(readValue: Any) -> str:
+    readText = normalizeText(readValue)
+    try:
+        date.fromisoformat(readText)
+    except ValueError:
+        return ""
+    return readText
+
+
 def normalizeJob(
     readJob: dict[str, Any],
     readSourceUrl: str,
     readSourceType: str,
 ) -> tuple[dict[str, Any], list[str]]:
     readFlat: dict[str, Any] = {}
+    readWarnings = []
     for readKey, readValue in readJob.items():
-        updateKey = ZH_FIELDS.get(readKey, readKey)
+        updateKey = normalizeKey(readKey)
         if updateKey in JOB_FIELDS and readValue not in (None, "", []):
+            if updateKey in readFlat:
+                readWarnings.append(f"duplicate {updateKey}")
+                continue
             readFlat[updateKey] = readValue
 
     createJob: dict[str, Any] = {}
@@ -112,15 +134,30 @@ def normalizeJob(
         readValue = readFlat.get(readField)
         if readField in ENUM_MAPS:
             readText = normalizeText(readValue)
-            createJob[readField] = ENUM_MAPS[readField].get(readText)
-        elif readField in INT_FIELDS:
-            try:
-                createJob[readField] = int(readValue) if readValue not in (None, "") else None
-            except (TypeError, ValueError):
+            readEnum = ENUM_MAPS[readField]
+            if not readText:
                 createJob[readField] = None
+            elif readText in readEnum.values():
+                createJob[readField] = readText
+            elif readText in readEnum:
+                createJob[readField] = readEnum[readText]
+            else:
+                createJob[readField] = None
+                readWarnings.append(f"invalid {readField}: {readText}")
+        elif readField in INT_FIELDS:
+            if readValue in (None, ""):
+                createJob[readField] = None
+            elif type(readValue) is int or (
+                    isinstance(readValue, str) and re.fullmatch(r"-?\d+", readValue.strip())):
+                createJob[readField] = int(readValue)
+            else:
+                createJob[readField] = None
+                readWarnings.append(f"invalid {readField}: {readValue}")
         elif readField in DATE_FIELDS:
             readText = normalizeText(readValue)
-            createJob[readField] = readText if re.fullmatch(r"\d{4}-\d{2}-\d{2}", readText) else None
+            createJob[readField] = normalizeDate(readText) or None
+            if readText and createJob[readField] is None:
+                readWarnings.append(f"invalid {readField}: {readText}")
         elif readField == "recommended":
             createJob[readField] = bool(readValue) if readValue is not None else False
         else:
@@ -143,7 +180,6 @@ def normalizeJob(
             createJob["jobCategory"] = "ENTERPRISE"
             createJob["jobSubCategory"] = "PRIVATE_ENTERPRISE"
 
-    readWarnings = []
     for readField in ("companyName", "positionName"):
         if not createJob.get(readField):
             readWarnings.append(f"missing {readField}")
