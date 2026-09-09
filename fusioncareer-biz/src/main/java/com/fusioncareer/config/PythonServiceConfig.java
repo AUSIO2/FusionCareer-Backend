@@ -1,21 +1,23 @@
 package com.fusioncareer.config;
 
 import com.fusioncareer.client.PythonServiceClient;
+import com.fusioncareer.dto.req.JobStructureRequest;
+import com.fusioncareer.dto.req.ResumeParseRequest;
+import com.fusioncareer.dto.res.JobStructureResponse;
+import com.fusioncareer.dto.res.ResumeParseResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.support.RestClientAdapter;
-import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 
 import java.time.Duration;
 
 /**
  * 算法端 HTTP 客户端配置
  * <p>
- * 基于 Spring Boot 3 原生的 RestClient 与 HTTP Interfaces 特性，
- * 为 {@link PythonServiceClient} 生成代理 Bean，并配置超时时间等网络策略。
+ * 使用显式 RestClient 调用，确保生产环境中的 JSON 请求体不会被代理层丢弃。
  *
  * @author Xiong Heng
  */
@@ -47,11 +49,34 @@ public class PythonServiceConfig {
                 .defaultHeader("X-Internal-Token", internalToken)
                 .build();
 
-        // 适配到 HTTP Interfaces 工厂
-        RestClientAdapter adapter = RestClientAdapter.create(restClient);
-        HttpServiceProxyFactory factory = HttpServiceProxyFactory.builderFor(adapter).build();
+        return new PythonServiceClient() {
+            @Override
+            public String ping() {
+                return restClient.get()
+                        .uri("/api/internal/health")
+                        .retrieve()
+                        .body(String.class);
+            }
 
-        // 代理生成客户端接口的实现
-        return factory.createClient(PythonServiceClient.class);
+            @Override
+            public ResumeParseResponse parseResume(ResumeParseRequest readRequest) {
+                return restClient.post()
+                        .uri("/api/internal/resume/parse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(readRequest)
+                        .retrieve()
+                        .body(ResumeParseResponse.class);
+            }
+
+            @Override
+            public JobStructureResponse structureJob(JobStructureRequest readRequest) {
+                return restClient.post()
+                        .uri("/api/internal/job/structure")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(readRequest)
+                        .retrieve()
+                        .body(JobStructureResponse.class);
+            }
+        };
     }
 }

@@ -25,6 +25,7 @@ class PythonServiceClientContractTest {
     private final AtomicReference<String> readResumeBody = new AtomicReference<>();
     private final AtomicReference<String> readJobBody = new AtomicReference<>();
     private final AtomicReference<String> readContentType = new AtomicReference<>();
+    private final AtomicReference<String> readToken = new AtomicReference<>();
     private final ObjectMapper readMapper = new ObjectMapper();
     private HttpServer readServer;
     private PythonServiceClient readClient;
@@ -61,6 +62,7 @@ class PythonServiceClientContractTest {
         assertThat(readBody.get("userId").isIntegralNumber()).isTrue();
         assertThat(readBody.get("fileId").isIntegralNumber()).isTrue();
         assertThat(readContentType.get()).startsWith("application/json");
+        assertThat(readToken.get()).isEqualTo("test-internal");
     }
 
     @Test
@@ -80,6 +82,7 @@ class PythonServiceClientContractTest {
             String readResponse) throws IOException {
         updateBody.set(new String(readExchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
         readContentType.set(readExchange.getRequestHeaders().getFirst("Content-Type"));
+        readToken.set(readExchange.getRequestHeaders().getFirst("X-Internal-Token"));
         byte[] readBytes = readResponse.getBytes(StandardCharsets.UTF_8);
         readExchange.getResponseHeaders().set("Content-Type", "application/json");
         readExchange.sendResponseHeaders(200, readBytes.length);
