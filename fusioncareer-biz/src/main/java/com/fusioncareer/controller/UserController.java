@@ -14,6 +14,7 @@ import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.entity.ResumeFileEntity;
 import com.fusioncareer.exception.ResumeErrorCode;
 import com.fusioncareer.exception.ServiceException;
+import com.fusioncareer.enums.ResumeParseStatus;
 import com.fusioncareer.service.ResumeFileService;
 import com.fusioncareer.service.ResumeService;
 import com.fusioncareer.service.ResumeParseService;
@@ -28,6 +29,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -99,15 +101,19 @@ public class UserController {
         long readUserId = StpUtil.getLoginIdAsLong();
         ResumeFileResponse createFile = resumeFileService.upload(readUserId, file);
         if (!updateProfile) {
-            return R.success(buildUpload(createFile, "SKIPPED", "简历已上传"));
+            return R.success(buildUpload(createFile, ResumeParseStatus.NOT_REQUESTED, "简历已上传"));
         }
         try {
             ResumeUploadResponse createResponse = resumeParseService.updateResume(
                     readUserId, createFile.getId());
             createResponse.setFile(createFile);
             return R.success(createResponse);
+        } catch (DataAccessException readError) {
+            return R.success(buildUpload(createFile, ResumeParseStatus.UPDATE_FAILED,
+                    "文件已保存并完成识别，但资料写入失败"));
         } catch (Exception readError) {
-            return R.success(buildUpload(createFile, "FAILED", "文件已保存，资料更新失败"));
+            return R.success(buildUpload(createFile, ResumeParseStatus.ALGORITHM_FAILED,
+                    "文件已保存，但资料识别失败"));
         }
     }
 
@@ -123,14 +129,18 @@ public class UserController {
             ResumeUploadResponse createResponse = resumeParseService.updateResume(readUserId, fileId);
             createResponse.setFile(readFile);
             return R.success(createResponse);
+        } catch (DataAccessException readError) {
+            return R.success(buildUpload(readFile, ResumeParseStatus.UPDATE_FAILED,
+                    "简历已识别，但资料写入失败"));
         } catch (Exception readError) {
-            return R.success(buildUpload(readFile, "FAILED", "资料更新失败，请稍后重试"));
+            return R.success(buildUpload(readFile, ResumeParseStatus.ALGORITHM_FAILED,
+                    "资料识别失败，请稍后重试"));
         }
     }
 
     private ResumeUploadResponse buildUpload(
             ResumeFileResponse readFile,
-            String readStatus,
+            ResumeParseStatus readStatus,
             String readMessage) {
         ResumeUploadResponse createResponse = new ResumeUploadResponse();
         createResponse.setFile(readFile);

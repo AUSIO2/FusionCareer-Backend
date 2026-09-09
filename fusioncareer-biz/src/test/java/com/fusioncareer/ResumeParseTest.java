@@ -7,6 +7,7 @@ import com.fusioncareer.dto.res.ResumeFileResponse;
 import com.fusioncareer.dto.res.ResumeParseResponse;
 import com.fusioncareer.entity.UserEntity;
 import com.fusioncareer.enums.Gender;
+import com.fusioncareer.enums.ResumeParseStatus;
 import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.enums.UserStatus;
 import com.fusioncareer.exception.ServiceException;
@@ -22,6 +23,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClientException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,6 +79,7 @@ class ResumeParseTest {
 
         var readResult = updateParseService.updateResume(createUser.getId(), createFile.getId());
 
+        assertThat(readResult.getParseStatus()).isEqualTo(ResumeParseStatus.SUCCESS);
         assertThat(readResult.getUpdatedProfileFields()).containsExactlyInAnyOrder("realName", "gender");
         assertThat(readResult.getUpdatedResumeFields()).containsExactly("skills");
         assertThat(updateProfileService.getProfile(createUser.getId()).getRealName()).isEqualTo("解析用户");
@@ -94,6 +97,30 @@ class ResumeParseTest {
 
         assertThatThrownBy(() -> updateParseService.updateResume(createOther.getId(), createFile.getId()))
                 .isInstanceOf(ServiceException.class);
+    }
+
+    @Test
+    void reportNoFields() {
+        UserEntity createUser = createUser("parse-empty");
+        ResumeFileResponse createFile = createFileService.upload(createUser.getId(),
+                new MockMultipartFile("file", "resume.pdf", "application/pdf", "%PDF".getBytes()));
+        when(readPythonClient.parseResume(any())).thenReturn(new ResumeParseResponse());
+
+        var readResult = updateParseService.updateResume(createUser.getId(), createFile.getId());
+
+        assertThat(readResult.getParseStatus()).isEqualTo(ResumeParseStatus.NO_FIELDS);
+    }
+
+    @Test
+    void reportAlgorithmFailure() {
+        UserEntity createUser = createUser("parse-failed");
+        ResumeFileResponse createFile = createFileService.upload(createUser.getId(),
+                new MockMultipartFile("file", "resume.pdf", "application/pdf", "%PDF".getBytes()));
+        when(readPythonClient.parseResume(any())).thenThrow(new RestClientException("unavailable"));
+
+        var readResult = updateParseService.updateResume(createUser.getId(), createFile.getId());
+
+        assertThat(readResult.getParseStatus()).isEqualTo(ResumeParseStatus.ALGORITHM_FAILED);
     }
 
     private UserEntity createUser(String createStudentId) {
