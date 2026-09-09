@@ -164,7 +164,7 @@ def createDailySchedule() -> None:
         "id": "wechat-daily",
         "workflow": "wechat_daily_body",
         "enabled": True,
-        "trigger": {"type": "cron", "cron": "0 17 * * *"},
+        "trigger": {"type": "cron", "cron": "30 18 * * *"},
         "overrides": {"paths.json_obj": {"config_root": "/data/wechat"}},
         "loop": {
             "judge_skill": "wechat_judge_accounts",
@@ -175,7 +175,7 @@ def createDailySchedule() -> None:
             "finalize_inputs": {"paths": {"config_root": "/data/wechat"}},
             "iteration_delay_seconds": 20,
         },
-        "description": "每天17:00串行抓取公众号增量",
+        "description": "每天18:30串行抓取并结构化公众号增量",
     }
     readResponse = requests.put(
         "http://127.0.0.1:8900/api/admin/schedules/wechat-daily",

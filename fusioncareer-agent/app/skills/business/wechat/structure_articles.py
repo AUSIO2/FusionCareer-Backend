@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from app.algorithms.job_filter import filter_jobs
 from app.algorithms.job_structuring import structureJobs
 from app.core.base_skill import BaseSkill
 from app.integrations.backend import BackendClient
@@ -100,15 +101,18 @@ async def structureArticles(
                     readStore.markStructured(readArticle["url"])
                     return 0, 0, 1
                 readResult = await structureJobs(readText, readArticle["url"], "CRAWL", readClient)
+                readJobs, readDropped = filter_jobs(readResult["jobs"])
+                if readDropped:
+                    logger.info("filtered %d unrelated jobs from %s", len(readDropped), readArticle["url"])
                 createJobs = [
-                    createJob for createJob in readResult["jobs"]
+                    createJob for createJob in readJobs
                     if buildJobKey(createJob) not in readExisting
                 ]
                 await updateBackend.create_job_posts(createJobs)
                 for createJob in createJobs:
                     readExisting.add(buildJobKey(createJob))
                 readStore.markStructured(readArticle["url"])
-                return len(createJobs), 0, 0
+                return len(createJobs), 0, int(bool(readDropped) and not createJobs)
             except json.JSONDecodeError:
                 try:
                     createJob = createSummary(readArticle, readText)

@@ -162,3 +162,30 @@ def testSkipRestrictedArticle(tmp_path: Path):
     readResult = asyncio.run(structureArticles(readPaths, FakeBackend(), FakeClient()))
 
     assert readResult["skippedCount"] == 1
+
+
+def testFilterTechnicalJob(tmp_path: Path):
+    class TechnicalClient:
+        async def chat_json(self, **readOptions):
+            return {
+                "jobs": [{
+                    "单位名称": "示例公司", "岗位名称": "Java开发工程师",
+                    "专业要求": "计算机科学", "岗位大类": "企业公司", "招聘类型": "应届生招聘",
+                }],
+                "warnings": [],
+            }
+
+    readPaths = WechatPaths(tmp_path)
+    readStore = WechatStore(readPaths.database_file)
+    readStore.saveAccount("fakeid-a", "AccountA", True)
+    readMarkdown = tmp_path / "technical.md"
+    readMarkdown.write_text("# 招聘\n投递邮箱：job@example.com", encoding="utf-8")
+    readStore.saveArticle("fakeid-a", {
+        "title": "招聘", "link": "https://example.test/technical", "create_time": 1,
+    }, readMarkdown, "hash")
+    readBackend = FakeBackend()
+
+    readResult = asyncio.run(structureArticles(readPaths, readBackend, TechnicalClient()))
+
+    assert readResult["skippedCount"] == 1
+    assert readBackend.createJobs == []
