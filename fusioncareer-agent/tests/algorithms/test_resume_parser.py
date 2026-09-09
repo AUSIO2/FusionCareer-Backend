@@ -1,9 +1,11 @@
 import asyncio
 import json
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 from app.algorithms.resume_parser import parseText
-from app.algorithms.resume_parser.extract import extractPdf
+from app.algorithms.resume_parser.extract import extractPdf, readOcr
 from app.algorithms.resume_parser.normalize import normalizeResume
 
 
@@ -39,6 +41,18 @@ def testExtractPdf(tmp_path: Path):
     readPath = tmp_path / "resume.pdf"
     writePdf(readPath)
     assert "Jane Doe" in extractPdf(readPath)
+
+
+def testReadOcrSupportsJsonProperty(monkeypatch):
+    class FakeOcr:
+        def __init__(self, **readOptions):
+            pass
+
+        def predict(self, readImage):
+            return [SimpleNamespace(res=None, json={"res": {"rec_texts": ["张同学", "新闻传播学"]}})]
+
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(PaddleOCR=FakeOcr))
+    assert readOcr(object()) == "张同学\n新闻传播学"
 
 
 def testNormalizeResume():

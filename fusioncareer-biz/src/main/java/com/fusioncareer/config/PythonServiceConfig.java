@@ -1,5 +1,7 @@
 package com.fusioncareer.config;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.client.PythonServiceClient;
 import com.fusioncareer.dto.req.JobStructureRequest;
 import com.fusioncareer.dto.req.ResumeParseRequest;
@@ -37,7 +39,7 @@ public class PythonServiceConfig {
     private String internalToken;
 
     @Bean
-    public PythonServiceClient pythonServiceClient() {
+    public PythonServiceClient pythonServiceClient(ObjectMapper readMapper) {
         // 使用 JDK 11+ 内置的 HttpClient 作为底层实现，支持细粒度的超时控制
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
         requestFactory.setReadTimeout(Duration.ofMillis(readTimeout));
@@ -60,22 +62,34 @@ public class PythonServiceConfig {
 
             @Override
             public ResumeParseResponse parseResume(ResumeParseRequest readRequest) {
+                byte[] createBody = createBody(readRequest);
                 return restClient.post()
                         .uri("/api/internal/resume/parse")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .body(readRequest)
+                        .contentLength(createBody.length)
+                        .body(createBody)
                         .retrieve()
                         .body(ResumeParseResponse.class);
             }
 
             @Override
             public JobStructureResponse structureJob(JobStructureRequest readRequest) {
+                byte[] createBody = createBody(readRequest);
                 return restClient.post()
                         .uri("/api/internal/job/structure")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .body(readRequest)
+                        .contentLength(createBody.length)
+                        .body(createBody)
                         .retrieve()
                         .body(JobStructureResponse.class);
+            }
+
+            private byte[] createBody(Object readRequest) {
+                try {
+                    return readMapper.writeValueAsBytes(readRequest);
+                } catch (JsonProcessingException readError) {
+                    throw new IllegalArgumentException("无法序列化算法请求", readError);
+                }
             }
         };
     }

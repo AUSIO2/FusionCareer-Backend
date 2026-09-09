@@ -48,7 +48,9 @@ def readOcr(readImage: Any) -> str:
     for readItem in readResult or []:
         readData = getattr(readItem, "res", None)
         if not isinstance(readData, dict) and hasattr(readItem, "json"):
-            readData = readItem.json().get("res", {})
+            readJson = readItem.json
+            readJson = readJson() if callable(readJson) else readJson
+            readData = readJson.get("res", {}) if isinstance(readJson, dict) else {}
         if isinstance(readData, dict):
             readLines.extend(str(readText).strip() for readText in readData.get("rec_texts", []) if readText)
         elif isinstance(readItem, list):
