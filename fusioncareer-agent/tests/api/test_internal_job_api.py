@@ -52,6 +52,18 @@ def testStructureJob(client: TestClient):
     assert readResponse.json()["jobs"][0]["sourceUrl"] == "https://example.test/job"
 
 
+def testStructureNullUrl(client: TestClient):
+    readResponse = client.post(
+        "/api/internal/job/structure",
+        headers=readHeaders(),
+        json={"text": "招聘编辑", "sourceUrl": None},
+    )
+
+    assert readResponse.status_code == 200
+    assert readResponse.json()["jobs"][0]["status"] == "OFFLINE"
+    assert readResponse.json()["jobs"][0]["sourceUrl"] == ""
+
+
 def testRejectJob(client: TestClient):
     readResponse = client.post(
         "/api/internal/job/structure", headers=readHeaders(), json={"text": ""}

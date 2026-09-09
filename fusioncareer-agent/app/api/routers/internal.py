@@ -22,7 +22,7 @@ router = APIRouter(
 
 class JobStructureBody(BaseModel):
     text: str = Field(min_length=1, max_length=100_000)
-    sourceUrl: str = Field(default="", max_length=2048)
+    sourceUrl: str | None = Field(default=None, max_length=2048)
     sourceType: Literal["PLATFORM", "CRAWL"] = "PLATFORM"
     defaultStatus: Literal["OFFLINE"] = "OFFLINE"
 
@@ -50,7 +50,7 @@ async def readHealth() -> dict[str, str]:
 
 @router.post("/job/structure", response_model=JobStructureResult)
 async def structureJob(readBody: JobStructureBody) -> dict[str, Any]:
-    return await structureJobs(readBody.text, readBody.sourceUrl, readBody.sourceType)
+    return await structureJobs(readBody.text, readBody.sourceUrl or "", readBody.sourceType)
 
 
 async def readResumeFile(

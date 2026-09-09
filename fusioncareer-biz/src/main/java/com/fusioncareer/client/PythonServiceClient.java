@@ -8,6 +8,7 @@ import org.springframework.web.service.annotation.GetExchange;
 import org.springframework.web.service.annotation.HttpExchange;
 import org.springframework.web.service.annotation.PostExchange;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.http.MediaType;
 
 /**
  * AI 算法服务端点接口 (基于 Spring 6 HTTP Interfaces)
@@ -17,7 +18,10 @@ import org.springframework.web.bind.annotation.RequestBody;
  *
  * @author Xiong Heng
  */
-@HttpExchange("/api/internal")
+@HttpExchange(
+        url = "/api/internal",
+        accept = MediaType.APPLICATION_JSON_VALUE,
+        contentType = MediaType.APPLICATION_JSON_VALUE)
 public interface PythonServiceClient {
 
     /**
