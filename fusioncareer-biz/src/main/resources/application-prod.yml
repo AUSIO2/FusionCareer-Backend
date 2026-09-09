@@ -31,6 +31,7 @@ upload:
 # ===== AI Agent 服务（双机部署时通过环境变量指向 Python 机内网 IP） =====
 python-service:
   base-url: ${PYTHON_SERVICE_BASE_URL:http://127.0.0.1:8900}
+  read-timeout: ${PYTHON_SERVICE_READ_TIMEOUT:180000}
 
 internal-service:
   token: ${INTERNAL_SERVICE_TOKEN}

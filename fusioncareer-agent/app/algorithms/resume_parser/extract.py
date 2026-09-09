@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -37,13 +38,23 @@ def extractDocx(readPath: Path) -> str:
     return "\n".join(readParts)
 
 
-def readOcr(readImage: Any) -> str:
+@lru_cache(maxsize=1)
+def createOcr():
     try:
         from paddleocr import PaddleOCR
     except ImportError as readError:
         raise RuntimeError("PaddleOCR is not installed") from readError
-    createOcr = PaddleOCR(lang="ch", use_doc_orientation_classify=True, use_doc_unwarping=True)
-    readResult = createOcr.predict(readImage) if hasattr(createOcr, "predict") else createOcr.ocr(readImage)
+    return PaddleOCR(
+        lang="ch",
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+        use_textline_orientation=False,
+    )
+
+
+def readOcr(readImage: Any) -> str:
+    readOcr = createOcr()
+    readResult = readOcr.predict(readImage) if hasattr(readOcr, "predict") else readOcr.ocr(readImage)
     readLines = []
     for readItem in readResult or []:
         readData = getattr(readItem, "res", None)

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from app.algorithms.resume_parser import parseText
-from app.algorithms.resume_parser.extract import extractPdf, readOcr
+from app.algorithms.resume_parser.extract import createOcr, extractPdf, readOcr
 from app.algorithms.resume_parser.normalize import normalizeResume
 
 
@@ -52,7 +52,12 @@ def testReadOcrSupportsJsonProperty(monkeypatch):
             return [SimpleNamespace(res=None, json={"res": {"rec_texts": ["张同学", "新闻传播学"]}})]
 
     monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(PaddleOCR=FakeOcr))
-    assert readOcr(object()) == "张同学\n新闻传播学"
+    createOcr.cache_clear()
+    try:
+        assert readOcr(object()) == "张同学\n新闻传播学"
+        assert readOcr(object()) == "张同学\n新闻传播学"
+    finally:
+        createOcr.cache_clear()
 
 
 def testNormalizeResume():
