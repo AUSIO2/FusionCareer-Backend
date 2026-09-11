@@ -13,6 +13,8 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.fusioncareer.util.PaginationUtil.createPage;
+
 @Service
 public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, ResumeEntity> implements ResumeService {
 
@@ -32,12 +34,13 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, ResumeEntity> i
 
     @Override
     public PageResult<ResumeResponse> listResumes(int page, int size) {
-        Page<ResumeEntity> result = page(new Page<>(page, size),
+        Page<ResumeEntity> readResumes = page(createPage(page, size),
                 new LambdaQueryWrapper<ResumeEntity>().orderByDesc(ResumeEntity::getCreatedAt));
 
-        PageResult<ResumeResponse> pageResult = new PageResult<>(result.getTotal(), page, size);
-        result.getRecords().forEach(e -> pageResult.add(toResponse(e)));
-        return pageResult;
+        PageResult<ResumeResponse> readPage = new PageResult<>(readResumes.getTotal(),
+                (int) readResumes.getCurrent(), (int) readResumes.getSize());
+        readResumes.getRecords().forEach(e -> readPage.add(toResponse(e)));
+        return readPage;
     }
 
     @Transactional

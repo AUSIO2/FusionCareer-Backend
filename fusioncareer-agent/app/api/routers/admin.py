@@ -1,5 +1,9 @@
 """管理员 API — 数据类 / 工作流 / Skill / 定时任务"""
 
+import asyncio
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -16,6 +20,12 @@ from app.core.skill_installer import SkillInstallError, delete_skill, install_sk
 from app.engine import WorkflowEngine
 from app.scheduler.models import ScheduleBody
 from app.scheduler.service import SchedulerService
+from app.config import settings
+from app.skills.business.wechat.paths import WechatPaths
+from app.skills.business.wechat.store import WechatStore
+from app.skills.business.wechat.structure_articles import drainPendingArticles
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/admin",
@@ -51,6 +61,53 @@ def _engine(request: Request) -> WorkflowEngine:
 
 def _scheduler(request: Request) -> SchedulerService:
     return request.app.state.scheduler_service
+
+
+def _structure_paths() -> WechatPaths:
+    if not settings.wechat_config_root:
+        raise HTTPException(status_code=503, detail="WECHAT_CONFIG_ROOT 未配置")
+    return WechatPaths(Path(settings.wechat_config_root))
+
+
+def _structure_status(request: Request) -> dict[str, Any]:
+    state = dict(request.app.state.structure_drain_state)
+    state["pendingCount"] = WechatStore(_structure_paths().database_file).countPendingArticles()
+    return state
+
+
+async def _run_structure_drain(app) -> None:
+    state = app.state.structure_drain_state
+    try:
+        state["result"] = await drainPendingArticles(
+            _structure_paths(), app.state.backend_client
+        )
+        state["status"] = "COMPLETED"
+        state["error"] = None
+    except asyncio.CancelledError:
+        state["status"] = "CANCELLED"
+        raise
+    except Exception as readError:  # noqa: BLE001 - expose background failure via status API
+        state["status"] = "FAILED"
+        state["error"] = f"{type(readError).__name__}: {str(readError)[:300]}"
+        logger.exception("manual structure drain failed")
+    finally:
+        state["finishedAt"] = datetime.now(timezone.utc).isoformat()
+
+
+def _start_structure_drain(request: Request) -> dict[str, Any]:
+    readTask = request.app.state.structure_drain_task
+    if readTask is None or readTask.done():
+        request.app.state.structure_drain_state = {
+            "status": "RUNNING",
+            "startedAt": datetime.now(timezone.utc).isoformat(),
+            "finishedAt": None,
+            "result": None,
+            "error": None,
+        }
+        request.app.state.structure_drain_task = asyncio.create_task(
+            _run_structure_drain(request.app)
+        )
+    return _structure_status(request)
 
 
 # ── 数据类 ──
@@ -184,6 +241,16 @@ async def delete_skill_route(name: str, request: Request):
 
 
 # ── 定时任务 ──
+
+
+@router.get("/wechat/structure-pending")
+async def get_structure_pending(request: Request):
+    return _structure_status(request)
+
+
+@router.post("/wechat/structure-pending", status_code=202)
+async def start_structure_pending(request: Request):
+    return _start_structure_drain(request)
 
 
 @router.get("/schedules")

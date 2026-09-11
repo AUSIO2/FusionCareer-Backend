@@ -18,6 +18,7 @@ public class JobPostRequest {
     private Integer headcount;
     private LocalDate workStartDate;
     private LocalDate workEndDate;
+    private LocalDate applicationDeadline;
     private Integer workDaysPerWeek;
     private WorkDurationType workDurationType;
     private WorkPeriodType workPeriodType;
@@ -34,5 +35,7 @@ public class JobPostRequest {
     private String reqGradYear;
     private String reqSkills;
     private String reqOther;
+    private Boolean recommended;
     private JobPostStatus status;
+    private String recycleReason;
 }

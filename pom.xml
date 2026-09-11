@@ -32,6 +32,7 @@
         <sa-token.version>1.45.0</sa-token.version>
         <springdoc.version>2.5.0</springdoc.version>
         <hutool.version>5.8.27</hutool.version>
+        <jacoco.version>0.8.15</jacoco.version>
     </properties>
 
     <!-- Global Dependencies (Optional, things every module will definitely need) -->

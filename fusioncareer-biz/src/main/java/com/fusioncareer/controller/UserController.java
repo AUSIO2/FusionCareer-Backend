@@ -8,11 +8,18 @@ import com.fusioncareer.dto.req.ResumeRequest;
 import com.fusioncareer.dto.req.UserProfileRequest;
 import com.fusioncareer.dto.res.ResumeFileResponse;
 import com.fusioncareer.dto.res.ResumeResponse;
+import com.fusioncareer.dto.res.ResumeUploadResponse;
 import com.fusioncareer.dto.res.UserProfileResponse;
+import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.entity.ResumeFileEntity;
+import com.fusioncareer.exception.ResumeErrorCode;
+import com.fusioncareer.exception.ServiceException;
+import com.fusioncareer.enums.ResumeParseStatus;
 import com.fusioncareer.service.ResumeFileService;
 import com.fusioncareer.service.ResumeService;
+import com.fusioncareer.service.ResumeParseService;
 import com.fusioncareer.service.UserProfileService;
+import com.fusioncareer.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,6 +29,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -46,6 +54,14 @@ public class UserController {
     private final ResumeService resumeService;
     private final ResumeFileService resumeFileService;
     private final UploadProperties uploadProperties;
+    private final UserService userService;
+    private final ResumeParseService resumeParseService;
+
+    @GetMapping("/me")
+    @Operation(summary = "获取当前用户和角色")
+    public R<UserResponse> readUser() {
+        return R.success(userService.getUserById(StpUtil.getLoginIdAsLong()));
+    }
 
     @GetMapping("/profile/get")
     @Operation(summary = "获取个人资料")
@@ -78,10 +94,59 @@ public class UserController {
     @PostMapping(value = "/resume/file/upload", consumes = "multipart/form-data")
     @Operation(summary = "上传简历文件",
             description = "支持 PDF / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB")
-    public R<ResumeFileResponse> uploadResumeFile(
+    public R<ResumeUploadResponse> uploadResumeFile(
             @Parameter(description = "简历文件", required = true)
-            @RequestParam("file") MultipartFile file) {
-        return R.success(resumeFileService.upload(StpUtil.getLoginIdAsLong(), file));
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(name = "updateProfile", defaultValue = "false") boolean updateProfile) {
+        long readUserId = StpUtil.getLoginIdAsLong();
+        ResumeFileResponse createFile = resumeFileService.upload(readUserId, file);
+        if (!updateProfile) {
+            return R.success(buildUpload(createFile, ResumeParseStatus.NOT_REQUESTED, "简历已上传"));
+        }
+        try {
+            ResumeUploadResponse createResponse = resumeParseService.updateResume(
+                    readUserId, createFile.getId());
+            createResponse.setFile(createFile);
+            return R.success(createResponse);
+        } catch (DataAccessException readError) {
+            return R.success(buildUpload(createFile, ResumeParseStatus.UPDATE_FAILED,
+                    "文件已保存并完成识别，但资料写入失败"));
+        } catch (Exception readError) {
+            return R.success(buildUpload(createFile, ResumeParseStatus.ALGORITHM_FAILED,
+                    "文件已保存，但资料识别失败"));
+        }
+    }
+
+    @PostMapping("/resume/file/{fileId}/parse")
+    @Operation(summary = "重试解析简历并更新资料")
+    public R<ResumeUploadResponse> parseResumeFile(@PathVariable Long fileId) {
+        long readUserId = StpUtil.getLoginIdAsLong();
+        ResumeFileResponse readFile = resumeFileService.listByUser(readUserId).stream()
+                .filter(readItem -> readItem.getId().equals(fileId))
+                .findFirst()
+                .orElseThrow(() -> ServiceException.of(ResumeErrorCode.FILE_NOT_FOUND));
+        try {
+            ResumeUploadResponse createResponse = resumeParseService.updateResume(readUserId, fileId);
+            createResponse.setFile(readFile);
+            return R.success(createResponse);
+        } catch (DataAccessException readError) {
+            return R.success(buildUpload(readFile, ResumeParseStatus.UPDATE_FAILED,
+                    "简历已识别，但资料写入失败"));
+        } catch (Exception readError) {
+            return R.success(buildUpload(readFile, ResumeParseStatus.ALGORITHM_FAILED,
+                    "资料识别失败，请稍后重试"));
+        }
+    }
+
+    private ResumeUploadResponse buildUpload(
+            ResumeFileResponse readFile,
+            ResumeParseStatus readStatus,
+            String readMessage) {
+        ResumeUploadResponse createResponse = new ResumeUploadResponse();
+        createResponse.setFile(readFile);
+        createResponse.setParseStatus(readStatus);
+        createResponse.setMessage(readMessage);
+        return createResponse;
     }
 
     @GetMapping("/resume/file/list")

@@ -20,6 +20,7 @@ public class JobPostResponse {
     private Integer headcount;
     private LocalDate workStartDate;
     private LocalDate workEndDate;
+    private LocalDate applicationDeadline;
     private Integer workDaysPerWeek;
     private WorkDurationType workDurationType;
     private WorkPeriodType workPeriodType;
@@ -36,7 +37,11 @@ public class JobPostResponse {
     private String reqGradYear;
     private String reqSkills;
     private String reqOther;
+    private Boolean recommended;
+    private Long applicationCount;
     private JobPostStatus status;
+    private String recycleReason;
+    private LocalDateTime recycledAt;
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -13,6 +13,8 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import static com.fusioncareer.util.PaginationUtil.createPage;
+
 @Service
 public class UserProfileServiceImpl extends ServiceImpl<UserProfileMapper, UserProfileEntity> implements UserProfileService {
 
@@ -32,12 +34,13 @@ public class UserProfileServiceImpl extends ServiceImpl<UserProfileMapper, UserP
 
     @Override
     public PageResult<UserProfileResponse> listProfiles(int page, int size) {
-        Page<UserProfileEntity> result = page(new Page<>(page, size),
+        Page<UserProfileEntity> readProfiles = page(createPage(page, size),
                 new LambdaQueryWrapper<UserProfileEntity>().orderByDesc(UserProfileEntity::getCreatedAt));
 
-        PageResult<UserProfileResponse> pageResult = new PageResult<>(result.getTotal(), page, size);
-        result.getRecords().forEach(e -> pageResult.add(toResponse(e)));
-        return pageResult;
+        PageResult<UserProfileResponse> readPage = new PageResult<>(readProfiles.getTotal(),
+                (int) readProfiles.getCurrent(), (int) readProfiles.getSize());
+        readProfiles.getRecords().forEach(e -> readPage.add(toResponse(e)));
+        return readPage;
     }
 
     @Transactional
