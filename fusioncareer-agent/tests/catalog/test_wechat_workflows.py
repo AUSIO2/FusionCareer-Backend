@@ -41,3 +41,10 @@ def test_wechat_daily_body_valid(engine_bundle):
         finalize_inputs={"paths": {"config_root": "/tmp"}},
     )
     assert validate_loop(reg, loop) == []
+
+
+def test_official_daily_uses_bulk_structuring(engine_bundle):
+    engine, _, wf_cat = engine_bundle
+    workflow = wf_cat.get("official_daily")
+    assert workflow["nodes"]["structure"]["skill"] == "official_structure_articles"
+    assert engine.validate(workflow, allow_source_literals_only=True) == []

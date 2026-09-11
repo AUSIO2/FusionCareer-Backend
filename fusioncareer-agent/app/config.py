@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     wechat_token: str = ""
     wechat_cookie: str = ""
 
+    # 生产环境启动时预加载 OCR，避免首个用户承担模型冷启动。
+    ocr_preload: bool = False
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

@@ -27,3 +27,8 @@ def testFilterJobs():
 
     assert [readJob["positionName"] for readJob in readKept] == ["品牌传播"]
     assert readDropped[0]["_filterReason"]
+
+
+def testKeepManagementTraineeUnlessClearlyTechnical():
+    assert should_keep_job({"positionName": "管理培训生", "reqMajor": "专业不限"})[0] is True
+    assert should_keep_job({"positionName": "技术管培生", "reqMajor": "计算机"})[0] is False

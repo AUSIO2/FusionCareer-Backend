@@ -28,6 +28,14 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         }
 
     monkeypatch.setattr("app.api.routers.internal.structureJobs", readJobs)
+    monkeypatch.setattr(
+        "app.api.routers.internal._structure_status",
+        lambda request: {"status": "IDLE", "pendingCount": 7},
+    )
+    monkeypatch.setattr(
+        "app.api.routers.internal._start_structure_drain",
+        lambda request: {"status": "RUNNING", "pendingCount": 7},
+    )
     with TestClient(app) as readClient:
         yield readClient
 
@@ -69,3 +77,18 @@ def testRejectJob(client: TestClient):
         "/api/internal/job/structure", headers=readHeaders(), json={"text": ""}
     )
     assert readResponse.status_code == 422
+
+
+def testStructurePendingUsesInternalToken(client: TestClient):
+    assert client.get("/api/internal/job/structure-pending").status_code == 403
+
+    readStatus = client.get(
+        "/api/internal/job/structure-pending", headers=readHeaders()
+    )
+    readStart = client.post(
+        "/api/internal/job/structure-pending", headers=readHeaders()
+    )
+
+    assert readStatus.json() == {"status": "IDLE", "pendingCount": 7}
+    assert readStart.status_code == 202
+    assert readStart.json() == {"status": "RUNNING", "pendingCount": 7}

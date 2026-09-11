@@ -7,10 +7,13 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.JobPostApplicationCount;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
+import com.fusioncareer.dto.req.JobRecycleRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.enums.JobPostSort;
 import com.fusioncareer.enums.JobPostStatus;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.JobPostMapper;
 import com.fusioncareer.mapper.QuestionnaireAnswerMapper;
 import com.fusioncareer.service.JobPostService;
@@ -21,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,6 +42,8 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     public JobPostResponse createJobPost(JobPostRequest request) {
         JobPostEntity entity = new JobPostEntity();
         BeanUtils.copyProperties(request, entity);
+        applyDefaultDeadline(entity);
+        prepareRecycleFields(entity);
         save(entity);
         return toResponse(entity);
     }
@@ -48,6 +54,8 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
         List<JobPostEntity> entities = requests.stream().map(req -> {
             JobPostEntity e = new JobPostEntity();
             BeanUtils.copyProperties(req, e);
+            applyDefaultDeadline(e);
+            prepareRecycleFields(e);
             return e;
         }).toList();
         saveBatch(entities);
@@ -64,8 +72,11 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
 
     @Override
     public PageResult<JobPostResponse> listJobPosts(JobPostQueryRequest query) {
+        LambdaQueryWrapper<JobPostEntity> readWrapper = buildJobQuery(query);
+        readWrapper.ne(query.getStatus() == null,
+                JobPostEntity::getStatus, JobPostStatus.RECYCLED);
         Page<JobPostEntity> readJobs = page(
-                createPage(query.getPage(), query.getSize()), buildJobQuery(query));
+                createPage(query.getPage(), query.getSize()), readWrapper);
         return mapPage(readJobs);
     }
 
@@ -102,6 +113,72 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
         BeanUtils.copyProperties(request, entity);
         entity.setId(id);
         updateById(entity);
+    }
+
+    @Transactional
+    @Override
+    public void recycleJob(Long id, String reason) {
+        JobPostEntity updateJob = new JobPostEntity();
+        updateJob.setId(id);
+        updateJob.setStatus(JobPostStatus.RECYCLED);
+        updateJob.setRecommended(false);
+        updateJob.setRecycleReason(cleanReason(reason));
+        updateJob.setRecycledAt(LocalDateTime.now());
+        if (!updateById(updateJob)) {
+            throw ServiceException.of(ResultCode.NOT_FOUND, "岗位不存在");
+        }
+    }
+
+    @Transactional
+    @Override
+    public void recycleJobs(List<JobRecycleRequest> requests) {
+        LocalDateTime readNow = LocalDateTime.now();
+        List<JobPostEntity> updateJobs = requests.stream().map(readRequest -> {
+            JobPostEntity updateJob = new JobPostEntity();
+            updateJob.setId(readRequest.getId());
+            updateJob.setStatus(JobPostStatus.RECYCLED);
+            updateJob.setRecommended(false);
+            updateJob.setRecycleReason(cleanReason(readRequest.getReason()));
+            updateJob.setRecycledAt(readNow);
+            return updateJob;
+        }).toList();
+        if (!updateJobs.isEmpty()) {
+            updateBatchById(updateJobs);
+        }
+    }
+
+    @Transactional
+    @Override
+    public void restoreJob(Long id) {
+        boolean readUpdated = lambdaUpdate()
+                .eq(JobPostEntity::getId, id)
+                .eq(JobPostEntity::getStatus, JobPostStatus.RECYCLED)
+                .set(JobPostEntity::getStatus, JobPostStatus.OFFLINE)
+                .set(JobPostEntity::getRecycleReason, null)
+                .set(JobPostEntity::getRecycledAt, null)
+                .update();
+        if (!readUpdated) {
+            throw ServiceException.of(ResultCode.NOT_FOUND, "回收站中不存在该岗位");
+        }
+    }
+
+    private String cleanReason(String readReason) {
+        String readValue = StringUtils.hasText(readReason) ? readReason.trim() : "人工删除";
+        return readValue.length() <= 512 ? readValue : readValue.substring(0, 512);
+    }
+
+    private void applyDefaultDeadline(JobPostEntity updateJob) {
+        if (updateJob.getApplicationDeadline() == null) {
+            updateJob.setApplicationDeadline(LocalDate.now().plusMonths(1));
+        }
+    }
+
+    private void prepareRecycleFields(JobPostEntity updateJob) {
+        if (updateJob.getStatus() == JobPostStatus.RECYCLED) {
+            updateJob.setRecommended(false);
+            updateJob.setRecycleReason(cleanReason(updateJob.getRecycleReason()));
+            updateJob.setRecycledAt(LocalDateTime.now());
+        }
     }
 
     // ==================== 私有方法 ====================

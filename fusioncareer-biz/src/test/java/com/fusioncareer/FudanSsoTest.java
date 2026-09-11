@@ -42,6 +42,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -239,6 +240,35 @@ class FudanSsoTest {
         readMockMvc.perform(get("/admin/job-post/list").header("Fusion-Token", readToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200));
+    }
+
+    @Test
+    void manageUsers() throws Exception {
+        UserEntity createAdmin = createUser("test-user-admin", UserRole.ADMIN, UserStatus.NORMAL);
+        UserEntity updateUser = createUser("test-user-target", UserRole.NORMAL, UserStatus.NORMAL);
+        String readUrl = loginUser("test-user-admin");
+        String readToken = readUrl.substring(readUrl.indexOf("token=") + 6);
+
+        readMockMvc.perform(get("/admin/user/list")
+                        .header("Fusion-Token", readToken)
+                        .param("username", "test-user-target"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.list[0].studentId").value("test-user-target"))
+                .andExpect(jsonPath("$.data.list[0].role").value("NORMAL"));
+
+        readMockMvc.perform(put("/admin/user/{id}/role", updateUser.getId())
+                        .header("Fusion-Token", readToken)
+                        .param("role", "ADMIN"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value("ADMIN"));
+        assertThat(readUserService.getById(updateUser.getId()).getRole()).isEqualTo(UserRole.ADMIN);
+
+        readMockMvc.perform(put("/admin/user/{id}/role", createAdmin.getId())
+                        .header("Fusion-Token", readToken)
+                        .param("role", "NORMAL"))
+                .andExpect(status().isBadRequest());
+        assertThat(readUserService.getById(createAdmin.getId()).getRole()).isEqualTo(UserRole.ADMIN);
     }
 
     @Test

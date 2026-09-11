@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,7 @@ from app.catalog.catalog import DataClassCatalog
 from app.core.registry import SkillRegistry
 from app.engine.loop_runner import LoopControl, validate_loop
 from app.runtime.paths import RuntimePaths
+from app.skills.business.wechat.judge_accounts import WechatJudgeAccountsSkill
 
 
 @pytest.fixture
@@ -43,3 +46,15 @@ def test_loop_delay_bounds():
     assert LoopControl(judge_skill="test", max_iterations=1, iteration_delay_seconds=20).iteration_delay_seconds == 20
     with pytest.raises(ValueError):
         LoopControl(judge_skill="test", max_iterations=1, iteration_delay_seconds=301)
+
+
+def test_wechat_first_iteration_initializes_empty_state(tmp_path: Path):
+    state_path = tmp_path / "state.json"
+    state_path.write_text(json.dumps({"stats": {}}), encoding="utf-8")
+    skill = WechatJudgeAccountsSkill()
+
+    first = asyncio.run(skill.execute({"state_path": str(state_path), "iteration": 0}))
+    second = asyncio.run(skill.execute({"state_path": str(state_path), "iteration": 1}))
+
+    assert first == {"continue": True}
+    assert second == {"continue": False}

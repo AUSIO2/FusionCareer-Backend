@@ -150,7 +150,9 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     `req_other`         VARCHAR(512)           DEFAULT NULL COMMENT '其他招聘要求',
     -- 状态与审计
     `recommended`       TINYINT(1)     NOT NULL DEFAULT 0 COMMENT '是否推荐：1-推荐 0-普通',
-    `status`            TINYINT       NOT NULL DEFAULT 1 COMMENT '岗位状态：1-发布中 0-已下线 2-已截止',
+    `status`            TINYINT       NOT NULL DEFAULT 1 COMMENT '岗位状态：1-发布中 0-已下线 2-已截止 3-回收站',
+    `recycle_reason`    VARCHAR(512)           DEFAULT NULL COMMENT '移入回收站原因',
+    `recycled_at`       DATETIME               DEFAULT NULL COMMENT '移入回收站时间',
     `created_by`        BIGINT                 DEFAULT NULL COMMENT '发布人user_id',
     `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -162,6 +164,7 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     KEY `idx_work_mode`     (`work_mode`),
     KEY `idx_recommended`   (`recommended`),
     KEY `idx_status`        (`status`),
+    KEY `idx_recycled_at`   (`recycled_at`),
     KEY `idx_created_at`    (`created_at`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4

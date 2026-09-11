@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.scheduler.models import ScheduleBody, ScheduleTrigger
+from app.scheduler.service import SchedulerService
 
 
 def test_schedule_body_with_loop():
@@ -21,3 +22,11 @@ def test_schedule_body_with_loop():
     restored = ScheduleBody.from_disk(disk)
     assert restored.loop is not None
     assert restored.loop["judge_skill"] == "wechat_judge_accounts"
+
+
+def test_cron_uses_configured_timezone():
+    trigger = SchedulerService._build_trigger(
+        ScheduleTrigger(type="cron", cron="30 18 * * *"),
+        "Asia/Shanghai",
+    )
+    assert str(trigger.timezone) == "Asia/Shanghai"

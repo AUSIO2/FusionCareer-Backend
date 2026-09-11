@@ -14,12 +14,12 @@ FRONTEND_ROOT=/absolute/path/FusionCareer-View ./deploy/scripts/test-algorithm.s
 
 ```text
 后端 (本仓库):
-  Mac: mac-build-and-serve.sh       →  /tmp 镜像包 + 配置包，HTTP :8765
-  Java: java-deploy-from-mac.sh     →  curl 下载 → docker compose up
+  Mac: mac-build-and-serve.sh --no-serve → /tmp 镜像包 + 配置包
+  Mac → Python                       → 上传一次
+  Python → Java SSH 通道             → 传包 → docker compose up
 
 前端 (FusionCareer-View 仓库):
-  Mac: deploy/scripts/mac-build-frontend.sh
-  Python: deploy/scripts/python-deploy-frontend-from-mac.sh
+  Mac 构建 → 直接上传 → Python 静态目录
 ```
 
 ## 1. Mac（项目根目录）
@@ -29,41 +29,45 @@ cp deploy/env.java.example .env.production
 # 编辑 .env.production
 
 chmod +x deploy/scripts/*.sh
-./deploy/scripts/mac-build-and-serve.sh
+./deploy/scripts/mac-build-and-serve.sh --no-serve
 ```
 
-脚本会打印 `MAC_IP`，并保持 HTTP 运行。
+脚本在 `/tmp` 生成发布包，不启动 HTTP。
 
-## 2. Java 机（堡垒机 SSH）
+## 2. 上传与进入服务器
 
-**重要：** Java 云主机 `172.22.130.216` 只能访问 Mac 的 **校园网 10.x.x.x**，一般 **不能** 访问家里 WiFi 的 `192.168.50.x`。
+**统一规则：** Mac 直接 SSH 到 Python 机；Java 机不从 Mac 直连，统一从 Python 机通过 SSH 通道进入和传递发布包。完整入口规范见 [DEPLOY-DUAL.md](../DEPLOY-DUAL.md)。
 
-在 Mac 上查可用 IP：
+Mac 构建后，将生成的包上传到 Python 机：
 
 ```bash
-ifconfig | grep "inet " | grep -v 127.0.0.1
-# 选 10.x.x.x，不要选 192.168.x
+ls -lh /tmp/fusioncareer-backend-prod.tar.gz \
+  /tmp/fusioncareer-java-deploy.tgz
+scp /tmp/fusioncareer-backend-prod.tar.gz \
+  /tmp/fusioncareer-java-deploy.tgz \
+  vmadmin@10.107.13.184:/tmp/
+ssh vmadmin@10.107.13.184
 ```
 
+在 Python 机通过 `127.0.0.1:19022` 反向 SSH 通道传到 Java：
+
 ```bash
-# 推荐：IP 和端口作为参数传入（避免 export 未生效）
-curl -f -o /tmp/java-deploy-from-mac.sh http://10.230.32.62:8765/java-deploy-from-mac.sh
-bash /tmp/java-deploy-from-mac.sh 10.230.32.62 8765
+scp -P 19022 \
+  /tmp/fusioncareer-backend-prod.tar.gz \
+  /tmp/fusioncareer-java-deploy.tgz \
+  root@127.0.0.1:/tmp/
 ```
 
-若脚本还在 Mac 的 HTTP 上，可先：
+然后进入 Java 执行部署：
 
 ```bash
-curl -fO http://10.230.32.62:8765/fusioncareer-java-deploy.tgz
-# 解压后 deploy/scripts/ 会随配置包一起在首次 deploy 时解压到 JAVA_BASE
-```
-
-更简单：第一次用配置包解压后即包含脚本：
-
-```bash
-export MAC_IP=10.230.32.62
+ssh -p 19022 root@127.0.0.1
+mkdir -p /data/fusioncareer/FusionCareer-Backend
 cd /data/fusioncareer/FusionCareer-Backend
-bash deploy/scripts/java-deploy-from-mac.sh
+tar xzf /tmp/fusioncareer-java-deploy.tgz
+gunzip -c /tmp/fusioncareer-backend-prod.tar.gz | docker load
+docker compose -f deploy/docker-compose.java.image.yml \
+  --env-file .env.production up -d --force-recreate backend
 ```
 
 ## 3. 验证
@@ -83,15 +87,14 @@ curl -sk https://fusioncareer.fudan.edu.cn/api/sys/health
 
 ## 更新版本
 
-Mac 重新跑 `mac-build-and-serve.sh`，Java 机再跑 `java-deploy-from-mac.sh`（会 `--force-recreate` 逻辑在 compose up -d 中由新镜像触发，可加 `docker compose up -d --force-recreate backend`）。
+Mac 重新跑 `mac-build-and-serve.sh --no-serve`，把新包上传到 Python 机，再经 SSH 通道传到 Java 并执行上面的 `docker load` 与 `docker compose ... --force-recreate backend`。
 
 前端更新见 **FusionCareer-View** 仓库 `deploy/scripts/README.md`。
 
-仅更新后端镜像时 Java 机可：
+仅更新后端镜像时，在 Java 机执行：
 
 ```bash
 cd /data/fusioncareer/FusionCareer-Backend
-curl -f# -o /tmp/fusioncareer-backend-prod.tar.gz http://${MAC_IP}:8765/fusioncareer-backend-prod.tar.gz
 gunzip -c /tmp/fusioncareer-backend-prod.tar.gz | docker load
 docker compose -f deploy/docker-compose.java.image.yml --env-file .env.production up -d --force-recreate backend
 ```

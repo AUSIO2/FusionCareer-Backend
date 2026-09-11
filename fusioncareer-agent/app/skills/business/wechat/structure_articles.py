@@ -20,6 +20,8 @@ from app.skills.business.wechat.store import WechatStore
 
 readBackend: BackendClient | None = None
 logger = logging.getLogger(__name__)
+OFFICIAL_STRUCTURE_BATCH_SIZE = 2000
+_drainLock = asyncio.Lock()
 CONTACT_PATTERN = re.compile(
     r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,}|"
     r"(?<!\d)1[3-9]\d{9}(?!\d)|(?<!\d)0\d{2,3}[- ]?\d{7,8}(?!\d)|"
@@ -84,10 +86,11 @@ async def structureArticles(
     readPaths: WechatPaths,
     updateBackend: BackendClient,
     readClient: LLMClient | None = None,
+    readLimit: int = 20,
 ) -> dict[str, int]:
     readStore = WechatStore(readPaths.database_file)
     readExisting = {buildJobKey(readJob) for readJob in await updateBackend.list_job_posts()}
-    readArticles = readStore.readPendingArticles()
+    readArticles = readStore.readPendingArticles(readLimit)
     readFudan = readFudanIds()
     readSemaphore = asyncio.Semaphore(5)
 
@@ -104,15 +107,29 @@ async def structureArticles(
                 readJobs, readDropped = filter_jobs(readResult["jobs"])
                 if readDropped:
                     logger.info("filtered %d unrelated jobs from %s", len(readDropped), readArticle["url"])
+                readRecycled = []
+                for readDroppedJob in readDropped:
+                    readReason = str(readDroppedJob.get("_filterReason") or "未通过初筛")
+                    createRecycled = {
+                        readKey: readValue for readKey, readValue in readDroppedJob.items()
+                        if readKey != "_filterReason"
+                    }
+                    createRecycled["status"] = "RECYCLED"
+                    createRecycled["recycleReason"] = f"初筛未通过：{readReason}"
+                    readRecycled.append(createRecycled)
                 createJobs = [
                     createJob for createJob in readJobs
                     if buildJobKey(createJob) not in readExisting
                 ]
-                await updateBackend.create_job_posts(createJobs)
-                for createJob in createJobs:
+                createRecycledJobs = [
+                    createJob for createJob in readRecycled
+                    if buildJobKey(createJob) not in readExisting
+                ]
+                await updateBackend.create_job_posts(createJobs + createRecycledJobs)
+                for createJob in createJobs + createRecycledJobs:
                     readExisting.add(buildJobKey(createJob))
                 readStore.markStructured(readArticle["url"])
-                return len(createJobs), 0, int(bool(readDropped) and not createJobs)
+                return len(createJobs) + len(createRecycledJobs), 0, 0
             except json.JSONDecodeError:
                 try:
                     createJob = createSummary(readArticle, readText)
@@ -140,6 +157,25 @@ async def structureArticles(
     }
 
 
+async def drainPendingArticles(
+    readPaths: WechatPaths,
+    updateBackend: BackendClient,
+    readBatchSize: int = OFFICIAL_STRUCTURE_BATCH_SIZE,
+) -> dict[str, int]:
+    async with _drainLock:
+        createTotal = {"articleCount": 0, "jobCount": 0, "failedCount": 0, "skippedCount": 0}
+        while True:
+            readResult = await structureArticles(readPaths, updateBackend, readLimit=readBatchSize)
+            for readKey in createTotal:
+                createTotal[readKey] += readResult[readKey]
+            if readResult["articleCount"] == 0:
+                return createTotal
+            if readResult["failedCount"] == readResult["articleCount"]:
+                raise RuntimeError(
+                    f"all {readResult['articleCount']} pending articles failed to structure"
+                )
+
+
 class WechatStructureArticlesSkill(BaseSkill):
     def define(self) -> dict:
         return {
@@ -154,3 +190,23 @@ class WechatStructureArticlesSkill(BaseSkill):
             raise RuntimeError("BackendClient 未初始化")
         readPaths = WechatPaths(resolve_config_root(inputs["paths"]))
         return {"json_obj": await structureArticles(readPaths, readBackend)}
+
+
+class OfficialStructureArticlesSkill(WechatStructureArticlesSkill):
+    def define(self) -> dict[str, Any]:
+        return {
+            **super().define(),
+            "name": "official_structure_articles",
+            "description": "批量消费高校官网抓取产生的待结构化文档",
+        }
+
+    async def execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        if readBackend is None:
+            raise RuntimeError("BackendClient 未初始化")
+        readPaths = WechatPaths(resolve_config_root(inputs["paths"]))
+        return {
+            "json_obj": await drainPendingArticles(
+                readPaths,
+                readBackend,
+            )
+        }

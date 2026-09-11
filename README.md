@@ -129,6 +129,7 @@ FusionCareer-Backend/
 
 | 资源 | 路径 |
 |------|------|
+| 用户管理 | `/admin/user/**` |
 | 岗位管理 | `/admin/job-post/**` |
 | 问卷与投递审核 | `/admin/questionnaire/**` |
 

@@ -1,6 +1,7 @@
 package com.fusioncareer;
 
 import com.fusioncareer.common.PageResult;
+import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.entity.JobPostEntity;
@@ -11,6 +12,7 @@ import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.enums.RecruitType;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
 import com.fusioncareer.service.JobPostService;
+import com.fusioncareer.service.JobPostQuestionService;
 import com.fusioncareer.service.QuestionnaireAnswerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,9 @@ class JobPostQueryTest {
 
     @Autowired
     private JobPostService readJobService;
+
+    @Autowired
+    private JobPostQuestionService readQuestionService;
 
     @Autowired
     private QuestionnaireAnswerService readAnswerService;
@@ -119,6 +124,26 @@ class JobPostQueryTest {
     }
 
     @Test
+    void defaultApplicationDeadline() {
+        JobPostRequest createJob = new JobPostRequest();
+        createJob.setCompanyName("deadline-company");
+        createJob.setPositionName("deadline-position");
+        createJob.setJobCategory(JobCategory.MEDIA);
+        createJob.setRecruitType(RecruitType.DAILY_INTERNSHIP);
+        createJob.setStatus(JobPostStatus.OFFLINE);
+
+        JobPostResponse readCreated = readJobService.createJobPost(createJob);
+
+        assertThat(readCreated.getApplicationDeadline()).isEqualTo(LocalDate.now().plusMonths(1));
+        assertThat(readQuestionService.listByJobPostId(readCreated.getId())).singleElement()
+                .satisfies(readQuestion -> {
+                    assertThat(readQuestion.getId()).isZero();
+                    assertThat(readQuestion.getTitle()).isEqualTo("个人简历");
+                    assertThat(readQuestion.getRequired()).isTrue();
+                });
+    }
+
+    @Test
     void countApplications() {
         JobPostEntity readJob = readJobService.lambdaQuery()
                 .eq(JobPostEntity::getPositionName, "alpha")
@@ -167,6 +192,33 @@ class JobPostQueryTest {
 
         assertThat(readJobs.getList()).extracting(JobPostResponse::getPositionName)
                 .containsExactlyInAnyOrder("alpha", "gamma", "delta");
+    }
+
+    @Test
+    void recycleAndRestoreJob() {
+        JobPostEntity readAlpha = readJobService.lambdaQuery()
+                .eq(JobPostEntity::getPositionName, "alpha")
+                .one();
+
+        readJobService.recycleJob(readAlpha.getId(), "初筛未通过：测试原因");
+
+        assertThat(readJobService.listJobPosts(new JobPostQueryRequest()).getList())
+                .extracting(JobPostResponse::getPositionName)
+                .doesNotContain("alpha");
+        JobPostQueryRequest readRecycleQuery = new JobPostQueryRequest();
+        readRecycleQuery.setStatus(JobPostStatus.RECYCLED);
+        assertThat(readJobService.listJobPosts(readRecycleQuery).getList()).singleElement()
+                .satisfies(readJob -> {
+                    assertThat(readJob.getPositionName()).isEqualTo("alpha");
+                    assertThat(readJob.getRecycleReason()).isEqualTo("初筛未通过：测试原因");
+                    assertThat(readJob.getRecycledAt()).isNotNull();
+                });
+
+        readJobService.restoreJob(readAlpha.getId());
+        JobPostEntity readRestored = readJobService.getById(readAlpha.getId());
+        assertThat(readRestored.getStatus()).isEqualTo(JobPostStatus.OFFLINE);
+        assertThat(readRestored.getRecycleReason()).isNull();
+        assertThat(readRestored.getRecycledAt()).isNull();
     }
 
     private void createJob(String createName, String createProvince, String createCity,

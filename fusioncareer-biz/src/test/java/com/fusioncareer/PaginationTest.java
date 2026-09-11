@@ -32,7 +32,7 @@ class PaginationTest {
 
     @Test
     void readPage() {
-        PageResult<UserResponse> readPage = readUserService.listUsers(1, 1, null);
+        PageResult<UserResponse> readPage = readUserService.listUsers(1, 1, null, null);
 
         assertThat(readPage.getList()).hasSize(1);
         assertThat(readPage.getTotal()).isEqualTo(3);
@@ -43,7 +43,7 @@ class PaginationTest {
 
     @Test
     void normalizePage() {
-        PageResult<UserResponse> readPage = readUserService.listUsers(0, 0, null);
+        PageResult<UserResponse> readPage = readUserService.listUsers(0, 0, null, null);
 
         assertThat(readPage.getList()).hasSize(1);
         assertThat(readPage.getPage()).isEqualTo(1);
@@ -52,10 +52,24 @@ class PaginationTest {
 
     @Test
     void limitPage() {
-        PageResult<UserResponse> readPage = readUserService.listUsers(1, 1000, null);
+        PageResult<UserResponse> readPage = readUserService.listUsers(1, 1000, null, null);
 
         assertThat(readPage.getList()).hasSize(3);
         assertThat(readPage.getSize()).isEqualTo(100);
+    }
+
+    @Test
+    void filterRole() {
+        UserRequest createAdmin = new UserRequest();
+        createAdmin.setUsername("pagination-admin");
+        createAdmin.setStudentId("pagination-admin");
+        createAdmin.setRole(UserRole.ADMIN);
+        createAdmin.setStatus(UserStatus.NORMAL);
+        readUserService.createUser(createAdmin);
+
+        assertThat(readUserService.listUsers(1, 10, null, UserRole.ADMIN).getList())
+                .extracting(UserResponse::getUsername)
+                .containsExactly("pagination-admin");
     }
 
     private void createUser(String createSuffix) {

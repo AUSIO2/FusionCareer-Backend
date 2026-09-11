@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @SaCheckRole("ADMIN")
 @RestController
@@ -65,6 +66,18 @@ public class AdminJobPostController {
         return R.success(jobPostService.createJobPost(createRequest));
     }
 
+    @GetMapping("/structure-pending")
+    @Operation(summary = "查询岗位文档结构化积压")
+    public R<Map<String, Object>> readStructurePending() {
+        return R.success(readPythonClient.readStructurePending());
+    }
+
+    @PostMapping("/structure-pending")
+    @Operation(summary = "后台清理全部岗位文档结构化积压")
+    public R<Map<String, Object>> startStructurePending() {
+        return R.success(readPythonClient.startStructurePending());
+    }
+
     @PostMapping("/batch")
     @Operation(summary = "批量创建岗位")
     public R<Void> createJobPosts(@RequestBody List<JobPostRequest> createRequests) {
@@ -93,9 +106,16 @@ public class AdminJobPostController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "删除岗位")
+    @Operation(summary = "将岗位移入回收站")
     public R<Void> deleteJobPost(@PathVariable("id") Long deleteId) {
-        jobPostService.removeById(deleteId);
+        jobPostService.recycleJob(deleteId, "人工删除");
+        return R.success();
+    }
+
+    @PutMapping("/{id}/restore")
+    @Operation(summary = "从回收站恢复为草稿")
+    public R<Void> restoreJobPost(@PathVariable("id") Long updateId) {
+        jobPostService.restoreJob(updateId);
         return R.success();
     }
 }

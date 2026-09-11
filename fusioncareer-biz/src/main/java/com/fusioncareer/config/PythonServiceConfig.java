@@ -14,7 +14,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * 算法端 HTTP 客户端配置
@@ -40,11 +42,14 @@ public class PythonServiceConfig {
 
     @Bean
     public PythonServiceClient pythonServiceClient(ObjectMapper readMapper) {
-        // 使用 JDK 11+ 内置的 HttpClient 作为底层实现，支持细粒度的超时控制
-        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
+        HttpClient readHttpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofMillis(connectTimeout))
+                .build();
+        JdkClientHttpRequestFactory requestFactory =
+                new JdkClientHttpRequestFactory(readHttpClient);
         requestFactory.setReadTimeout(Duration.ofMillis(readTimeout));
-        
-        // 构造 RestClient
+
         RestClient restClient = RestClient.builder()
                 .baseUrl(baseUrl)
                 .requestFactory(requestFactory)
@@ -82,6 +87,25 @@ public class PythonServiceConfig {
                         .body(createBody)
                         .retrieve()
                         .body(JobStructureResponse.class);
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public Map<String, Object> readStructurePending() {
+                return restClient.get()
+                        .uri("/api/internal/job/structure-pending")
+                        .retrieve()
+                        .body(Map.class);
+            }
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public Map<String, Object> startStructurePending() {
+                return restClient.post()
+                        .uri("/api/internal/job/structure-pending")
+                        .contentLength(0)
+                        .retrieve()
+                        .body(Map.class);
             }
 
             private byte[] createBody(Object readRequest) {

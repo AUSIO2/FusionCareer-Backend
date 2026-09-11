@@ -151,5 +151,6 @@ def testStructureLongArticle():
 
 
 def testLimitLargeJobList():
-    assert "超过20个相似岗位" in JOB_PROMPT
+    assert "无论岗位数量多少" in JOB_PROMPT
+    assert "不能合并成“招聘岗位汇总”" in JOB_INDEX_PROMPT
     assert "招聘岗位汇总" in JOB_PROMPT

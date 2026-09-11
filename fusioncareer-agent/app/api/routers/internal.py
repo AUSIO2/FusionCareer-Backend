@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.algorithms.job_structuring import structureJobs
 from app.algorithms.resume_parser import parseResume
 from app.api.deps.internal_auth import requireInternal
+from app.api.routers.admin import _start_structure_drain, _structure_status
 from app.integrations.backend import BackendClient
 
 
@@ -51,6 +52,16 @@ async def readHealth() -> dict[str, str]:
 @router.post("/job/structure", response_model=JobStructureResult)
 async def structureJob(readBody: JobStructureBody) -> dict[str, Any]:
     return await structureJobs(readBody.text, readBody.sourceUrl or "", readBody.sourceType)
+
+
+@router.get("/job/structure-pending")
+async def readStructurePending(readRequest: Request) -> dict[str, Any]:
+    return _structure_status(readRequest)
+
+
+@router.post("/job/structure-pending", status_code=202)
+async def startStructurePending(readRequest: Request) -> dict[str, Any]:
+    return _start_structure_drain(readRequest)
 
 
 async def readResumeFile(

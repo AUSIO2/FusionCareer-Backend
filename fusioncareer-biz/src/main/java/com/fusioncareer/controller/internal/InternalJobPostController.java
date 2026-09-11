@@ -4,6 +4,7 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
+import com.fusioncareer.dto.req.JobRecycleRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.service.JobPostService;
 import lombok.RequiredArgsConstructor;
@@ -62,6 +63,13 @@ public class InternalJobPostController {
     @Operation(summary = "删除岗位")
     public R<Void> delete(@PathVariable Long id) {
         jobPostService.removeById(id);
+        return R.success();
+    }
+
+    @PostMapping("/recycle-batch")
+    @Operation(summary = "批量将岗位移入回收站")
+    public R<Void> recycleBatch(@RequestBody List<JobRecycleRequest> requests) {
+        jobPostService.recycleJobs(requests);
         return R.success();
     }
 }

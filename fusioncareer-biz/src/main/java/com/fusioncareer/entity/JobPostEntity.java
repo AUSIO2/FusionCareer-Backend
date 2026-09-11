@@ -55,6 +55,8 @@ public class JobPostEntity implements Serializable {
     private String reqOther;
     private Boolean recommended;
     private JobPostStatus status;
+    private String recycleReason;
+    private LocalDateTime recycledAt;
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

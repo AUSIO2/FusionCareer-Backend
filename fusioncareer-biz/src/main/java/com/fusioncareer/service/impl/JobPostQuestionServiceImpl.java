@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -56,7 +57,25 @@ public class JobPostQuestionServiceImpl extends ServiceImpl<JobPostQuestionMappe
         entities.forEach(this::save);
         log.info("岗位 {} 问卷已更新，共 {} 道题", jobPostId, entities.size());
 
-        return entities.stream().map(this::toResponse).toList();
+        return withResumeQuestion(jobPostId, entities.stream().map(this::toResponse).toList());
+    }
+
+    private List<JobPostQuestionResponse> withResumeQuestion(
+            Long jobPostId, List<JobPostQuestionResponse> questions) {
+        List<JobPostQuestionResponse> readQuestions = new ArrayList<>(questions);
+        if (readQuestions.stream().noneMatch(readQuestion ->
+                readQuestion.getQuestionType() == QuestionType.FILE_UPLOAD)) {
+            JobPostQuestionResponse createResumeQuestion = new JobPostQuestionResponse();
+            createResumeQuestion.setId(0L);
+            createResumeQuestion.setJobPostId(jobPostId);
+            createResumeQuestion.setSortOrder(readQuestions.size() + 1);
+            createResumeQuestion.setTitle("个人简历");
+            createResumeQuestion.setQuestionType(QuestionType.FILE_UPLOAD);
+            createResumeQuestion.setOptions(Collections.emptyList());
+            createResumeQuestion.setRequired(true);
+            readQuestions.add(createResumeQuestion);
+        }
+        return readQuestions;
     }
 
     @Override
@@ -66,7 +85,7 @@ public class JobPostQuestionServiceImpl extends ServiceImpl<JobPostQuestionMappe
                         .eq(JobPostQuestionEntity::getJobPostId, jobPostId)
                         .orderByAsc(JobPostQuestionEntity::getSortOrder)
         );
-        return entities.stream().map(this::toResponse).toList();
+        return withResumeQuestion(jobPostId, entities.stream().map(this::toResponse).toList());
     }
 
     @Transactional

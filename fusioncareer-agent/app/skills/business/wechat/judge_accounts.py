@@ -32,4 +32,4 @@ class WechatJudgeAccountsSkill(BaseSkill):
         iteration = int(inputs["iteration"])
         state = load_json_file(state_path, default={})
         total = int(state.get("total", 0))
-        return {"continue": iteration < total}
+        return {"continue": iteration == 0 or iteration < total}

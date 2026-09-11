@@ -2,9 +2,12 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from app.skills.business.wechat.paths import WechatPaths
 from app.skills.business.wechat.store import WechatStore
 from app.skills.business.wechat.structure_articles import structureArticles
+from app.skills.business.wechat import structure_articles as structure_module
 
 
 class FakeBackend:
@@ -31,6 +34,48 @@ class FakeClient:
             }],
             "warnings": [],
         }
+
+
+def testOfficialStructureDrainsPendingArticles(tmp_path: Path, monkeypatch):
+    readLimits = []
+    readResults = [
+        {"articleCount": 2000, "jobCount": 100, "failedCount": 0, "skippedCount": 1900},
+        {"articleCount": 3, "jobCount": 2, "failedCount": 0, "skippedCount": 1},
+        {"articleCount": 0, "jobCount": 0, "failedCount": 0, "skippedCount": 0},
+    ]
+
+    async def readStructure(readPaths, readBackend, readClient=None, readLimit=20):
+        readLimits.append(readLimit)
+        return readResults.pop(0)
+
+    monkeypatch.setattr(structure_module, "readBackend", object())
+    monkeypatch.setattr(structure_module, "structureArticles", readStructure)
+    result = asyncio.run(structure_module.OfficialStructureArticlesSkill().execute({
+        "paths": {"config_root": str(tmp_path)},
+        "result": {},
+    }))
+
+    assert readLimits == [structure_module.OFFICIAL_STRUCTURE_BATCH_SIZE] * 3
+    assert result["json_obj"] == {
+        "articleCount": 2003,
+        "jobCount": 102,
+        "failedCount": 0,
+        "skippedCount": 1901,
+    }
+
+
+def testOfficialStructureStopsWhenNothingCanProgress(tmp_path: Path, monkeypatch):
+    async def readStructure(readPaths, readBackend, readClient=None, readLimit=20):
+        return {"articleCount": 2, "jobCount": 0, "failedCount": 2, "skippedCount": 0}
+
+    monkeypatch.setattr(structure_module, "readBackend", object())
+    monkeypatch.setattr(structure_module, "structureArticles", readStructure)
+
+    with pytest.raises(RuntimeError, match="all 2 pending articles failed"):
+        asyncio.run(structure_module.OfficialStructureArticlesSkill().execute({
+            "paths": {"config_root": str(tmp_path)},
+            "result": {},
+        }))
 
 
 def testStructureArticles(tmp_path: Path):
@@ -187,5 +232,6 @@ def testFilterTechnicalJob(tmp_path: Path):
 
     readResult = asyncio.run(structureArticles(readPaths, readBackend, TechnicalClient()))
 
-    assert readResult["skippedCount"] == 1
-    assert readBackend.createJobs == []
+    assert readResult == {"articleCount": 1, "jobCount": 1, "failedCount": 0, "skippedCount": 0}
+    assert readBackend.createJobs[0]["status"] == "RECYCLED"
+    assert readBackend.createJobs[0]["recycleReason"].startswith("初筛未通过：")

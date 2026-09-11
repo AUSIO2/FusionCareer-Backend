@@ -14,7 +14,7 @@
       }
     },
     "structure": {
-      "skill": "wechat_structure_articles",
+      "skill": "official_structure_articles",
       "inputs": {
         "paths": {"from": "paths.json_obj"},
         "result": {"from": "crawl.json_obj"}

@@ -1,5 +1,6 @@
 """FusionCareer AI Agent — FastAPI 入口"""
 
+import asyncio
 import copy
 import logging
 from contextlib import asynccontextmanager
@@ -25,6 +26,7 @@ from app.engine.loop_runner import LoopControl, run_with_loop, validate_loop
 from app.integrations.backend import BackendClient
 from app.runtime.paths import RuntimePaths
 from app.scheduler.service import SchedulerService
+from app.algorithms.resume_parser.extract import createOcr
 from app.skills.business.insert_resume import set_backend_client as set_insert_resume_backend
 from app.skills.business.insert_user_profile import (
     set_backend_client as set_insert_user_profile_backend,
@@ -47,6 +49,11 @@ scheduler_service: SchedulerService | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engine, workflow_catalog, scheduler_service
+
+    if settings.ocr_preload:
+        logger.info("开始预加载 OCR 模型")
+        await asyncio.to_thread(createOcr)
+        logger.info("OCR 模型预加载完成")
 
     set_insert_resume_backend(backend_client)
     set_insert_user_profile_backend(backend_client)
@@ -94,6 +101,14 @@ async def lifespan(app: FastAPI):
     app.state.workflow_engine = engine
     app.state.scheduler_service = scheduler_service
     app.state.backend_client = backend_client
+    app.state.structure_drain_task = None
+    app.state.structure_drain_state = {
+        "status": "IDLE",
+        "startedAt": None,
+        "finishedAt": None,
+        "result": None,
+        "error": None,
+    }
 
     logger.info(
         "启动完成: %d Skill, %d 工作流, %d 数据类, %d 定时任务",
@@ -105,6 +120,10 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    readDrainTask = app.state.structure_drain_task
+    if readDrainTask is not None and not readDrainTask.done():
+        readDrainTask.cancel()
+        await asyncio.gather(readDrainTask, return_exceptions=True)
     scheduler_service.shutdown()
     await backend_client.close()
 

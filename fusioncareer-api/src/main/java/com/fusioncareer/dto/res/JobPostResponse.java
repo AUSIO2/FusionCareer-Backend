@@ -40,6 +40,8 @@ public class JobPostResponse {
     private Boolean recommended;
     private Long applicationCount;
     private JobPostStatus status;
+    private String recycleReason;
+    private LocalDateTime recycledAt;
     private Long createdBy;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

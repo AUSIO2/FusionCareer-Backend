@@ -7,6 +7,9 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.req.UserRequest;
 import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.enums.UserRole;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.UserMapper;
 import com.fusioncareer.service.UserService;
 import org.springframework.beans.BeanUtils;
@@ -34,9 +37,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
     }
 
     @Override
-    public PageResult<UserResponse> listUsers(int page, int size, String username) {
+    public PageResult<UserResponse> listUsers(int page, int size, String username, UserRole role) {
         LambdaQueryWrapper<UserEntity> wrapper = new LambdaQueryWrapper<>();
-        wrapper.like(StringUtils.hasText(username), UserEntity::getUsername, username)
+        wrapper.and(StringUtils.hasText(username), readQuery -> readQuery
+                       .like(UserEntity::getUsername, username)
+                       .or()
+                       .like(UserEntity::getStudentId, username))
+               .eq(role != null, UserEntity::getRole, role)
                .orderByDesc(UserEntity::getCreatedAt);
 
         Page<UserEntity> readUsers = page(createPage(page, size), wrapper);
@@ -54,6 +61,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
         BeanUtils.copyProperties(request, entity);
         entity.setId(id);
         updateById(entity);
+    }
+
+    @Transactional
+    @Override
+    public UserResponse updateRole(Long id, UserRole role) {
+        UserEntity updateUser = new UserEntity();
+        updateUser.setId(id);
+        updateUser.setRole(role);
+        if (!updateById(updateUser)) {
+            throw ServiceException.of(ResultCode.NOT_FOUND, "用户不存在");
+        }
+        return getUserById(id);
     }
 
     private UserResponse toResponse(UserEntity entity) {

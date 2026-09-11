@@ -252,6 +252,12 @@ class WechatStore:
             ).fetchall()
         return [dict(readRow) for readRow in readRows]
 
+    def countPendingArticles(self) -> int:
+        with self.openDatabase() as readDatabase:
+            return int(readDatabase.execute(
+                "SELECT COUNT(*) FROM articles WHERE structured = 0"
+            ).fetchone()[0])
+
     def markStructured(self, readUrl: str) -> None:
         with self.openDatabase() as updateDatabase:
             updateDatabase.execute(

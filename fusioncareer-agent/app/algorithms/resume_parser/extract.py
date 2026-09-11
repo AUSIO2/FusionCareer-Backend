@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
+_ocrLock = Lock()
 
 def extractPdf(readPath: Path) -> str:
     import pdfplumber
@@ -53,8 +55,22 @@ def createOcr():
 
 
 def readOcr(readImage: Any) -> str:
-    readOcr = createOcr()
-    readResult = readOcr.predict(readImage) if hasattr(readOcr, "predict") else readOcr.ocr(readImage)
+    with _ocrLock:
+        readOcr = createOcr()
+        try:
+            readResult = (
+                readOcr.predict(readImage)
+                if hasattr(readOcr, "predict")
+                else readOcr.ocr(readImage)
+            )
+        except RuntimeError:
+            createOcr.cache_clear()
+            readOcr = createOcr()
+            readResult = (
+                readOcr.predict(readImage)
+                if hasattr(readOcr, "predict")
+                else readOcr.ocr(readImage)
+            )
     readLines = []
     for readItem in readResult or []:
         readData = getattr(readItem, "res", None)

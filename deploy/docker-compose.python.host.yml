@@ -17,6 +17,7 @@ services:
       WECHAT_CONFIG_ROOT: /data/wechat
       PADDLE_PDX_CACHE_HOME: /data/paddle
       AGENT_PORT: 8900
+      OCR_PRELOAD: "true"
     volumes:
       - agent_runtime:/data/agent
       - wechat_data:/data/wechat

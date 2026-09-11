@@ -233,7 +233,8 @@ POST 退出响应：
 
 | 资源 | 路径 | 能力 |
 |------|------|------|
-| 岗位 | `/admin/job-post/**` | 列表、详情、创建、批量创建、更新、删除 |
+| 用户 | `/admin/user/**` | 分页查看、修改角色 |
+| 岗位 | `/admin/job-post/**` | 列表、详情、创建、批量创建、更新、回收与恢复 |
 | 问卷题目 | `/admin/questionnaire/questions/**` | 读取、整组保存、删除 |
 | 投递审核 | `/admin/questionnaire/answers/**` | 列表、详情、单条审核、批量审核、导出 |
 
@@ -250,6 +251,33 @@ GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
 - CSV 带 UTF-8 BOM，可直接用 Excel 打开。
 - ZIP 包含 `applications.csv` 和问卷文件题引用的简历附件。
 - 草稿不会进入导出结果。
+
+管理员用户接口：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/user/list?page=1&size=10&username=xxx` | 分页查询用户列表 |
+| PUT | `/admin/user/{id}/role?role=ADMIN` | 修改用户角色，`role` 为 `NORMAL` 或 `ADMIN` |
+
+岗位文档积压处理：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/job-post/structure-pending` | 查询清理状态和待处理文档数量 |
+| POST | `/admin/job-post/structure-pending` | 后台启动清理；重复调用不会创建第二个任务 |
+
+任务持续分批处理到 `pendingCount=0`。POST 返回 HTTP 200 的统一 `R` 响应，内部
+`data.status` 为 `RUNNING`；使用 GET 查询 `COMPLETED`、`FAILED` 或剩余数量。
+
+岗位回收站：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| DELETE | `/admin/job-post/{id}` | 软删除到回收站，原因记为“人工删除” |
+| GET | `/admin/job-post/list?status=RECYCLED` | 查看回收站及回收原因 |
+| PUT | `/admin/job-post/{id}/restore` | 恢复为未发布草稿 |
+
+回收状态为 `RECYCLED`（数据库值 `3`），并记录 `recycleReason`、`recycledAt`。
 
 ### 内部服务接口
 

@@ -36,6 +36,7 @@ class SchedulerService:
         self._workflow_catalog = workflow_catalog
         self._registry = registry
         self._store = ScheduleStore(paths)
+        self._timezone = timezone
         self._scheduler = AsyncIOScheduler(timezone=timezone)
         self._last_errors: dict[str, str] = {}
 
@@ -89,7 +90,7 @@ class SchedulerService:
         return f"schedule:{schedule_id}"
 
     def _register_job(self, record: ScheduleBody) -> None:
-        trigger = self._build_trigger(record.trigger)
+        trigger = self._build_trigger(record.trigger, self._timezone)
         self._scheduler.add_job(
             self._run_scheduled,
             trigger=trigger,
@@ -99,15 +100,15 @@ class SchedulerService:
         )
 
     @staticmethod
-    def _build_trigger(spec: ScheduleTrigger):
+    def _build_trigger(spec: ScheduleTrigger, timezone: str = "Asia/Shanghai"):
         if spec.type == "cron":
-            return CronTrigger.from_crontab(spec.cron or "")
+            return CronTrigger.from_crontab(spec.cron or "", timezone=timezone)
         kwargs: dict[str, Any] = {}
         if spec.minutes is not None:
             kwargs["minutes"] = spec.minutes
         if spec.seconds is not None:
             kwargs["seconds"] = spec.seconds
-        return IntervalTrigger(**kwargs)
+        return IntervalTrigger(timezone=timezone, **kwargs)
 
     async def _run_scheduled(self, schedule_id: str) -> None:
         try:

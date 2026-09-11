@@ -60,6 +60,28 @@ def testReadOcrSupportsJsonProperty(monkeypatch):
         createOcr.cache_clear()
 
 
+def testReadOcrRebuildsBrokenPredictor(monkeypatch):
+    readInstances = []
+
+    class FakeOcr:
+        def __init__(self, **readOptions):
+            self.readIndex = len(readInstances)
+            readInstances.append(self)
+
+        def predict(self, readImage):
+            if self.readIndex == 0:
+                raise RuntimeError("std::exception")
+            return [SimpleNamespace(res={"rec_texts": ["恢复成功"]})]
+
+    monkeypatch.setitem(sys.modules, "paddleocr", SimpleNamespace(PaddleOCR=FakeOcr))
+    createOcr.cache_clear()
+    try:
+        assert readOcr(object()) == "恢复成功"
+        assert len(readInstances) == 2
+    finally:
+        createOcr.cache_clear()
+
+
 def testNormalizeResume():
     readContract = json.loads((READ_FIXTURES / "resume_contract.json").read_text(encoding="utf-8"))
     readRaw = {

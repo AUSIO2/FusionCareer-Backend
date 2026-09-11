@@ -37,4 +37,5 @@ public class JobPostRequest {
     private String reqOther;
     private Boolean recommended;
     private JobPostStatus status;
+    private String recycleReason;
 }
