@@ -32,6 +32,20 @@ CONTACT_PATTERN = re.compile(
 RESTRICT_PATTERN = re.compile(r"仅限.{0,12}(本校|我校)|只面向.{0,12}(本校|我校)|凭.{0,12}(学生证|校园卡)")
 
 
+class BalanceExhaustedError(RuntimeError):
+    pass
+
+
+def isBalanceError(readError: BaseException) -> bool:
+    updateError: BaseException | None = readError
+    while updateError is not None:
+        if getattr(updateError, "status_code", None) == 402 \
+                or "insufficient balance" in str(updateError).lower():
+            return True
+        updateError = updateError.__cause__ or updateError.__context__
+    return False
+
+
 def set_backend_client(updateBackend: BackendClient) -> None:
     global readBackend
     readBackend = updateBackend
@@ -93,9 +107,12 @@ async def structureArticles(
     readArticles = readStore.readPendingArticles(readLimit)
     readFudan = readFudanIds()
     readSemaphore = asyncio.Semaphore(5)
+    readBalanceExhausted = asyncio.Event()
 
     async def createArticle(readArticle: dict) -> tuple[int, int, int]:
         async with readSemaphore:
+            if readBalanceExhausted.is_set():
+                raise BalanceExhaustedError("LLM balance exhausted; batch stopped")
             try:
                 readText = Path(readArticle["markdown_path"]).read_text(encoding="utf-8")
                 if readArticle["fakeid"] not in readFudan and (
@@ -141,11 +158,21 @@ async def structureArticles(
                     readStore.deferArticle(readArticle["url"])
                     return 0, 1, 0
             except Exception as readError:  # noqa: BLE001 - defer one article and continue the batch
+                if isBalanceError(readError):
+                    readBalanceExhausted.set()
+                    raise BalanceExhaustedError("LLM balance exhausted; batch stopped") from readError
                 logger.warning("structure article failed %s: %s", readArticle["url"], readError)
                 readStore.deferArticle(readArticle["url"])
                 return 0, 1, 0
 
-    readResults = await asyncio.gather(*(createArticle(readArticle) for readArticle in readArticles))
+    readTasks = [asyncio.create_task(createArticle(readArticle)) for readArticle in readArticles]
+    try:
+        readResults = await asyncio.gather(*readTasks)
+    except BalanceExhaustedError:
+        for updateTask in readTasks:
+            updateTask.cancel()
+        await asyncio.gather(*readTasks, return_exceptions=True)
+        raise
     createCount = sum(readResult[0] for readResult in readResults)
     failCount = sum(readResult[1] for readResult in readResults)
     skipCount = sum(readResult[2] for readResult in readResults)

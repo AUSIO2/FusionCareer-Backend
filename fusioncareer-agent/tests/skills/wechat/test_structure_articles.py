@@ -6,7 +6,7 @@ import pytest
 
 from app.skills.business.wechat.paths import WechatPaths
 from app.skills.business.wechat.store import WechatStore
-from app.skills.business.wechat.structure_articles import structureArticles
+from app.skills.business.wechat.structure_articles import BalanceExhaustedError, structureArticles
 from app.skills.business.wechat import structure_articles as structure_module
 
 
@@ -143,6 +143,37 @@ def testStructureConcurrency(tmp_path: Path):
 
     assert readResult == {"articleCount": 6, "jobCount": 6, "failedCount": 0, "skippedCount": 0}
     assert readClient.readMaximum == 5
+
+
+def testBalanceErrorCancelsBatchWithoutDeferring(tmp_path: Path):
+    class EmptyBalanceClient:
+        def __init__(self):
+            self.calls = 0
+
+        async def chat_json(self, **readOptions):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("Error code: 402 - Insufficient Balance")
+            await asyncio.sleep(10)
+
+    readPaths = WechatPaths(tmp_path)
+    readStore = WechatStore(readPaths.database_file)
+    readStore.saveAccount("fakeid-a", "AccountA", True)
+    for readIndex in range(20):
+        readMarkdown = tmp_path / f"balance-{readIndex}.md"
+        readMarkdown.write_text("# 招聘编辑\n投递邮箱：job@example.com", encoding="utf-8")
+        readStore.saveArticle("fakeid-a", {
+            "title": "招聘编辑",
+            "link": f"https://example.test/balance-{readIndex}",
+            "create_time": readIndex + 1,
+        }, readMarkdown, f"hash-{readIndex}")
+
+    readClient = EmptyBalanceClient()
+    with pytest.raises(BalanceExhaustedError, match="batch stopped"):
+        asyncio.run(structureArticles(readPaths, FakeBackend(), readClient, readLimit=20))
+
+    assert readClient.calls <= 5
+    assert len(readStore.readPendingArticles()) == 20
 
 
 def testCreateSummary(tmp_path: Path):
