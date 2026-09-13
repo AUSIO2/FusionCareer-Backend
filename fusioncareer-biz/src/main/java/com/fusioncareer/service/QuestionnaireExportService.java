@@ -6,11 +6,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
 import com.fusioncareer.entity.ResumeFileEntity;
 import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.entity.UserProfileEntity;
 import com.fusioncareer.enums.QuestionType;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
+import com.fusioncareer.dto.res.JobPostQuestionResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -35,30 +38,33 @@ public class QuestionnaireExportService {
     private final JobPostQuestionService jobPostQuestionService;
     private final ResumeFileService resumeFileService;
     private final UserService userService;
+    private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
 
     public byte[] buildCsv(Long readJobId, List<Long> readAnswerIds) {
-        return buildCsv(readAnswers(readJobId, readAnswerIds));
+        return renderCsv(readJobId, readAnswers(readJobId, readAnswerIds));
     }
 
     public byte[] buildZip(Long readJobId, List<Long> readAnswerIds) {
         List<QuestionnaireAnswerEntity> readAnswers = readAnswers(readJobId, readAnswerIds);
-        Map<Long, Long> readFileOwners = readFileOwners(readJobId, readAnswers);
+        Map<Long, ResumeExport> readFileOwners = readFileOwners(readJobId, readAnswers);
 
         try (ByteArrayOutputStream createBytes = new ByteArrayOutputStream();
              ZipOutputStream createZip = new ZipOutputStream(createBytes, StandardCharsets.UTF_8)) {
             createZip.putNextEntry(new ZipEntry("applications.csv"));
-            createZip.write(buildCsv(readAnswers));
+            createZip.write(renderCsv(readJobId, readAnswers));
             createZip.closeEntry();
 
             if (!readFileOwners.isEmpty()) {
                 for (ResumeFileEntity readFile : resumeFileService.listByIds(readFileOwners.keySet())) {
-                    Long readOwner = readFileOwners.get(readFile.getId());
-                    if (readOwner == null || !readOwner.equals(readFile.getUserId())) {
+                    ResumeExport readExport = readFileOwners.get(readFile.getId());
+                    if (readExport == null || !readExport.userId().equals(readFile.getUserId())) {
                         continue;
                     }
-                    String createName = "resumes/" + readOwner + "-" + readFile.getId() + "-"
-                            + sanitizeFilename(readFile.getOriginalName());
+                    String createName = "resumes/" + readExport.sequence() + "_"
+                            + sanitizeFilename(readExport.username()) + "_"
+                            + sanitizeFilename(readExport.studentId()) + "_个人简历"
+                            + fileExtension(readFile.getOriginalName());
                     createZip.putNextEntry(new ZipEntry(createName));
                     Resource readResource = resumeFileService.loadAsResource(readFile.getStoragePath());
                     try (InputStream readStream = readResource.getInputStream()) {
@@ -84,6 +90,12 @@ public class QuestionnaireExportService {
         return updateName;
     }
 
+    private String fileExtension(String readFilename) {
+        String readName = sanitizeFilename(readFilename);
+        int readDot = readName.lastIndexOf('.');
+        return readDot > 0 ? readName.substring(readDot) : "";
+    }
+
     private List<QuestionnaireAnswerEntity> readAnswers(Long readJobId, List<Long> readAnswerIds) {
         LambdaQueryWrapper<QuestionnaireAnswerEntity> buildQuery =
                 new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
@@ -96,28 +108,29 @@ public class QuestionnaireExportService {
         return questionnaireAnswerService.list(buildQuery);
     }
 
-    private byte[] buildCsv(List<QuestionnaireAnswerEntity> readAnswers) {
-        Map<Long, UserEntity> readUsers = userService.listByIds(readAnswers.stream()
-                        .map(QuestionnaireAnswerEntity::getUserId)
-                        .distinct()
-                        .toList())
-                .stream()
-                .collect(Collectors.toMap(UserEntity::getId, Function.identity()));
+    private byte[] renderCsv(Long readJobId, List<QuestionnaireAnswerEntity> readAnswers) {
+        List<JobPostQuestionResponse> readQuestions = jobPostQuestionService.listByJobPostId(readJobId);
+        Map<Long, UserEntity> readUsers = readUsers(readAnswers);
+        Map<Long, UserProfileEntity> readProfiles = readProfiles(readAnswers);
         StringBuilder createCsv = new StringBuilder();
-        createCsv.append("id,jobPostId,userId,username,studentId,status,answers,createdAt,updatedAt,reviewPassed,reviewComments\r\n");
-        for (QuestionnaireAnswerEntity readAnswer : readAnswers) {
+        createCsv.append("提交序号,username,studentId,status,createdAt,updatedAt,reviewPassed,reviewComments");
+        readQuestions.forEach(readQuestion -> createCsv.append(',').append(escapeCsv(readQuestion.getTitle())));
+        createCsv.append("\r\n");
+        for (int readIndex = 0; readIndex < readAnswers.size(); readIndex++) {
+            QuestionnaireAnswerEntity readAnswer = readAnswers.get(readIndex);
             UserEntity readUser = readUsers.get(readAnswer.getUserId());
-            createCsv.append(escapeCsv(readAnswer.getId())).append(',')
-                    .append(escapeCsv(readAnswer.getJobPostId())).append(',')
-                    .append(escapeCsv(readAnswer.getUserId())).append(',')
-                    .append(escapeCsv(readUser == null ? null : readUser.getUsername())).append(',')
+            Map<Long, Object> readValues = answerValues(readAnswer.getAnswers());
+            createCsv.append(escapeCsv(readIndex + 1)).append(',')
+                    .append(escapeCsv(displayName(readUser, readProfiles.get(readAnswer.getUserId())))).append(',')
                     .append(escapeCsv(readUser == null ? null : readUser.getStudentId())).append(',')
                     .append(escapeCsv(readAnswer.getSubmissionStatus())).append(',')
-                    .append(escapeCsv(readAnswer.getAnswers())).append(',')
                     .append(escapeCsv(readAnswer.getCreatedAt())).append(',')
                     .append(escapeCsv(readAnswer.getUpdatedAt())).append(',')
                     .append(escapeCsv(readAnswer.getReviewPassed())).append(',')
-                    .append(escapeCsv(readAnswer.getReviewComments())).append("\r\n");
+                    .append(escapeCsv(readAnswer.getReviewComments()));
+            readQuestions.forEach(readQuestion -> createCsv.append(',')
+                    .append(escapeCsv(readValues.get(readQuestion.getId()))));
+            createCsv.append("\r\n");
         }
         byte[] readCsv = createCsv.toString().getBytes(StandardCharsets.UTF_8);
         byte[] createCsvBytes = new byte[CSV_BOM.length + readCsv.length];
@@ -126,22 +139,60 @@ public class QuestionnaireExportService {
         return createCsvBytes;
     }
 
-    private Map<Long, Long> readFileOwners(Long readJobId, List<QuestionnaireAnswerEntity> readAnswers) {
+    private Map<Long, ResumeExport> readFileOwners(
+            Long readJobId, List<QuestionnaireAnswerEntity> readAnswers) {
         Set<Long> readQuestionIds = jobPostQuestionService.listByJobPostId(readJobId).stream()
                 .filter(readQuestion -> readQuestion.getQuestionType() == QuestionType.FILE_UPLOAD)
                 .map(readQuestion -> readQuestion.getId())
                 .collect(Collectors.toSet());
-        Map<Long, Long> readOwners = new LinkedHashMap<>();
-        for (QuestionnaireAnswerEntity readAnswer : readAnswers) {
+        Map<Long, UserEntity> readUsers = readUsers(readAnswers);
+        Map<Long, UserProfileEntity> readProfiles = readProfiles(readAnswers);
+        Map<Long, ResumeExport> readOwners = new LinkedHashMap<>();
+        for (int readIndex = 0; readIndex < readAnswers.size(); readIndex++) {
+            QuestionnaireAnswerEntity readAnswer = readAnswers.get(readIndex);
+            UserEntity readUser = readUsers.get(readAnswer.getUserId());
             for (Map<String, Object> readItem : parseAnswers(readAnswer.getAnswers())) {
                 Long readQuestionId = parseLong(readItem.get("questionId"));
                 Long readFileId = parseLong(readItem.get("value"));
                 if (readQuestionIds.contains(readQuestionId) && readFileId != null) {
-                    readOwners.put(readFileId, readAnswer.getUserId());
+                    readOwners.put(readFileId, new ResumeExport(
+                            readAnswer.getUserId(), readIndex + 1,
+                            displayName(readUser, readProfiles.get(readAnswer.getUserId())),
+                            readUser == null ? "" : readUser.getStudentId()));
                 }
             }
         }
         return readOwners;
+    }
+
+    private Map<Long, UserEntity> readUsers(List<QuestionnaireAnswerEntity> readAnswers) {
+        return userService.listByIds(readAnswers.stream()
+                        .map(QuestionnaireAnswerEntity::getUserId).distinct().toList())
+                .stream().collect(Collectors.toMap(UserEntity::getId, Function.identity()));
+    }
+
+    private Map<Long, UserProfileEntity> readProfiles(List<QuestionnaireAnswerEntity> readAnswers) {
+        return userProfileService.listByIds(readAnswers.stream()
+                        .map(QuestionnaireAnswerEntity::getUserId).distinct().toList())
+                .stream().collect(Collectors.toMap(UserProfileEntity::getUserId, Function.identity()));
+    }
+
+    private String displayName(UserEntity readUser, UserProfileEntity readProfile) {
+        if (readProfile != null && StringUtils.hasText(readProfile.getRealName())) {
+            return readProfile.getRealName();
+        }
+        return readUser == null ? "" : readUser.getUsername();
+    }
+
+    private Map<Long, Object> answerValues(String readAnswers) {
+        Map<Long, Object> readValues = new LinkedHashMap<>();
+        parseAnswers(readAnswers).forEach(readItem -> {
+            Long readQuestionId = parseLong(readItem.get("questionId"));
+            if (readQuestionId != null) {
+                readValues.put(readQuestionId, readItem.get("value"));
+            }
+        });
+        return readValues;
     }
 
     private List<Map<String, Object>> parseAnswers(String readAnswers) {
@@ -168,4 +219,6 @@ public class QuestionnaireExportService {
         String updateValue = readValue == null ? "" : String.valueOf(readValue);
         return '"' + updateValue.replace("\r", " ").replace("\n", " ").replace("\"", "\"\"") + '"';
     }
+
+    private record ResumeExport(Long userId, int sequence, String username, String studentId) { }
 }

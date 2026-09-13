@@ -8,6 +8,7 @@ import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
 import com.fusioncareer.entity.ResumeFileEntity;
 import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.entity.UserProfileEntity;
 import com.fusioncareer.enums.JobCategory;
 import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.enums.QuestionType;
@@ -21,6 +22,7 @@ import com.fusioncareer.service.QuestionnaireAnswerService;
 import com.fusioncareer.service.QuestionnaireExportService;
 import com.fusioncareer.service.ResumeFileService;
 import com.fusioncareer.service.UserService;
+import com.fusioncareer.service.UserProfileService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,9 @@ class QuestionnaireExportTest {
     private UserService readUserService;
 
     @Autowired
+    private UserProfileService readProfileService;
+
+    @Autowired
     private JobPostService readJobService;
 
     @Autowired
@@ -84,6 +89,11 @@ class QuestionnaireExportTest {
         createUser.setStatus(UserStatus.NORMAL);
         readUserService.save(createUser);
 
+        UserProfileEntity createProfile = new UserProfileEntity();
+        createProfile.setUserId(createUser.getId());
+        createProfile.setRealName("修改后的姓名");
+        readProfileService.save(createProfile);
+
         JobPostEntity createJob = new JobPostEntity();
         createJob.setCompanyName("export-company");
         createJob.setPositionName("export-job");
@@ -98,8 +108,14 @@ class QuestionnaireExportTest {
         createQuestion.setTitle("简历");
         createQuestion.setQuestionType(QuestionType.FILE_UPLOAD);
         createQuestion.setRequired(true);
-        JobPostQuestionResponse readQuestion = readQuestionService
-                .saveQuestions(readJobId, List.of(createQuestion)).get(0);
+        JobPostQuestionRequest createTextQuestion = new JobPostQuestionRequest();
+        createTextQuestion.setSortOrder(2);
+        createTextQuestion.setTitle("自我介绍");
+        createTextQuestion.setQuestionType(QuestionType.TEXT);
+        createTextQuestion.setRequired(true);
+        List<JobPostQuestionResponse> readQuestions = readQuestionService
+                .saveQuestions(readJobId, List.of(createQuestion, createTextQuestion));
+        JobPostQuestionResponse readQuestion = readQuestions.get(0);
 
         ResumeFileEntity createFile = new ResumeFileEntity();
         createFile.setUserId(createUser.getId());
@@ -118,7 +134,8 @@ class QuestionnaireExportTest {
         createAnswer.setUserId(createUser.getId());
         createAnswer.setSubmissionStatus(QuestionnaireSubmissionStatus.SUBMITTED);
         createAnswer.setAnswers(readObjectMapper.writeValueAsString(List.of(
-                Map.of("questionId", readQuestion.getId(), "value", String.valueOf(createFile.getId())))));
+                Map.of("questionId", readQuestion.getId(), "value", String.valueOf(createFile.getId())),
+                Map.of("questionId", readQuestions.get(1).getId(), "value", "测试回答"))));
         createAnswer.setCreatedAt(LocalDateTime.now());
         createAnswer.setUpdatedAt(LocalDateTime.now());
         readAnswerService.save(createAnswer);
@@ -150,7 +167,9 @@ class QuestionnaireExportTest {
         String readText = new String(readCsv, StandardCharsets.UTF_8);
 
         assertThat(readCsv).startsWith((byte) 0xEF, (byte) 0xBB, (byte) 0xBF);
-        assertThat(readText).contains("export-user", "export-student", "SUBMITTED");
+        assertThat(readText).contains("提交序号", "修改后的姓名", "export-student", "SUBMITTED",
+                "简历", "自我介绍", "测试回答");
+        assertThat(readText).doesNotContain("answers", "export-user");
         assertThat(readText).doesNotContain("draft-secret");
     }
 
@@ -179,9 +198,7 @@ class QuestionnaireExportTest {
         }
 
         assertThat(readEntries).contains("applications.csv");
-        assertThat(readEntries).anyMatch(readName -> readName.startsWith("resumes/")
-                && readName.endsWith("unsafe_r_sum_.pdf")
-                && !readName.contains(".."));
+        assertThat(readEntries).contains("resumes/1_修改后的姓名_export-student_个人简历.pdf");
         assertThat(readFile).isEqualTo("pdf-data");
     }
 }
