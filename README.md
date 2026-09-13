@@ -112,6 +112,9 @@ FusionCareer-Backend/
 | GET | `/job/{id}` | 岗位详情 |
 | GET | `/job/list?page=1&size=10&keyword=xxx` | 分页搜索岗位 |
 
+管理员可通过 `GET /admin/job-post/import-template` 下载岗位模板，并将填写后的文件上传到
+`POST /admin/job-post/import`（multipart 字段 `file`）批量创建并发布岗位。
+
 #### 岗位投递问卷
 
 | 方法 | 路径 | 说明 |

@@ -8,6 +8,7 @@ import com.fusioncareer.dto.JobPostApplicationCount;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.req.JobRecycleRequest;
+import com.fusioncareer.dto.res.JobPostAdminResponse;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.enums.JobPostSort;
@@ -71,6 +72,15 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     }
 
     @Override
+    public JobPostAdminResponse getAdminJobPost(Long id) {
+        JobPostAdminResponse readJob = toAdminResponse(getById(id));
+        if (readJob != null) {
+            mapApplications(List.of(readJob));
+        }
+        return readJob;
+    }
+
+    @Override
     public PageResult<JobPostResponse> listJobPosts(JobPostQueryRequest query) {
         LambdaQueryWrapper<JobPostEntity> readWrapper = buildJobQuery(query);
         readWrapper.ne(query.getStatus() == null,
@@ -78,6 +88,22 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
         Page<JobPostEntity> readJobs = page(
                 createPage(query.getPage(), query.getSize()), readWrapper);
         return mapPage(readJobs);
+    }
+
+    @Override
+    public PageResult<JobPostAdminResponse> listAdminJobPosts(JobPostQueryRequest query) {
+        LambdaQueryWrapper<JobPostEntity> readWrapper = buildJobQuery(query);
+        readWrapper.ne(query.getStatus() == null,
+                JobPostEntity::getStatus, JobPostStatus.RECYCLED);
+        Page<JobPostEntity> readJobs = page(
+                createPage(query.getPage(), query.getSize()), readWrapper);
+        List<JobPostAdminResponse> readItems = readJobs.getRecords().stream()
+                .map(this::toAdminResponse).toList();
+        mapApplications(readItems);
+        PageResult<JobPostAdminResponse> readPage = new PageResult<>(readJobs.getTotal(),
+                (int) readJobs.getCurrent(), (int) readJobs.getSize());
+        readPage.addAll(readItems);
+        return readPage;
     }
 
     @Override
@@ -229,7 +255,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
         return readPage;
     }
 
-    private void mapApplications(List<JobPostResponse> updateJobs) {
+    private void mapApplications(List<? extends JobPostResponse> updateJobs) {
         if (updateJobs.isEmpty()) {
             return;
         }
@@ -244,6 +270,14 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     private JobPostResponse toResponse(JobPostEntity entity) {
         if (entity == null) return null;
         JobPostResponse resp = new JobPostResponse();
+        BeanUtils.copyProperties(entity, resp);
+        resp.setApplicationCount(0L);
+        return resp;
+    }
+
+    private JobPostAdminResponse toAdminResponse(JobPostEntity entity) {
+        if (entity == null) return null;
+        JobPostAdminResponse resp = new JobPostAdminResponse();
         BeanUtils.copyProperties(entity, resp);
         resp.setApplicationCount(0L);
         return resp;

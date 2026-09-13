@@ -234,7 +234,7 @@ POST 退出响应：
 | 资源 | 路径 | 能力 |
 |------|------|------|
 | 用户 | `/admin/user/**` | 分页查看、修改角色 |
-| 岗位 | `/admin/job-post/**` | 列表、详情、创建、批量创建、更新、回收与恢复 |
+| 岗位 | `/admin/job-post/**` | 列表、详情、创建、Excel 批量导入、更新、回收与恢复 |
 | 问卷题目 | `/admin/questionnaire/questions/**` | 读取、整组保存、删除 |
 | 投递审核 | `/admin/questionnaire/answers/**` | 列表、详情、单条审核、批量审核、导出 |
 
@@ -258,6 +258,18 @@ GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
 |------|------|------|
 | GET | `/admin/user/list?page=1&size=10&username=xxx` | 分页查询用户列表 |
 | PUT | `/admin/user/{id}/role?role=ADMIN` | 修改用户角色，`role` 为 `NORMAL` 或 `ADMIN` |
+
+岗位 Excel 导入：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/job-post/import-template` | 下载 `.xlsx` 导入模板 |
+| POST | `/admin/job-post/import` | 上传 Excel，`multipart/form-data` 字段名为 `file` |
+
+导入兼容平台模板和学院现有的“岗位需求总表”，支持合并的单位、补贴和联系人单元格。
+全部行校验通过后才批量创建，导入岗位统一保存为 `PUBLISHED` 并立即发布，不限制单次导入条数。
+`workTimeRequirement`、`careerDirection`、`internalCompensation`、`contactName`、`contactInfo`
+和 `internalRemark` 会出现在管理员列表/详情中，标记“不对外”的字段不会出现在学生端岗位响应中。
 
 岗位文档积压处理：
 
@@ -464,6 +476,7 @@ GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
 | `CAMPUS_RECRUITMENT` | 4 | 应届生招聘 |
 | `CAMPUS_SCREENING` | 5 | 应届生摸排 |
 | `OTHER` | 6 | 其他 |
+| `BOTH_INTERNSHIP` | 7 | 大/小实习均可 |
 
 ### JobPostStatus（岗位状态）
 | 枚举值 | code | 说明 |
@@ -477,7 +490,7 @@ GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
 |--------|------|------|
 | `ONLINE` | 1 | 线上 |
 | `OFFLINE` | 2 | 线下 |
-| `BOTH` | 3 | 线上线下均可 |
+| `HYBRID` | 3 | 线上线下均可 |
 
 ### Gender（性别）
 | 枚举值 | code | 说明 |

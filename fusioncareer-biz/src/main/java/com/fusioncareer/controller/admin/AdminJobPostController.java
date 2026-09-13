@@ -6,6 +6,7 @@ import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.req.JobStructureRequest;
+import com.fusioncareer.dto.res.JobPostAdminResponse;
 import com.fusioncareer.dto.res.JobStructureResponse;
 import com.fusioncareer.client.PythonServiceClient;
 import com.fusioncareer.enums.JobPostStatus;
@@ -15,6 +16,7 @@ import com.fusioncareer.exception.ServiceException;
 import org.springframework.util.StringUtils;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.service.JobPostService;
+import com.fusioncareer.service.JobPostExcelService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +28,14 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +47,7 @@ import java.util.Map;
 public class AdminJobPostController {
 
     private final JobPostService jobPostService;
+    private final JobPostExcelService jobPostExcelService;
     private final PythonServiceClient readPythonClient;
 
     @PostMapping("/structure")
@@ -85,16 +95,36 @@ public class AdminJobPostController {
         return R.success();
     }
 
+    @PostMapping(value = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "从 Excel 批量导入并发布岗位")
+    public R<Integer> importJobPosts(@RequestPart("file") MultipartFile readFile) {
+        List<JobPostRequest> createJobs = jobPostExcelService.parse(readFile);
+        jobPostService.createJobPostBatch(createJobs);
+        return R.success(createJobs.size(), "成功导入 " + createJobs.size() + " 条岗位");
+    }
+
+    @GetMapping("/import-template")
+    @Operation(summary = "下载岗位批量导入模板")
+    public ResponseEntity<byte[]> downloadImportTemplate() {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
+                        .filename("岗位批量导入模板.xlsx", StandardCharsets.UTF_8)
+                        .build().toString())
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(jobPostExcelService.buildTemplate());
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "获取岗位详情")
-    public R<JobPostResponse> readJobPost(@PathVariable("id") Long readId) {
-        return R.success(jobPostService.getJobPost(readId));
+    public R<JobPostAdminResponse> readJobPost(@PathVariable("id") Long readId) {
+        return R.success(jobPostService.getAdminJobPost(readId));
     }
 
     @GetMapping("/list")
     @Operation(summary = "分页查询岗位列表")
-    public R<PageResult<JobPostResponse>> readJobPosts(JobPostQueryRequest readQuery) {
-        return R.success(jobPostService.listJobPosts(readQuery));
+    public R<PageResult<JobPostAdminResponse>> readJobPosts(JobPostQueryRequest readQuery) {
+        return R.success(jobPostService.listAdminJobPosts(readQuery));
     }
 
     @PutMapping("/{id}")

@@ -18,6 +18,7 @@ public class JobPostResponse {
     private JobSubCategory jobSubCategory;
     private RecruitType recruitType;
     private Integer headcount;
+    private String headcountDisplay;
     private LocalDate workStartDate;
     private LocalDate workEndDate;
     private LocalDate applicationDeadline;
