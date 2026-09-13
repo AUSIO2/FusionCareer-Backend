@@ -1,24 +1,42 @@
-# FusionCareer 双机生产部署（域名在 Python 机）
+# FusionCareer 双机生产部署（APISIX + Python 网关）
 
 ## 架构说明
 
 | 角色 | IP | 职责 |
 |------|-----|------|
-| **Python 机** | `10.107.13.184` | **域名入口**、Nginx 80/443、Agent；`/fudan/*` 反代到 Java |
+| **Python 机** | `10.107.13.184` | APISIX 的 HTTP 上游、Nginx `:80`、Agent；`/fudan/*` 反代到 Java |
 | **Java 机** | 内网 `172.22.130.216` | MySQL、Java 后端（含 SSO 实现）、文件存储 |
 
 > SSO **登录页 URL** 在 Python 机域名上（如 `https://fusioncareer.fudan.edu.cn/fudan/login`），  
 > **认证逻辑**仍在 Java（`FudanSsoController`），由 Python 机 Nginx 转发。
 
 ```
-用户浏览器 → fusioncareer.fudan.edu.cn (Python 机 Nginx)
-              ├─ /fudan/*  → Java 172.22.130.216:9100
-              ├─ /api/*    → Java
-              ├─ /files/*  → Java
-              └─ /agent/*  → 本机 Agent :8900
+用户浏览器 → fusioncareer.fudan.edu.cn:443（校内 APISIX 终止 TLS）
+              → Python 10.107.13.184:80（Nginx）
+                ├─ /fudan/*  → Java 127.0.0.1:19100
+                ├─ /api/*    → Java 127.0.0.1:19100
+                ├─ /files/*  → Java 127.0.0.1:19100
+                └─ /agent/*  → 本机 Agent :8900
 ```
 
-登录方式：复旦云堡垒机 https://blj-fcloud.fudan.edu.cn/shterm
+## 运维入口
+
+- Mac 直接 SSH 到 Python 机 `vmadmin@10.107.13.184`。
+- Java 机不从 Mac 直连；先进入 Python 机，再通过两机间已经配置的 SSH 通道进入 Java。
+- 发布包从 Mac 上传到 Python 机一次；需要部署到 Java 时通过该通道传递。
+- Java → Python 的反向隧道在 Python 上提供两个本地入口：`127.0.0.1:19022` 用于 Java SSH，`127.0.0.1:19100` 用于 Java API。禁止把私钥或口令写入仓库。
+- 业务反向代理继续走 Python `127.0.0.1:19100` → Java `127.0.0.1:9100`，详见 [TEMP-SSH-TUNNEL.md](TEMP-SSH-TUNNEL.md)。
+
+```bash
+# Mac 进入 Python
+ssh vmadmin@10.107.13.184
+
+# 当前在 Python，进入 Java
+ssh -p 19022 root@127.0.0.1
+
+# 当前在 Java，进入 Python
+ssh -i /root/.ssh/id_ed25519_py vmadmin@10.107.13.184
+```
 
 ---
 
@@ -40,7 +58,8 @@ curl -s --connect-timeout 5 http://10.107.13.184:80/
 
 | 机器 | 入站 | 来源 |
 |------|------|------|
-| Python | 80, 443 | 0.0.0.0/0（公网用户） |
+| Python | 80 | 校内 APISIX/运维网络 |
+| Python | 22 | Mac 所在运维网络 |
 | Java | 9100 | **仅** `10.107.13.184`（Python 机） |
 | Java | 3306 | 不开放 |
 
@@ -48,7 +67,7 @@ curl -s --connect-timeout 5 http://10.107.13.184:80/
 
 ## 一、Java 机（172.22.130.216）
 
-**空机器 + 堡垒机 + Mac 本地编译镜像**：见 **[DEPLOY-JAVA.md](DEPLOY-JAVA.md)**（推荐）。
+**空机器 + Mac 本地编译镜像**：见 **[DEPLOY-JAVA.md](DEPLOY-JAVA.md)**（推荐）。
 
 简要（在机上编译，适合已有 JDK/Maven 的机器）：
 
@@ -71,7 +90,7 @@ curl -s http://127.0.0.1:9100/sys/health
 
 ---
 
-## 二、Python 机（10.107.13.184，域名绑此）
+## 二、Python 机（10.107.13.184，APISIX 上游）
 
 上传：`fusioncareer-agent/`、`deploy/docker-compose.agent.yml`、`deploy/nginx.python.conf`、`deploy/env.agent.example`
 
@@ -99,18 +118,19 @@ curl -I http://fusioncareer.fudan.edu.cn/fudan/login
 
 ## 三、域名与 SSO
 
-- DNS：`fusioncareer.fudan.edu.cn` → **`10.107.13.184`**（Python 机）
+- 校内 APISIX 为 `fusioncareer.fudan.edu.cn` 终止 TLS，并将流量转发到 `http://10.107.13.184:80`。
+- Python 机不保存站点证书，也不直接监听 443；域名解析和 HTTPS 路由由信息化侧管理。
 - 复旦登记回调（不变）：
   - `https://fusioncareer.fudan.edu.cn/fudan/callback`
   - `https://fusioncareer.fudan.edu.cn/fudan/slo`
 - 向复旦提供 **Java 机访问 `id.fudan.edu.cn` 的出口公网 IP**（换 token 由 Java 发起，不是 Python）
-- 生产必须 **HTTPS**（与 `application-prod.yml` 中 `https://` 一致）
+- 用户入口必须是 **HTTPS**（与 `application-prod.yml` 中 `https://` 一致）；Python 上游保持 HTTP。
 
 用户登录流程：
 
 1. 打开 `https://fusioncareer.fudan.edu.cn/fudan/login`（Python Nginx → Java）
 2. 跳转复旦认证 → 回调 `.../fudan/callback`（仍经 Python Nginx → Java）
-3. 重定向 `https://fusioncareer.fudan.edu.cn/?token=...`（前端读 token）
+3. 重定向 `https://fusioncareer.fudan.edu.cn/#/login?token=...`（前端从 fragment 读取 token，避免进入访问日志）
 
 ---
 
@@ -124,7 +144,7 @@ curl -I http://fusioncareer.fudan.edu.cn/fudan/login
 | `.env.production` | Java 机项目根目录 |
 | `fusioncareer-agent/.env.agent` | Python 机 |
 
-旧版 `deploy/nginx.java.conf` 已不用于「域名在 Python 机」方案。
+旧版 `deploy/nginx.java.conf` 已不用于「APISIX → Python 网关」方案。
 
 ---
 

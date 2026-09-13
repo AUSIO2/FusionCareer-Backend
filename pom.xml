@@ -32,6 +32,8 @@
         <sa-token.version>1.45.0</sa-token.version>
         <springdoc.version>2.5.0</springdoc.version>
         <hutool.version>5.8.27</hutool.version>
+        <jacoco.version>0.8.15</jacoco.version>
+        <poi.version>5.4.1</poi.version>
     </properties>
 
     <!-- Global Dependencies (Optional, things every module will definitely need) -->
@@ -77,6 +79,12 @@
                 <groupId>cn.hutool</groupId>
                 <artifactId>hutool-all</artifactId>
                 <version>${hutool.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi-ooxml</artifactId>
+                <version>${poi.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

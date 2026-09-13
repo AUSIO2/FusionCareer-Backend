@@ -40,6 +40,8 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.fusioncareer.util.PaginationUtil.createPage;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -108,16 +110,19 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
 
     @Override
     public PageResult<QuestionnaireAnswerResponse> listByJobPostId(Long jobPostId, int page, int size) {
-        Page<QuestionnaireAnswerEntity> result = page(
-                new Page<>(page, size),
+        Page<QuestionnaireAnswerEntity> readAnswers = page(
+                createPage(page, size),
                 new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
                         .eq(QuestionnaireAnswerEntity::getJobPostId, jobPostId)
+                        .ne(QuestionnaireAnswerEntity::getSubmissionStatus,
+                                QuestionnaireSubmissionStatus.DRAFT)
                         .orderByDesc(QuestionnaireAnswerEntity::getCreatedAt)
         );
 
-        PageResult<QuestionnaireAnswerResponse> pageResult = new PageResult<>(result.getTotal(), page, size);
-        result.getRecords().forEach(e -> pageResult.add(toResponse(e)));
-        return pageResult;
+        PageResult<QuestionnaireAnswerResponse> readPage = new PageResult<>(readAnswers.getTotal(),
+                (int) readAnswers.getCurrent(), (int) readAnswers.getSize());
+        readAnswers.getRecords().forEach(e -> readPage.add(toResponse(e)));
+        return readPage;
     }
 
     @Override
@@ -141,23 +146,24 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
             wrapper.eq(QuestionnaireAnswerEntity::getSubmissionStatus, status);
         }
 
-        Page<QuestionnaireAnswerEntity> result = page(new Page<>(page, size), wrapper);
-        List<QuestionnaireAnswerEntity> records = result.getRecords();
-        Map<Long, JobPostEntity> jobMap = loadJobPostMap(records);
+        Page<QuestionnaireAnswerEntity> readApplications = page(createPage(page, size), wrapper);
+        List<QuestionnaireAnswerEntity> readRecords = readApplications.getRecords();
+        Map<Long, JobPostEntity> readJobs = loadJobPostMap(readRecords);
 
-        PageResult<MyQuestionnaireListItemResponse> pageData =
-                new PageResult<>(result.getTotal(), page, size);
-        for (QuestionnaireAnswerEntity answer : records) {
-            JobPostEntity job = jobMap.get(answer.getJobPostId());
+        PageResult<MyQuestionnaireListItemResponse> readPage =
+                new PageResult<>(readApplications.getTotal(),
+                        (int) readApplications.getCurrent(), (int) readApplications.getSize());
+        for (QuestionnaireAnswerEntity answer : readRecords) {
+            JobPostEntity job = readJobs.get(answer.getJobPostId());
             if (job == null) {
                 log.warn("投递记录 {} 关联岗位 {} 不存在，列表中跳过", answer.getId(), answer.getJobPostId());
                 continue;
             }
-            pageData.add(toListItem(answer, job));
+            readPage.add(toListItem(answer, job));
         }
 
         MyQuestionnaireListPageResponse response = new MyQuestionnaireListPageResponse();
-        response.setPage(pageData);
+        response.setPage(readPage);
         response.setTabCounts(countTabCounts(userId));
         return response;
     }
@@ -207,7 +213,8 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         if (job == null) {
             throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND);
         }
-        if (QuestionnaireDeadlineUtil.isExpired(job.getWorkEndDate())) {
+        if (QuestionnaireDeadlineUtil.isExpired(
+                job.getApplicationDeadline(), job.getWorkEndDate())) {
             throw ServiceException.of(QuestionnaireErrorCode.QUESTIONNAIRE_DEADLINE_PASSED);
         }
         return job;
@@ -238,10 +245,9 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         return entity;
     }
 
-    /** 岗位 → 列表项：忽略与作答记录冲突的字段，并映射截止日期字段名 */
+    /** 岗位 → 列表项：忽略与作答记录冲突的字段 */
     private static final CopyOptions JOB_TO_LIST_ITEM_OPTIONS = CopyOptions.create()
-            .setIgnoreProperties("id", "createdAt", "updatedAt")
-            .setFieldMapping(Map.of("workEndDate", "questionnaireDeadline"));
+            .setIgnoreProperties("id", "createdAt", "updatedAt");
 
     private void clearReviewMetadata(QuestionnaireAnswerEntity entity) {
         entity.setReviewedAt(null);
@@ -305,7 +311,9 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         MyQuestionnaireListItemResponse item = new MyQuestionnaireListItemResponse();
         BeanUtil.copyProperties(answer, item);
         BeanUtil.copyProperties(job, item, JOB_TO_LIST_ITEM_OPTIONS);
-        item.setExpired(QuestionnaireDeadlineUtil.isExpired(job.getWorkEndDate()));
+        item.setQuestionnaireDeadline(job.getApplicationDeadline());
+        item.setExpired(QuestionnaireDeadlineUtil.isExpired(
+                job.getApplicationDeadline(), job.getWorkEndDate()));
         applyStatusLabel(item, answer.getSubmissionStatus());
         return item;
     }

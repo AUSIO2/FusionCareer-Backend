@@ -46,8 +46,9 @@ public class QuestionnaireController {
             throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND);
         }
         JobPostQuestionnaireResponse resp = new JobPostQuestionnaireResponse();
-        resp.setQuestionnaireDeadline(job.getWorkEndDate());
-        resp.setExpired(QuestionnaireDeadlineUtil.isExpired(job.getWorkEndDate()));
+        resp.setQuestionnaireDeadline(job.getApplicationDeadline());
+        resp.setExpired(QuestionnaireDeadlineUtil.isExpired(
+                job.getApplicationDeadline(), job.getWorkEndDate()));
         resp.setSourceUrl(job.getSourceUrl());
         resp.setQuestions(jobPostQuestionService.listByJobPostId(jobPostId));
         return R.success(resp);

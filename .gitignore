@@ -50,3 +50,7 @@ build/
 .env.production
 .env.agent
 .env.local
+
+### Test output ###
+.test-output/
+schemathesis-report/

@@ -108,6 +108,9 @@ class WorkflowValidator:
                 errors.append(f"节点 {nid}.{slot}: inputs 规格必须是对象")
                 continue
 
+            if spec.get("_loop_inject"):
+                continue
+
             has_from = "from" in spec
             has_value = "value" in spec
             if has_from and has_value:
