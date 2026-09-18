@@ -9,7 +9,7 @@ import com.fusioncareer.dto.res.UserProfileResponse;
 import com.fusioncareer.entity.UserProfileEntity;
 import com.fusioncareer.mapper.UserProfileMapper;
 import com.fusioncareer.service.UserProfileService;
-import org.springframework.beans.BeanUtils;
+import cn.hutool.core.bean.BeanUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,8 +26,7 @@ public class UserProfileServiceImpl extends ServiceImpl<UserProfileMapper, UserP
     @Transactional
     @Override
     public void saveOrUpdateProfile(Long userId, UserProfileRequest request) {
-        UserProfileEntity entity = new UserProfileEntity();
-        BeanUtils.copyProperties(request, entity);
+        UserProfileEntity entity = BeanUtil.copyProperties(request, UserProfileEntity.class);
         entity.setUserId(userId);
         saveOrUpdate(entity);
     }
@@ -46,16 +45,14 @@ public class UserProfileServiceImpl extends ServiceImpl<UserProfileMapper, UserP
     @Transactional
     @Override
     public void updateProfile(Long userId, UserProfileRequest request) {
-        UserProfileEntity entity = new UserProfileEntity();
-        BeanUtils.copyProperties(request, entity);
+        UserProfileEntity entity = BeanUtil.copyProperties(request, UserProfileEntity.class);
         entity.setUserId(userId);
         updateById(entity);
     }
 
     private UserProfileResponse toResponse(UserProfileEntity entity) {
         if (entity == null) return null;
-        UserProfileResponse resp = new UserProfileResponse();
-        BeanUtils.copyProperties(entity, resp);
+        UserProfileResponse resp = BeanUtil.copyProperties(entity, UserProfileResponse.class);
         return resp;
     }
 }

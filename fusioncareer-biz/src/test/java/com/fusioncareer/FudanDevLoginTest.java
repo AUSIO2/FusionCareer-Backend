@@ -46,7 +46,7 @@ class FudanDevLoginTest {
     }
 
     private String readToken(String readRole) throws Exception {
-        String readTarget = "ADMIN".equals(readRole) ? "admin" : "user";
+        String readTarget = "NORMAL".equals(readRole) ? "user" : "admin";
         MvcResult readLogin = readMockMvc.perform(get("/fudan/login")
                         .param("role", readRole)
                         .param("target", readTarget))
@@ -54,5 +54,17 @@ class FudanDevLoginTest {
                 .andReturn();
         String readUrl = readLogin.getResponse().getRedirectedUrl();
         return readUrl.substring(readUrl.indexOf("token=") + 6);
+    }
+
+    @Test
+    void superAdminMockUsesSeparateAccount() throws Exception {
+        String token = readToken("SUPERADMIN");
+        readMockMvc.perform(get("/user/me").header("Fusion-Token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.role").value("SUPERADMIN"))
+                .andExpect(jsonPath("$.data.studentId").value("dev-admin-super"));
+        readMockMvc.perform(get("/admin/user/list").header("Fusion-Token", token)).andExpect(status().isOk());
+        String adminToken = readToken("ADMIN");
+        readMockMvc.perform(get("/admin/user/list").header("Fusion-Token", adminToken)).andExpect(status().isForbidden());
     }
 }

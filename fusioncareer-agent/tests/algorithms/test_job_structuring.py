@@ -154,3 +154,21 @@ def testLimitLargeJobList():
     assert "无论岗位数量多少" in JOB_PROMPT
     assert "不能合并成“招聘岗位汇总”" in JOB_INDEX_PROMPT
     assert "招聘岗位汇总" in JOB_PROMPT
+
+
+def testSourceTypeUsesCallerInsteadOfModel():
+    class SourceClient:
+        async def chat_json(self, **options):
+            return {"jobs": [{
+                "单位名称": "上海第二工业大学", "岗位名称": "宣传岗",
+                "来源类型": "兰大就业", "source_type": "微信公众号",
+            }], "warnings": []}
+
+    result = asyncio.run(structureJobs(
+        "招聘宣传岗", "https://example.test/article", "CRAWL", SourceClient(),
+    ))
+
+    assert result["warnings"] == []
+    assert len(result["jobs"]) == 1
+    assert result["jobs"][0]["sourceType"] == "CRAWL"
+    assert result["jobs"][0]["sourceUrl"] == "https://example.test/article"

@@ -239,8 +239,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
     }
 
     private QuestionnaireAnswerEntity newQuestionnaireAnswer(Long userId, QuestionnaireSubmitRequest request) {
-        QuestionnaireAnswerEntity entity = new QuestionnaireAnswerEntity();
-        BeanUtil.copyProperties(request, entity);
+        QuestionnaireAnswerEntity entity = BeanUtil.copyProperties(request, QuestionnaireAnswerEntity.class);
         entity.setUserId(userId);
         return entity;
     }
@@ -308,8 +307,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
     }
 
     private MyQuestionnaireListItemResponse toListItem(QuestionnaireAnswerEntity answer, JobPostEntity job) {
-        MyQuestionnaireListItemResponse item = new MyQuestionnaireListItemResponse();
-        BeanUtil.copyProperties(answer, item);
+        MyQuestionnaireListItemResponse item = BeanUtil.copyProperties(answer, MyQuestionnaireListItemResponse.class);
         BeanUtil.copyProperties(job, item, JOB_TO_LIST_ITEM_OPTIONS);
         item.setQuestionnaireDeadline(job.getApplicationDeadline());
         item.setExpired(QuestionnaireDeadlineUtil.isExpired(
@@ -322,8 +320,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         if (entity == null) {
             return null;
         }
-        QuestionnaireAnswerResponse resp = new QuestionnaireAnswerResponse();
-        BeanUtil.copyProperties(entity, resp);
+        QuestionnaireAnswerResponse resp = BeanUtil.copyProperties(entity, QuestionnaireAnswerResponse.class);
         applyStatusLabel(resp, entity.getSubmissionStatus());
         enrichUserInfo(resp, entity.getUserId());
         return resp;
@@ -349,8 +346,9 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         try {
             UserEntity user = userService.getById(userId);
             if (user != null) {
-                resp.setUsername(user.getUsername());
-                resp.setStudentId(user.getStudentId());
+                BeanUtil.copyProperties(user, resp, CopyOptions.create()
+                        .setPropertiesFilter((field, value) ->
+                                "username".equals(field.getName()) || "studentId".equals(field.getName())));
             }
         } catch (Exception e) {
             log.warn("查询投递用户信息失败, userId={}", userId, e);

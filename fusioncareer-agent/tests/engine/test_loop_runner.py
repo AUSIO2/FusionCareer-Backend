@@ -12,7 +12,7 @@ from app.catalog.catalog import DataClassCatalog
 from app.core.registry import SkillRegistry
 from app.engine.loop_runner import LoopControl, validate_loop
 from app.runtime.paths import RuntimePaths
-from app.skills.business.wechat.judge_accounts import WechatJudgeAccountsSkill
+from app.skills.business.crawlers.wechat.judge_accounts import WechatJudgeAccountsSkill
 
 
 @pytest.fixture

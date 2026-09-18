@@ -12,10 +12,11 @@ import com.fusioncareer.exception.ResultCode;
 import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.UserMapper;
 import com.fusioncareer.service.UserService;
-import org.springframework.beans.BeanUtils;
+import cn.hutool.core.bean.BeanUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import java.util.List;
 
 import static com.fusioncareer.util.PaginationUtil.createPage;
 
@@ -25,8 +26,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
     @Transactional
     @Override
     public UserResponse createUser(UserRequest request) {
-        UserEntity entity = new UserEntity();
-        BeanUtils.copyProperties(request, entity);
+        UserEntity entity = BeanUtil.copyProperties(request, UserEntity.class);
         save(entity);
         return toResponse(entity);
     }
@@ -38,13 +38,20 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
 
     @Override
     public PageResult<UserResponse> listUsers(int page, int size, String username, UserRole role) {
+        return listUsers(page, size, username, role, null);
+    }
+
+    @Override
+    public PageResult<UserResponse> listUsers(int page, int size, String username, UserRole role, List<Long> userIds) {
         LambdaQueryWrapper<UserEntity> wrapper = new LambdaQueryWrapper<>();
         wrapper.and(StringUtils.hasText(username), readQuery -> readQuery
                        .like(UserEntity::getUsername, username)
                        .or()
                        .like(UserEntity::getStudentId, username))
                .eq(role != null, UserEntity::getRole, role)
-               .orderByDesc(UserEntity::getCreatedAt);
+               .in(userIds != null && !userIds.isEmpty(), UserEntity::getId, userIds)
+               .orderByDesc(UserEntity::getCreatedAt)
+               .orderByDesc(UserEntity::getId);
 
         Page<UserEntity> readUsers = page(createPage(page, size), wrapper);
 
@@ -57,8 +64,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
     @Transactional
     @Override
     public void updateUser(Long id, UserRequest request) {
-        UserEntity entity = new UserEntity();
-        BeanUtils.copyProperties(request, entity);
+        UserEntity entity = BeanUtil.copyProperties(request, UserEntity.class);
         entity.setId(id);
         updateById(entity);
     }
@@ -77,8 +83,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
 
     private UserResponse toResponse(UserEntity entity) {
         if (entity == null) return null;
-        UserResponse resp = new UserResponse();
-        BeanUtils.copyProperties(entity, resp);
+        UserResponse resp = BeanUtil.copyProperties(entity, UserResponse.class);
         return resp;
     }
 }

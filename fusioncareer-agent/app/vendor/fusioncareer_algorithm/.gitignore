@@ -1,0 +1,81 @@
+# =============================================================================
+# FusionCareer-Algorithm — Git 忽略规则
+# 应提交：源码、pipeline、requirements、README、config.json.example、sample_data/
+# 不提交：密钥、日志、大批量原始文章、运行产物 CSV/JSON
+# =============================================================================
+
+# --- 密钥与本地配置 ---
+config.json
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- 日志 ---
+logs/
+*.log
+
+# --- 结构化运行产物（CSV / JSON / Excel）---
+data/output/*
+!data/output/.gitkeep
+all_positions.csv
+all_positions.json
+all_positions.xlsx
+all_positions.csv.bak*
+**/all_positions.csv
+**/all_positions.json
+!sample_data/**
+
+# --- 原始公众号文章（体量大，由爬虫产出）---
+data/articles/**
+!data/articles/.gitkeep
+公众号文章/
+公众号文章.zip
+WeChat-Article-Crawler/
+
+# --- 历史/临时数据 ---
+resume/
+/output/
+_zip_info.txt
+*.zip
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- 操作系统 / 压缩包垃圾 ---
+.DS_Store
+Thumbs.db
+__MACOSX/
+._*
+
+# --- IDE / 编辑器 ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# --- Cursor（可选本地配置）---
+.cursor/
+
+# --- 其他本地状态 ---
+db.sqlite3
+*.sqlite
+*.sqlite3

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS `fc_user`
     `username`    VARCHAR(64)  NOT NULL COMMENT '登录名',
     `student_id`  VARCHAR(32)           DEFAULT NULL COMMENT '学工号',
     `password`    VARCHAR(128)          DEFAULT NULL COMMENT '密码（CAS对接时为空）',
-    `role`        TINYINT      NOT NULL DEFAULT 0 COMMENT '角色：0-普通用户 1-管理员',
+    `role`        TINYINT      NOT NULL DEFAULT 0 COMMENT '角色：0-普通用户 1-管理员 2-超级管理员',
     `status`      TINYINT      NOT NULL DEFAULT 1 COMMENT '状态：1-正常 0-禁用',
     `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

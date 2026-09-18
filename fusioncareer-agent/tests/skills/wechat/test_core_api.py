@@ -1,6 +1,6 @@
 import pytest
 
-from app.skills.business.wechat.core import WechatApiError, get_articles
+from app.skills.business.crawlers.wechat.core import WechatApiError, get_articles
 
 
 class FakeResponse:

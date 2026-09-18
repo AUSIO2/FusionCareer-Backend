@@ -1,0 +1,34 @@
+{
+  "name": "algorithm_job_admin",
+  "nodes": {
+    "input": {
+      "skill": "input_json_obj",
+      "inputs": {
+        "json_obj": {
+          "value": {
+            "workspace": "default"
+          }
+        }
+      }
+    },
+    "operation": {
+      "skill": "input_text",
+      "inputs": {
+        "text": {
+          "value": "job_admin"
+        }
+      }
+    },
+    "result": {
+      "skill": "upstream_algorithm",
+      "inputs": {
+        "operation": {
+          "from": "operation.text"
+        },
+        "request": {
+          "from": "input.json_obj"
+        }
+      }
+    }
+  }
+}

@@ -139,11 +139,14 @@ class LLMClient:
         }
         if response_format:
             kwargs["response_format"] = response_format
+            # Structured extraction needs the token budget for JSON, not reasoning.
+            if model.startswith("deepseek-v4"):
+                kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
         logger.info(f"LLM 请求: model={model}, msg_len={len(user_message)}")
         response = await client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
-        logger.info(f"LLM 响应: {len(content)} chars")
+        logger.info("LLM 响应: %d chars, finish_reason=%s", len(content), response.choices[0].finish_reason)
         return content
 
     async def chat_json(

@@ -19,7 +19,7 @@ import com.fusioncareer.mapper.JobPostMapper;
 import com.fusioncareer.mapper.QuestionnaireAnswerMapper;
 import com.fusioncareer.service.JobPostService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.BeanUtils;
+import cn.hutool.core.bean.BeanUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -41,8 +41,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     @Transactional
     @Override
     public JobPostResponse createJobPost(JobPostRequest request) {
-        JobPostEntity entity = new JobPostEntity();
-        BeanUtils.copyProperties(request, entity);
+        JobPostEntity entity = BeanUtil.copyProperties(request, JobPostEntity.class);
         applyDefaultDeadline(entity);
         prepareRecycleFields(entity);
         save(entity);
@@ -53,8 +52,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     @Override
     public void createJobPostBatch(List<JobPostRequest> requests) {
         List<JobPostEntity> entities = requests.stream().map(req -> {
-            JobPostEntity e = new JobPostEntity();
-            BeanUtils.copyProperties(req, e);
+            JobPostEntity e = BeanUtil.copyProperties(req, JobPostEntity.class);
             applyDefaultDeadline(e);
             prepareRecycleFields(e);
             return e;
@@ -135,8 +133,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     @Transactional
     @Override
     public void updateJobPost(Long id, JobPostRequest request) {
-        JobPostEntity entity = new JobPostEntity();
-        BeanUtils.copyProperties(request, entity);
+        JobPostEntity entity = BeanUtil.copyProperties(request, JobPostEntity.class);
         entity.setId(id);
         updateById(entity);
     }
@@ -269,16 +266,14 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
 
     private JobPostResponse toResponse(JobPostEntity entity) {
         if (entity == null) return null;
-        JobPostResponse resp = new JobPostResponse();
-        BeanUtils.copyProperties(entity, resp);
+        JobPostResponse resp = BeanUtil.copyProperties(entity, JobPostResponse.class);
         resp.setApplicationCount(0L);
         return resp;
     }
 
     private JobPostAdminResponse toAdminResponse(JobPostEntity entity) {
         if (entity == null) return null;
-        JobPostAdminResponse resp = new JobPostAdminResponse();
-        BeanUtils.copyProperties(entity, resp);
+        JobPostAdminResponse resp = BeanUtil.copyProperties(entity, JobPostAdminResponse.class);
         resp.setApplicationCount(0L);
         return resp;
     }

@@ -86,7 +86,7 @@ POST 退出响应：
 | GET | `/user/profile/get` | 获取个人资料 |
 | PUT | `/user/profile/save` | 保存个人资料 |
 
-`GET /user/me` 返回 `UserResponse`，其中 `role` 为 `NORMAL` 或 `ADMIN`，`status` 为 `NORMAL` 或 `DISABLED`。管理员路由必须以后端角色校验结果为准。
+`GET /user/me` 返回 `UserResponse`，其中 `role` 为 `NORMAL`、`ADMIN` 或 `SUPERADMIN`，`status` 为 `NORMAL` 或 `DISABLED`。管理员路由必须以后端角色校验结果为准。
 
 **PUT 请求体** `UserProfileRequest`:
 ```json
@@ -229,16 +229,17 @@ POST 退出响应：
 
 ### 4.0 浏览器管理员接口
 
-浏览器管理接口需要 `Fusion-Token`，且当前用户角色必须为 `ADMIN`：
+浏览器管理接口需要 `Fusion-Token`。岗位管理允许 `ADMIN` 和 `SUPERADMIN`；系统管理仅允许 `SUPERADMIN`：
 
 | 资源 | 路径 | 能力 |
 |------|------|------|
-| 用户 | `/admin/user/**` | 分页查看、修改角色 |
+| 系统管理（仅超级管理员） | `/admin/user/**` | 分页查看、修改角色、用户资料/简历查询、简历下载、Excel 导出 |
 | 岗位 | `/admin/job-post/**` | 列表、详情、创建、Excel 批量导入、更新、回收与恢复 |
 | 问卷题目 | `/admin/questionnaire/questions/**` | 读取、整组保存、删除 |
 | 投递审核 | `/admin/questionnaire/answers/**` | 列表、详情、单条审核、批量审核、导出 |
 
-未登录返回 HTTP 401，普通用户返回 HTTP 403。
+未登录返回 HTTP 401，无对应角色返回 HTTP 403。普通管理员访问 `/admin/user/**` 返回 403。
+超级管理员继承岗位和投递审核权限，角色变更在下次请求立即生效；数据库仍保存单一角色。
 
 投递导出：
 
@@ -252,12 +253,41 @@ GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
 - ZIP 包含 `applications.csv` 和问卷文件题引用的简历附件。
 - 草稿不会进入导出结果。
 
-管理员用户接口：
+系统管理用户接口（全部要求 SUPERADMIN）：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/admin/user/list?page=1&size=10&username=xxx` | 分页查询用户列表 |
-| PUT | `/admin/user/{id}/role?role=ADMIN` | 修改用户角色，`role` 为 `NORMAL` 或 `ADMIN` |
+| GET | `/admin/user/{id}` | 查询账号信息，不返回密码 |
+| GET | `/admin/user/{id}/profile` | 查询完整个人资料 |
+| GET | `/admin/user/{id}/resume` | 查询在线简历正文 |
+| GET | `/admin/user/{id}/resume/file/list` | 查询简历文件元数据 |
+| GET | `/admin/user/{id}/resume/file/{fileId}/download` | 流式下载属于该用户的简历文件 |
+| GET | `/admin/user/export?username=xxx&role=NORMAL&userIds=1,2` | 下载用户信息 `.xlsx`，参数均可选 |
+| PUT | `/admin/user/{id}/role?role=SUPERADMIN` | 设置为 NORMAL、ADMIN 或 SUPERADMIN；不可撤销自己的超级管理员权限 |
+
+列表与导出的 `username` 匹配用户名或学号/工号，`role` 精确匹配角色；`userIds` 支持逗号分隔或重复参数，
+与其他筛选条件取交集。未传筛选时导出全部用户，包含所有分页，而非仅当前页。
+Excel 包含账号信息、用户资料、简历正文三个工作表，用用户ID关联；无资料的用户保留空白行，
+不包含密码、登录令牌和文件存储路径。ID、学号、手机号按文本保存，用户输入不会成为 Excel 公式。
+单字段超过 Excel 的 32767 字符限制会明确返回 400，不截断正文。
+
+用户不存在返回 404；存在但未填写的资料/简历为空。下载时文件不存在或不属于指定用户返回 404。
+文件和 Excel 响应包含 `Content-Disposition: attachment` 以及 `Cache-Control: no-store`。
+原 `/files/**` 简历链接现在也要求登录：仅文件所有者或超级管理员可访问。
+前端预览/下载应携带 Fusion-Token 请求文件流，再使用 Blob 展示或下载，不能依赖匿名静态链接。
+
+前端菜单建议：ADMIN 显示岗位管理（含问卷/投递审核），SUPERADMIN 同时显示岗位管理和系统管理；
+NORMAL 不进入管理员端。登录回跳已支持超级管理员的 `target=admin`。
+
+首位超级管理员由运维根据明确指定的账号初始化，系统不会自动提升现有管理员：
+
+```sql
+UPDATE fc_user SET role = 2 WHERE student_id = '指定的学号或工号' AND status = 1;
+```
+
+初始化后可由超级管理员在系统管理中授予/撤销其他用户权限。role 列已是 TINYINT，无需扩列迁移。
+本地 dev 模式可用 `/fudan/login?role=SUPERADMIN&target=admin` 登录独立的 `dev-admin-super` 测试账号；生产不启用模拟登录。
 
 岗位 Excel 导入：
 
@@ -512,6 +542,7 @@ GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
 |--------|------|------|
 | `NORMAL` | 0 | 普通用户 |
 | `ADMIN` | 1 | 管理员 |
+| `SUPERADMIN` | 2 | 超级管理员 |
 
 ---
 

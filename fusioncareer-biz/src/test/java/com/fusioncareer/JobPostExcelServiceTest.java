@@ -5,6 +5,7 @@ import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.enums.RecruitType;
 import com.fusioncareer.enums.WorkMode;
 import com.fusioncareer.service.JobPostExcelService;
+import com.fusioncareer.service.impl.JobPostExcelServiceImpl;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -20,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class JobPostExcelServiceTest {
 
-    private final JobPostExcelService readService = new JobPostExcelService();
+    private final JobPostExcelService readService = new JobPostExcelServiceImpl();
 
     @Test
     void parseSampleLayoutAndMergedCells() throws Exception {

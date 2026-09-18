@@ -19,6 +19,8 @@ dependencies = [
     "lxml>=5.0",
     "Pillow>=10.2",
     "numpy>=1.24",
+    "openpyxl>=3.1",
+    "playwright>=1.40",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +47,10 @@ asyncio_mode = "auto"
 [tool.setuptools.packages.find]
 include = ["app*"]
 exclude = ["runtime*", "tests*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.md", "*.txt", "*.sh", "LICENSE", "*.jsonl", "*.csv"]
+"app.vendor.fusioncareer_algorithm" = [".gitignore", "config.json.example", "data/*/.gitkeep", "wechat_crawler/.gitignore"]
 
 [tool.ruff]
 line-length = 120

@@ -21,6 +21,7 @@ ZH_FIELDS = {
     "岗位二级分类": "jobSubCategory", "招聘类型": "recruitType", "招聘人数": "headcount",
     "工作开始日": "workStartDate", "工作结束日": "workEndDate",
     "投递截止日": "applicationDeadline",
+    "投递截止日期": "applicationDeadline", "applyDeadline": "applicationDeadline",
     "每周工作天数": "workDaysPerWeek", "每周工作天数类型": "workDurationType",
     "实习总时长类型": "workPeriodType", "工作形式": "workMode", "工作城市": "workCity",
     "工作省份": "workProvince", "工作地点原文": "workLocation", "薪资下限": "salaryMin",
@@ -123,12 +124,15 @@ def normalizeJob(
     readWarnings = []
     for readKey, readValue in readJob.items():
         updateKey = normalizeKey(readKey)
+        if updateKey == "sourceType":
+            continue  # Source type is supplied by the caller, not extracted from article text.
         if updateKey in JOB_FIELDS and readValue not in (None, "", []):
             if updateKey in readFlat:
                 readWarnings.append(f"duplicate {updateKey}")
                 continue
             readFlat[updateKey] = readValue
 
+    readFlat["sourceType"] = readSourceType
     createJob: dict[str, Any] = {}
     for readField in JOB_FIELDS:
         readValue = readFlat.get(readField)

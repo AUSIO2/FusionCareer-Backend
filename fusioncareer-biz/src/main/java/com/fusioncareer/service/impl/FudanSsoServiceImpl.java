@@ -154,7 +154,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             // 记录 ssoToken 和 saToken 的关系，供被动登出使用
             ssoToSaTokenMap.put(accessToken, saTokenValue);
 
-            boolean allowAdmin = openAdmin && user.getRole() == UserRole.ADMIN;
+            boolean allowAdmin = openAdmin && user.getRole() != null && user.getRole().canManageJobs();
             String readRoute = allowAdmin ? "#/admin" : "#/home";
             String readNotice = openAdmin && !allowAdmin ? "&notice=admin_forbidden" : "";
             return ssoProperties.getFrontendRedirectUrl() + readRoute
@@ -170,10 +170,12 @@ public class FudanSsoServiceImpl implements FudanSsoService {
     @Transactional
     public String loginMock(UserRole readRole, boolean openAdmin) {
         UserRole createRole = readRole == null ? ssoProperties.getMockRole() : readRole;
-        String readStudentId = createRole == UserRole.ADMIN
-                ? ssoProperties.getMockAdminId()
-                : ssoProperties.getMockStudentId();
-        String readUsername = createRole == UserRole.ADMIN
+        String readStudentId = switch (createRole) {
+            case SUPERADMIN -> ssoProperties.getMockAdminId() + "-super";
+            case ADMIN -> ssoProperties.getMockAdminId();
+            case NORMAL -> ssoProperties.getMockStudentId();
+        };
+        String readUsername = createRole.canManageJobs()
                 ? "本地管理员"
                 : ssoProperties.getMockUsername();
         UserEntity readUser = userService.lambdaQuery()
@@ -200,7 +202,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             resumeService.save(createResume);
         }
         StpUtil.login(readUser.getId());
-        String readRoute = openAdmin && createRole == UserRole.ADMIN ? "#/admin" : "#/home";
+        String readRoute = openAdmin && readUser.getRole() != null && readUser.getRole().canManageJobs() ? "#/admin" : "#/home";
         return ssoProperties.getFrontendRedirectUrl()
                 + readRoute + "?token=" + StpUtil.getTokenValue();
     }

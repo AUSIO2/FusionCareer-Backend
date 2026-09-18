@@ -14,7 +14,7 @@ import requests
 
 from app.config import settings
 from app.integrations.backend import BackendClient
-from app.skills.business.wechat.core import (
+from app.skills.business.crawlers.wechat.core import (
     WechatApiError,
     build_http_session,
     get_headers,
@@ -24,9 +24,9 @@ from app.skills.business.wechat.core import (
     readWechatAuth,
     save_url_to_md,
 )
-from app.skills.business.wechat.paths import WechatPaths
-from app.skills.business.wechat.store import WechatStore
-from app.skills.business.wechat.structure_articles import structureArticles
+from app.skills.business.crawlers.paths import CrawlPaths
+from app.skills.business.crawlers.store import CrawlStore
+from app.skills.business.crawlers.structure_articles import structureArticles
 
 readZone = ZoneInfo("Asia/Shanghai")
 
@@ -77,7 +77,7 @@ def readPage(
 
 
 def crawlAccounts(
-    readPaths: WechatPaths,
+    readPaths: CrawlPaths,
     readStart: int,
     readEnd: int,
     readPageDelay: int,
@@ -87,7 +87,7 @@ def crawlAccounts(
 ) -> None:
     readConfig = load_json_file(readPaths.config_file)
     readToken, readCookie = readWechatAuth(readConfig)
-    readStore = WechatStore(readPaths.database_file)
+    readStore = CrawlStore(readPaths.database_file)
     readSession = build_http_session()
     readHeaders = get_headers(readCookie, readToken)
     readArticleRoot = readPaths.articles_base_dir(readConfig)
@@ -145,7 +145,7 @@ def crawlAccounts(
         time.sleep(readAccountDelay)
 
 
-async def structurePending(readPaths: WechatPaths) -> None:
+async def structurePending(readPaths: CrawlPaths) -> None:
     createBackend = BackendClient()
     try:
         while True:
@@ -196,7 +196,7 @@ def runArchive() -> None:
     createParser.add_argument("--retry-seconds", type=int, default=600)
     createParser.add_argument("--max-retries", type=int, default=18)
     readArgs = createParser.parse_args()
-    readPaths = WechatPaths(Path(readArgs.root))
+    readPaths = CrawlPaths(Path(readArgs.root))
     crawlAccounts(
         readPaths,
         readTimestamp(readArgs.start),

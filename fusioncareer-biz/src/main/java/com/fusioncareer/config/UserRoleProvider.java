@@ -3,6 +3,7 @@ package com.fusioncareer.config;
 import cn.dev33.satoken.stp.StpInterface;
 import com.fusioncareer.entity.UserEntity;
 import com.fusioncareer.enums.UserStatus;
+import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -26,6 +27,8 @@ public class UserRoleProvider implements StpInterface {
         if (readUser == null || readUser.getStatus() == UserStatus.DISABLED || readUser.getRole() == null) {
             return List.of();
         }
-        return List.of(readUser.getRole().name());
+        return readUser.getRole() == UserRole.SUPERADMIN
+                ? List.of(UserRole.SUPERADMIN.name(), UserRole.ADMIN.name())
+                : List.of(readUser.getRole().name());
     }
 }

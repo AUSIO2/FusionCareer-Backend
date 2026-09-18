@@ -25,13 +25,17 @@ class Settings(BaseSettings):
     # 定时任务时区
     schedule_timezone: str = "Asia/Shanghai"
 
-    # 微信公众号爬虫数据目录（config.json / gzh.txt / history.json 等）
+    # 官网和公众号共用的采集数据目录；旧环境变量保留为兼容回退。
+    crawl_config_root: str = ""
     wechat_config_root: str = ""
     wechat_token: str = ""
     wechat_cookie: str = ""
 
     # 生产环境启动时预加载 OCR，避免首个用户承担模型冷启动。
     ocr_preload: bool = False
+
+    # Includes lock wait, HTTP calls and batch work; workflow node timeouts may be shorter.
+    algorithm_timeout_seconds: float = 1800
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

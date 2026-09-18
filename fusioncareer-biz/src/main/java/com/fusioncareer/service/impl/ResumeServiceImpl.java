@@ -9,7 +9,7 @@ import com.fusioncareer.dto.res.ResumeResponse;
 import com.fusioncareer.entity.ResumeEntity;
 import com.fusioncareer.mapper.ResumeMapper;
 import com.fusioncareer.service.ResumeService;
-import org.springframework.beans.BeanUtils;
+import cn.hutool.core.bean.BeanUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,8 +26,7 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, ResumeEntity> i
     @Transactional
     @Override
     public void saveOrUpdateResume(Long userId, ResumeRequest request) {
-        ResumeEntity entity = new ResumeEntity();
-        BeanUtils.copyProperties(request, entity);
+        ResumeEntity entity = BeanUtil.copyProperties(request, ResumeEntity.class);
         entity.setUserId(userId);
         saveOrUpdate(entity);
     }
@@ -46,16 +45,14 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, ResumeEntity> i
     @Transactional
     @Override
     public void updateResume(Long userId, ResumeRequest request) {
-        ResumeEntity entity = new ResumeEntity();
-        BeanUtils.copyProperties(request, entity);
+        ResumeEntity entity = BeanUtil.copyProperties(request, ResumeEntity.class);
         entity.setUserId(userId);
         updateById(entity);
     }
 
     private ResumeResponse toResponse(ResumeEntity entity) {
         if (entity == null) return null;
-        ResumeResponse resp = new ResumeResponse();
-        BeanUtils.copyProperties(entity, resp);
+        ResumeResponse resp = BeanUtil.copyProperties(entity, ResumeResponse.class);
         return resp;
     }
 }

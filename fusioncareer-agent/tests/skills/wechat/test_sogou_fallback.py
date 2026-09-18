@@ -1,4 +1,4 @@
-from app.skills.business.wechat.core import readArticles, searchArticles
+from app.skills.business.crawlers.wechat.core import readArticles, searchArticles
 
 
 SEARCH_HTML = """

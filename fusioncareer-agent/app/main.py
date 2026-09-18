@@ -27,11 +27,14 @@ from app.integrations.backend import BackendClient
 from app.runtime.paths import RuntimePaths
 from app.scheduler.service import SchedulerService
 from app.algorithms.resume_parser.extract import createOcr
+from app.skills.business.algorithm import set_backend_client as set_algorithm_backend
+from app.algorithms.workflows import run_algorithm_workflow
+from app.skills.business.crawlers.structure_articles import set_algorithm_workflow
 from app.skills.business.insert_resume import set_backend_client as set_insert_resume_backend
 from app.skills.business.insert_user_profile import (
     set_backend_client as set_insert_user_profile_backend,
 )
-from app.skills.business.wechat.structure_articles import set_backend_client as set_wechat_backend
+from app.skills.business.crawlers.structure_articles import set_backend_client as set_crawl_backend
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,8 +59,9 @@ async def lifespan(app: FastAPI):
         logger.info("OCR 模型预加载完成")
 
     set_insert_resume_backend(backend_client)
+    set_algorithm_backend(backend_client)
     set_insert_user_profile_backend(backend_client)
-    set_wechat_backend(backend_client)
+    set_crawl_backend(backend_client)
 
     runtime_paths = RuntimePaths(Path(settings.agent_runtime_dir).resolve())
     runtime_paths.ensure_dirs()
@@ -84,6 +88,11 @@ async def lifespan(app: FastAPI):
     workflow_catalog.load_all()
 
     engine = WorkflowEngine(registry, data_class_catalog)
+
+    async def structure_with_workflow(body):
+        return await run_algorithm_workflow(engine, workflow_catalog, "job_structure", body)
+
+    set_algorithm_workflow(structure_with_workflow)
     scheduler_service = SchedulerService(
         engine,
         workflow_catalog,
@@ -125,6 +134,7 @@ async def lifespan(app: FastAPI):
         readDrainTask.cancel()
         await asyncio.gather(readDrainTask, return_exceptions=True)
     scheduler_service.shutdown()
+    set_algorithm_workflow(None)
     await backend_client.close()
 
 

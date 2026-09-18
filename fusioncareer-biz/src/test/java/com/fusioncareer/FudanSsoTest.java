@@ -133,6 +133,13 @@ class FudanSsoTest {
     }
 
     @Test
+    void routeSuperAdmin() throws Exception {
+        createUser("test-super-admin-target", UserRole.SUPERADMIN, UserStatus.NORMAL);
+        assertThat(loginUser("test-super-admin-target", "admin"))
+                .startsWith("http://127.0.0.1:5173/#/admin?token=");
+    }
+
+    @Test
     void rejectAdminTarget() throws Exception {
         createUser("test-normal-target", UserRole.NORMAL, UserStatus.NORMAL);
 
@@ -244,7 +251,7 @@ class FudanSsoTest {
 
     @Test
     void manageUsers() throws Exception {
-        UserEntity createAdmin = createUser("test-user-admin", UserRole.ADMIN, UserStatus.NORMAL);
+        UserEntity createAdmin = createUser("test-user-admin", UserRole.SUPERADMIN, UserStatus.NORMAL);
         UserEntity updateUser = createUser("test-user-target", UserRole.NORMAL, UserStatus.NORMAL);
         String readUrl = loginUser("test-user-admin");
         String readToken = readUrl.substring(readUrl.indexOf("token=") + 6);
@@ -268,7 +275,7 @@ class FudanSsoTest {
                         .header("Fusion-Token", readToken)
                         .param("role", "NORMAL"))
                 .andExpect(status().isBadRequest());
-        assertThat(readUserService.getById(createAdmin.getId()).getRole()).isEqualTo(UserRole.ADMIN);
+        assertThat(readUserService.getById(createAdmin.getId()).getRole()).isEqualTo(UserRole.SUPERADMIN);
     }
 
     @Test

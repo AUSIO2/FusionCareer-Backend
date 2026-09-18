@@ -8,15 +8,15 @@ from unittest.mock import patch
 import pytest
 
 from app.runtime.paths import atomic_write_json
-from app.skills.business.wechat.core import (
+from app.skills.business.crawlers.wechat.core import (
     finalize_daily_run,
     process_account_daily,
 )
-from app.skills.business.wechat.paths import WechatPaths
-from app.skills.business.wechat.store import WechatStore
+from app.skills.business.crawlers.paths import CrawlPaths
+from app.skills.business.crawlers.store import CrawlStore
 
 
-def _setup_config_root(root: Path) -> WechatPaths:
+def _setup_config_root(root: Path) -> CrawlPaths:
     root.mkdir(parents=True, exist_ok=True)
     atomic_write_json(
         root / "config.json",
@@ -29,8 +29,8 @@ def _setup_config_root(root: Path) -> WechatPaths:
     )
     (root / "gzh.txt").write_text("fakeid_a\nfakeid_b\n", encoding="utf-8")
     (root / "公众号名字").write_text("AccountA\nAccountB\n", encoding="utf-8")
-    paths = WechatPaths(root)
-    store = WechatStore(paths.database_file)
+    paths = CrawlPaths(root)
+    store = CrawlStore(paths.database_file)
     store.importAccounts(paths.fakeids_file, paths.account_names_file)
     store.saveCheckpoint("fakeid_a", "https://mp.weixin.qq.com/s/old")
     return paths
@@ -59,15 +59,15 @@ def test_process_account_daily_pagination_stop(tmp_path: Path):
 
     with (
         patch(
-            "app.skills.business.wechat.core.get_articles",
+            "app.skills.business.crawlers.wechat.core.get_articles",
             side_effect=fake_get_articles,
         ),
-        patch("app.skills.business.wechat.core.http_get", return_value=FakeResp()),
-        patch("app.skills.business.wechat.core.time.sleep"),
+        patch("app.skills.business.crawlers.wechat.core.http_get", return_value=FakeResp()),
+        patch("app.skills.business.crawlers.wechat.core.time.sleep"),
     ):
         result = process_account_daily(paths, "fakeid_a", "AccountA")
     assert result["saved_count"] >= 1
-    store = WechatStore(paths.database_file)
+    store = CrawlStore(paths.database_file)
     assert store.readAccount("fakeid_a").lastArticleUrl == "https://mp.weixin.qq.com/s/new1"
     assert store.readAccount("fakeid_a").name == "AccountA"
     assert store.hasArticle("https://mp.weixin.qq.com/s/new1")
@@ -91,12 +91,12 @@ def testCheckpointFailure(tmp_path: Path):
     ]
 
     with (
-        patch("app.skills.business.wechat.core.get_articles", return_value=(readPage, 2)),
-        patch("app.skills.business.wechat.core.http_get", side_effect=RuntimeError("write failed")),
-        patch("app.skills.business.wechat.core.time.sleep"),
+        patch("app.skills.business.crawlers.wechat.core.get_articles", return_value=(readPage, 2)),
+        patch("app.skills.business.crawlers.wechat.core.http_get", side_effect=RuntimeError("write failed")),
+        patch("app.skills.business.crawlers.wechat.core.time.sleep"),
         pytest.raises(RuntimeError),
     ):
         process_account_daily(paths, "fakeid_a", "AccountA")
 
-    readStore = WechatStore(paths.database_file)
+    readStore = CrawlStore(paths.database_file)
     assert readStore.readAccount("fakeid_a").lastArticleUrl == "https://mp.weixin.qq.com/s/old"

@@ -1,5 +1,6 @@
 package com.fusioncareer.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fusioncareer.exception.ServiceException;
@@ -124,12 +125,7 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
     // ── 私有工具方法 ──────────────────────────────────────────────────────────
 
     private ResumeFileResponse toResponse(ResumeFileEntity entity) {
-        ResumeFileResponse resp = new ResumeFileResponse();
-        resp.setId(entity.getId());
-        resp.setOriginalName(entity.getOriginalName());
-        resp.setFileSize(entity.getFileSize());
-        resp.setMimeType(entity.getMimeType());
-        resp.setCreatedAt(entity.getCreatedAt());
+        ResumeFileResponse resp = BeanUtil.copyProperties(entity, ResumeFileResponse.class);
         // 拼接可访问的 URL
         resp.setUrl(fileStorageService.buildUrl(entity.getStoragePath()));
         return resp;

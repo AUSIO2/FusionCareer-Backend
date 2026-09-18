@@ -10,8 +10,8 @@ import asyncio
 import pytest
 
 from app.runtime.paths import atomic_write_json
-from app.skills.business.wechat.io import append_jsonl, load_json_file
-from app.skills.business.wechat.judge_accounts import WechatJudgeAccountsSkill
+from app.skills.business.crawlers.io import append_jsonl, load_json_file
+from app.skills.business.crawlers.wechat.judge_accounts import WechatJudgeAccountsSkill
 
 
 def test_judge_accounts_continue(tmp_path: Path):

@@ -21,9 +21,9 @@ from app.engine import WorkflowEngine
 from app.scheduler.models import ScheduleBody
 from app.scheduler.service import SchedulerService
 from app.config import settings
-from app.skills.business.wechat.paths import WechatPaths
-from app.skills.business.wechat.store import WechatStore
-from app.skills.business.wechat.structure_articles import drainPendingArticles
+from app.skills.business.crawlers.paths import CrawlPaths
+from app.skills.business.crawlers.store import CrawlStore
+from app.skills.business.crawlers.structure_articles import drainPendingArticles
 
 logger = logging.getLogger(__name__)
 
@@ -63,15 +63,16 @@ def _scheduler(request: Request) -> SchedulerService:
     return request.app.state.scheduler_service
 
 
-def _structure_paths() -> WechatPaths:
-    if not settings.wechat_config_root:
-        raise HTTPException(status_code=503, detail="WECHAT_CONFIG_ROOT 未配置")
-    return WechatPaths(Path(settings.wechat_config_root))
+def _structure_paths() -> CrawlPaths:
+    root = settings.crawl_config_root or settings.wechat_config_root
+    if not root:
+        raise HTTPException(status_code=503, detail="CRAWL_CONFIG_ROOT 未配置")
+    return CrawlPaths(Path(root))
 
 
 def _structure_status(request: Request) -> dict[str, Any]:
     state = dict(request.app.state.structure_drain_state)
-    state["pendingCount"] = WechatStore(_structure_paths().database_file).countPendingArticles()
+    state["pendingCount"] = CrawlStore(_structure_paths().database_file).countPendingArticles()
     return state
 
 

@@ -16,15 +16,17 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "agent_runtime_dir", str(tmp_path / "runtime"))
     monkeypatch.setattr(settings, "internal_service_token", "internal-test")
 
-    async def readFile(readBackend, readUserId, readFileId):
+    async def readFile(self, readUserId, readFileId):
         return {"id": str(readFileId), "originalName": "resume.pdf"}, b"%PDF-test"
 
-    async def readResume(readPath, readClient=None):
-        assert readPath.is_file()
-        return json.loads(READ_CONTRACT.read_text(encoding="utf-8"))
+    async def readResume(operation, request):
+        assert operation == "resume_parse"
+        assert request["filename"] == "resume.pdf"
+        assert request["file_base64"]
+        return {"record": json.loads(READ_CONTRACT.read_text(encoding="utf-8"))}
 
-    monkeypatch.setattr("app.api.routers.internal.readResumeFile", readFile)
-    monkeypatch.setattr("app.api.routers.internal.parseResume", readResume)
+    monkeypatch.setattr("app.integrations.backend.BackendClient.read_resume_file", readFile)
+    monkeypatch.setattr("app.skills.business.algorithm.run_algorithm", readResume)
     with TestClient(app) as readClient:
         yield readClient
 

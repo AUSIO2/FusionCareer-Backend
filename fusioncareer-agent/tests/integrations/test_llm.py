@@ -56,3 +56,27 @@ def testRejectBrokenJson():
     with pytest.raises(json.JSONDecodeError):
         asyncio.run(readClient.chat_json("招聘"))
     assert readClient.readCalls == 3
+
+
+@pytest.mark.parametrize("model, response_format, disables_thinking", [
+    ("deepseek-v4-flash", {"type": "json_object"}, True),
+    ("deepseek-v4-pro", {"type": "json_object"}, True),
+    ("deepseek-v4-flash", None, False),
+    ("gpt-4o-mini", {"type": "json_object"}, False),
+])
+def testStructuredDeepSeekDisablesThinking(model, response_format, disables_thinking):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    create = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(
+        message=SimpleNamespace(content='{"jobs": []}'), finish_reason="stop",
+    )]))
+    client = LLMClient()
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    assert asyncio.run(client.chat("招聘", model=model, response_format=response_format)) == '{"jobs": []}'
+    options = create.call_args.kwargs
+    if disables_thinking:
+        assert options["extra_body"] == {"thinking": {"type": "disabled"}}
+    else:
+        assert "extra_body" not in options

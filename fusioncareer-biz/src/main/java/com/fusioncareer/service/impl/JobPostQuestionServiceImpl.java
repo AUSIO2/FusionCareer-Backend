@@ -1,5 +1,6 @@
 package com.fusioncareer.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fusioncareer.dto.req.JobPostQuestionRequest;
@@ -43,14 +44,11 @@ public class JobPostQuestionServiceImpl extends ServiceImpl<JobPostQuestionMappe
 
         // 2. 批量插入新问题
         List<JobPostQuestionEntity> entities = questions.stream().map(q -> {
-            JobPostQuestionEntity entity = new JobPostQuestionEntity();
+            JobPostQuestionEntity entity = BeanUtil.copyProperties(q, JobPostQuestionEntity.class, "options");
             entity.setJobPostId(jobPostId);
             entity.setSortOrder(q.getSortOrder() != null ? q.getSortOrder() : 0);
-            entity.setTitle(q.getTitle());
-            entity.setQuestionType(q.getQuestionType());
             entity.setOptions(serializeOptions(q.getOptions()));
             entity.setRequired(q.getRequired() != null ? q.getRequired() : true);
-            entity.setPlaceholder(q.getPlaceholder());
             return entity;
         }).toList();
 
@@ -124,17 +122,8 @@ public class JobPostQuestionServiceImpl extends ServiceImpl<JobPostQuestionMappe
     }
 
     private JobPostQuestionResponse toResponse(JobPostQuestionEntity entity) {
-        JobPostQuestionResponse resp = new JobPostQuestionResponse();
-        resp.setId(entity.getId());
-        resp.setJobPostId(entity.getJobPostId());
-        resp.setSortOrder(entity.getSortOrder());
-        resp.setTitle(entity.getTitle());
-        resp.setQuestionType(entity.getQuestionType());
+        JobPostQuestionResponse resp = BeanUtil.copyProperties(entity, JobPostQuestionResponse.class, "options");
         resp.setOptions(deserializeOptions(entity.getOptions()));
-        resp.setRequired(entity.getRequired());
-        resp.setPlaceholder(entity.getPlaceholder());
-        resp.setCreatedAt(entity.getCreatedAt());
-        resp.setUpdatedAt(entity.getUpdatedAt());
         return resp;
     }
 }

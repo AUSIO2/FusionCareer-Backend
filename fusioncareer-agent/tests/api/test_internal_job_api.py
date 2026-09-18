@@ -12,9 +12,12 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "agent_runtime_dir", str(tmp_path / "runtime"))
     monkeypatch.setattr(settings, "internal_service_token", "internal-test")
 
-    async def readJobs(readText, readSourceUrl="", readSourceType="PLATFORM", readClient=None):
+    async def readJobs(operation, request):
+        assert operation == "job_structure"
+        readSourceUrl = request.get("sourceUrl") or ""
+        readSourceType = request.get("sourceType", "PLATFORM")
         return {
-            "jobs": [{
+            "positions": [{
                 "sourceType": readSourceType,
                 "sourceUrl": readSourceUrl,
                 "companyName": "示例公司",
@@ -27,7 +30,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             "warnings": [],
         }
 
-    monkeypatch.setattr("app.api.routers.internal.structureJobs", readJobs)
+    monkeypatch.setattr("app.skills.business.algorithm.run_algorithm", readJobs)
     monkeypatch.setattr(
         "app.api.routers.internal._structure_status",
         lambda request: {"status": "IDLE", "pendingCount": 7},
@@ -69,7 +72,7 @@ def testStructureNullUrl(client: TestClient):
 
     assert readResponse.status_code == 200
     assert readResponse.json()["jobs"][0]["status"] == "OFFLINE"
-    assert readResponse.json()["jobs"][0]["sourceUrl"] == ""
+    assert readResponse.json()["jobs"][0].get("sourceUrl", "") == ""
 
 
 def testRejectJob(client: TestClient):
