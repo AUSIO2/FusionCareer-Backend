@@ -1,0 +1,51 @@
+{
+  "name": "resume_parse",
+  "nodes": {
+    "input": {
+      "skill": "input_json_obj",
+      "inputs": {
+        "json_obj": {
+          "value": {
+            "userId": 1,
+            "fileId": 1
+          }
+        }
+      }
+    },
+    "operation": {
+      "skill": "input_text",
+      "inputs": {
+        "text": {
+          "value": "resume_parse"
+        }
+      }
+    },
+    "download": {
+      "skill": "download_resume",
+      "inputs": {
+        "request": {
+          "from": "input.json_obj"
+        }
+      }
+    },
+    "algorithm": {
+      "skill": "upstream_algorithm",
+      "inputs": {
+        "operation": {
+          "from": "operation.text"
+        },
+        "request": {
+          "from": "download.request"
+        }
+      }
+    },
+    "result": {
+      "skill": "normalize_resume_result",
+      "inputs": {
+        "result": {
+          "from": "algorithm.result"
+        }
+      }
+    }
+  }
+}

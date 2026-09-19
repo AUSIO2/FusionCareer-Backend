@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS `fc_user`
     `username`    VARCHAR(64)  NOT NULL COMMENT '登录名',
     `student_id`  VARCHAR(32)           DEFAULT NULL COMMENT '学工号',
     `password`    VARCHAR(128)          DEFAULT NULL COMMENT '密码（CAS对接时为空）',
-    `role`        TINYINT      NOT NULL DEFAULT 0 COMMENT '角色：0-普通用户 1-管理员',
+    `role`        TINYINT      NOT NULL DEFAULT 0 COMMENT '角色：0-普通用户 1-管理员 2-超级管理员',
     `status`      TINYINT      NOT NULL DEFAULT 1 COMMENT '状态：1-正常 0-禁用',
     `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -104,12 +104,15 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     -- 企业公司：31-国央企 32-民企 33-外企
     `job_sub_category`  TINYINT                DEFAULT NULL COMMENT '岗位二级分类',
     -- 招聘信息
-    `recruit_type`      TINYINT       NOT NULL COMMENT '招聘类型：1-大实习 2-小实习 3-日常实习 4-应届生招聘 5-应届生摸排 6-其他',
+    `recruit_type`      TINYINT       NOT NULL COMMENT '招聘类型：1-大实习 2-小实习 3-日常实习 4-应届生招聘 5-应届生摸排 6-其他 7-大/小实习均可',
     `headcount`         INT                    DEFAULT NULL COMMENT '需求人数',
+    `headcount_display` VARCHAR(64)            DEFAULT NULL COMMENT '需求人数原始文本，如1-2人、若干',
     -- 工作要求
     `work_start_date`   DATE                   DEFAULT NULL COMMENT '工作开始时间',
     `work_end_date`     DATE                   DEFAULT NULL COMMENT '工作结束时间',
+    `application_deadline` DATE                DEFAULT NULL COMMENT '岗位投递截止日期',
     `work_days_per_week` TINYINT               DEFAULT NULL COMMENT '每周工作天数，如：3（即一周3天及以上）',
+    `work_time_requirement` TEXT               DEFAULT NULL COMMENT '实习时间及频次原始要求',
     `work_duration_type` TINYINT               DEFAULT NULL COMMENT '工作时长类型：1-一周1-2天 2-一周3-4天 3-一周5天',
     `work_period_type`  TINYINT                DEFAULT NULL COMMENT '实习时长：1-3个月以内 2-3到6个月 3-6个月以上',
     `work_mode`         TINYINT                DEFAULT NULL COMMENT '工作形式：1-线上 2-线下 3-线上线下均可',
@@ -119,6 +122,7 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     `salary_min`        INT                    DEFAULT NULL COMMENT '薪资下限（元/月）',
     `salary_max`        INT                    DEFAULT NULL COMMENT '薪资上限（元/月）',
     `salary_display`    VARCHAR(64)            DEFAULT NULL COMMENT '薪资展示文本，如：面议、150/天',
+    `career_direction`  TEXT                   DEFAULT NULL COMMENT '职场发展方向',
     -- 岗位描述
     `job_desc`          TEXT                   DEFAULT NULL COMMENT '岗位职责描述',
     -- 招聘要求
@@ -126,9 +130,16 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     `req_major`         VARCHAR(256)           DEFAULT NULL COMMENT '要求专业方向（可多个，逗号分隔）',
     `req_grad_year`     VARCHAR(16)            DEFAULT NULL COMMENT '要求毕业时间，如：2026届',
     `req_skills`        VARCHAR(512)           DEFAULT NULL COMMENT '技能经验要求',
-    `req_other`         VARCHAR(512)           DEFAULT NULL COMMENT '其他招聘要求',
+    `req_other`         TEXT                   DEFAULT NULL COMMENT '其他招聘要求',
+    `internal_compensation` TEXT               DEFAULT NULL COMMENT '不对外薪资及补贴保障',
+    `contact_name`      VARCHAR(128)           DEFAULT NULL COMMENT '不对外岗位联系人',
+    `contact_info`      VARCHAR(256)           DEFAULT NULL COMMENT '不对外岗位联系方式',
+    `internal_remark`   TEXT                   DEFAULT NULL COMMENT '不对外备注',
     -- 状态与审计
-    `status`            TINYINT       NOT NULL DEFAULT 1 COMMENT '岗位状态：1-发布中 0-已下线 2-已截止',
+    `recommended`       TINYINT(1)     NOT NULL DEFAULT 0 COMMENT '是否推荐：1-推荐 0-普通',
+    `status`            TINYINT       NOT NULL DEFAULT 1 COMMENT '岗位状态：1-发布中 0-已下线 2-已截止 3-回收站',
+    `recycle_reason`    VARCHAR(512)           DEFAULT NULL COMMENT '移入回收站原因',
+    `recycled_at`       DATETIME               DEFAULT NULL COMMENT '移入回收站时间',
     `created_by`        BIGINT                 DEFAULT NULL COMMENT '发布人user_id',
     `created_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -136,8 +147,11 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     KEY `idx_job_category`  (`job_category`),
     KEY `idx_recruit_type`  (`recruit_type`),
     KEY `idx_work_city`     (`work_city`),
+    KEY `idx_application_deadline` (`application_deadline`),
     KEY `idx_work_mode`     (`work_mode`),
+    KEY `idx_recommended`   (`recommended`),
     KEY `idx_status`        (`status`),
+    KEY `idx_recycled_at`   (`recycled_at`),
     KEY `idx_created_at`    (`created_at`)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4

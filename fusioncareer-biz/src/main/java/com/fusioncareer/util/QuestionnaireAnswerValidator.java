@@ -69,7 +69,7 @@ public class QuestionnaireAnswerValidator {
             return items.stream()
                     .filter(item -> item.get("questionId") != null)
                     .collect(Collectors.toMap(
-                            item -> ((Number) item.get("questionId")).longValue(),
+                            item -> Long.valueOf(String.valueOf(item.get("questionId"))),
                             item -> item.get("value"),
                             (a, b) -> b
                     ));

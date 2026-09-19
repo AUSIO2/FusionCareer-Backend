@@ -4,6 +4,7 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.UserRequest;
 import com.fusioncareer.dto.res.UserResponse;
+import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -40,8 +41,9 @@ public class InternalUserController {
     public R<PageResult<UserResponse>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(required = false) String username) {
-        return R.success(userService.listUsers(page, size, username));
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) UserRole role) {
+        return R.success(userService.listUsers(page, size, username, role));
     }
 
     @PutMapping("/{id}")

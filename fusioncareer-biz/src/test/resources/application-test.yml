@@ -1,0 +1,37 @@
+server:
+  port: ${TEST_SERVER_PORT:19100}
+
+spring:
+  datasource:
+    url: ${TEST_DB_URL:jdbc:mysql://127.0.0.1:13306/fusioncareer_test?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai&allowMultiQueries=true}
+    username: ${TEST_DB_USERNAME:root}
+    password: ${TEST_DB_PASSWORD:fusioncareer_test}
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+sa-token:
+  is-log: false
+
+upload:
+  base-dir: ${TEST_UPLOAD_DIR:${java.io.tmpdir}/fusioncareer-test-uploads}
+  url-prefix: http://127.0.0.1:19100/files
+
+fudan-sso:
+  client-id: test-client
+  client-secret: test-secret
+  redirect-uri: http://127.0.0.1:19100/fudan/callback
+  frontend-redirect-url: http://127.0.0.1:5173/
+
+python-service:
+  base-url: http://127.0.0.1:9
+  connect-timeout: 100
+  read-timeout: 100
+
+internal-service:
+  token: test-internal
+
+logging:
+  level:
+    com.fusioncareer.exception.GlobalExceptionHandler: OFF

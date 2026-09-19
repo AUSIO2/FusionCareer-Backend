@@ -14,9 +14,14 @@ import lombok.Getter;
 public enum UserRole {
 
     NORMAL(0, "普通用户"),
-    ADMIN(1, "管理员");
+    ADMIN(1, "管理员"),
+    SUPERADMIN(2, "超级管理员");
 
     @EnumValue
     private final int code;
     private final String desc;
+
+    public boolean canManageJobs() {
+        return this == ADMIN || this == SUPERADMIN;
+    }
 }

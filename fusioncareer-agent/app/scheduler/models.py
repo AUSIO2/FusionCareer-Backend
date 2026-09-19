@@ -30,6 +30,7 @@ class ScheduleBody(BaseModel):
     enabled: bool = True
     trigger: ScheduleTrigger
     overrides: dict[str, Any] = Field(default_factory=dict)
+    loop: dict[str, Any] | None = None
     description: str = ""
 
     def to_disk(self) -> dict[str, Any]:

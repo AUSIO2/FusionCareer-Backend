@@ -1,0 +1,46 @@
+{
+  "name": "job_structure",
+  "nodes": {
+    "input": {
+      "skill": "input_json_obj",
+      "inputs": {
+        "json_obj": {
+          "value": {
+            "text": "",
+            "sourceType": "PLATFORM"
+          }
+        }
+      }
+    },
+    "operation": {
+      "skill": "input_text",
+      "inputs": {
+        "text": {
+          "value": "job_structure"
+        }
+      }
+    },
+    "algorithm": {
+      "skill": "upstream_algorithm",
+      "inputs": {
+        "operation": {
+          "from": "operation.text"
+        },
+        "request": {
+          "from": "input.json_obj"
+        }
+      }
+    },
+    "result": {
+      "skill": "normalize_job_result",
+      "inputs": {
+        "result": {
+          "from": "algorithm.result"
+        },
+        "request": {
+          "from": "input.json_obj"
+        }
+      }
+    }
+  }
+}

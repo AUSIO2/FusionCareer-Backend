@@ -15,6 +15,7 @@ public enum ResultCode implements IErrorCode {
     USER_NOT_LOGGED_IN(401, "用户未登录或身份认证失败"),
     FORBIDDEN(403, "没有操作权限"),
     NOT_FOUND(404, "请求的资源不存在"),
+    CONFLICT(409, "请求状态冲突"),
     VALIDATE_FAILED(400, "参数检验失败"),
     INTERNAL_SERVER_ERROR(500, "系统内部发生错误，请联系管理员");
 

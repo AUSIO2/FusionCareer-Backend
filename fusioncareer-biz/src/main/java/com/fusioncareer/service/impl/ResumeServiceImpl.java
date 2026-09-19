@@ -9,9 +9,11 @@ import com.fusioncareer.dto.res.ResumeResponse;
 import com.fusioncareer.entity.ResumeEntity;
 import com.fusioncareer.mapper.ResumeMapper;
 import com.fusioncareer.service.ResumeService;
-import org.springframework.beans.BeanUtils;
+import cn.hutool.core.bean.BeanUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import static com.fusioncareer.util.PaginationUtil.createPage;
 
 @Service
 public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, ResumeEntity> implements ResumeService {
@@ -24,35 +26,33 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, ResumeEntity> i
     @Transactional
     @Override
     public void saveOrUpdateResume(Long userId, ResumeRequest request) {
-        ResumeEntity entity = new ResumeEntity();
-        BeanUtils.copyProperties(request, entity);
+        ResumeEntity entity = BeanUtil.copyProperties(request, ResumeEntity.class);
         entity.setUserId(userId);
         saveOrUpdate(entity);
     }
 
     @Override
     public PageResult<ResumeResponse> listResumes(int page, int size) {
-        Page<ResumeEntity> result = page(new Page<>(page, size),
+        Page<ResumeEntity> readResumes = page(createPage(page, size),
                 new LambdaQueryWrapper<ResumeEntity>().orderByDesc(ResumeEntity::getCreatedAt));
 
-        PageResult<ResumeResponse> pageResult = new PageResult<>(result.getTotal(), page, size);
-        result.getRecords().forEach(e -> pageResult.add(toResponse(e)));
-        return pageResult;
+        PageResult<ResumeResponse> readPage = new PageResult<>(readResumes.getTotal(),
+                (int) readResumes.getCurrent(), (int) readResumes.getSize());
+        readResumes.getRecords().forEach(e -> readPage.add(toResponse(e)));
+        return readPage;
     }
 
     @Transactional
     @Override
     public void updateResume(Long userId, ResumeRequest request) {
-        ResumeEntity entity = new ResumeEntity();
-        BeanUtils.copyProperties(request, entity);
+        ResumeEntity entity = BeanUtil.copyProperties(request, ResumeEntity.class);
         entity.setUserId(userId);
         updateById(entity);
     }
 
     private ResumeResponse toResponse(ResumeEntity entity) {
         if (entity == null) return null;
-        ResumeResponse resp = new ResumeResponse();
-        BeanUtils.copyProperties(entity, resp);
+        ResumeResponse resp = BeanUtil.copyProperties(entity, ResumeResponse.class);
         return resp;
     }
 }
