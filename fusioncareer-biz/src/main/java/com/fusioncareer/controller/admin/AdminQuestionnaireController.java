@@ -104,14 +104,15 @@ public class AdminQuestionnaireController {
     public ResponseEntity<byte[]> exportAnswers(
             @PathVariable("jobPostId") Long readJobId,
             @RequestParam(name = "format", defaultValue = "csv") String readFormat,
-            @RequestParam(name = "answerIds", required = false) List<Long> readAnswerIds) {
+            @RequestParam(name = "answerIds", required = false) List<Long> readAnswerIds,
+            @RequestParam(name = "content", required = false) List<String> readContent) {
         boolean readZip = "zip".equalsIgnoreCase(readFormat);
         if (!readZip && !"csv".equalsIgnoreCase(readFormat)) {
             throw ServiceException.of(ResultCode.VALIDATE_FAILED, "导出格式仅支持 csv 或 zip");
         }
         byte[] readBody = readZip
-                ? questionnaireExportService.buildZip(readJobId, readAnswerIds)
-                : questionnaireExportService.buildCsv(readJobId, readAnswerIds);
+                ? questionnaireExportService.buildZip(readJobId, readAnswerIds, readContent)
+                : questionnaireExportService.buildCsv(readJobId, readAnswerIds, readContent);
         String readFilename = "applications-" + readJobId + (readZip ? ".zip" : ".csv");
         MediaType readMediaType = readZip
                 ? MediaType.parseMediaType("application/zip")

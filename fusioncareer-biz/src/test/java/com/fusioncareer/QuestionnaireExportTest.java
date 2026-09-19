@@ -6,6 +6,7 @@ import com.fusioncareer.dto.req.JobPostQuestionRequest;
 import com.fusioncareer.dto.res.JobPostQuestionResponse;
 import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
+import com.fusioncareer.entity.ResumeEntity;
 import com.fusioncareer.entity.ResumeFileEntity;
 import com.fusioncareer.entity.UserEntity;
 import com.fusioncareer.entity.UserProfileEntity;
@@ -21,6 +22,7 @@ import com.fusioncareer.service.JobPostService;
 import com.fusioncareer.service.QuestionnaireAnswerService;
 import com.fusioncareer.service.QuestionnaireExportService;
 import com.fusioncareer.service.ResumeFileService;
+import com.fusioncareer.service.ResumeService;
 import com.fusioncareer.service.UserService;
 import com.fusioncareer.service.UserProfileService;
 import org.junit.jupiter.api.AfterEach;
@@ -44,6 +46,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -72,6 +75,9 @@ class QuestionnaireExportTest {
     private ResumeFileService readFileService;
 
     @Autowired
+    private ResumeService readResumeService;
+
+    @Autowired
     private UploadProperties readUploadProperties;
 
     @Autowired
@@ -92,7 +98,15 @@ class QuestionnaireExportTest {
         UserProfileEntity createProfile = new UserProfileEntity();
         createProfile.setUserId(createUser.getId());
         createProfile.setRealName("修改后的姓名");
+        createProfile.setPhone("13800000000");
+        createProfile.setMajor("新闻传播学");
         readProfileService.save(createProfile);
+
+        ResumeEntity createResume = new ResumeEntity();
+        createResume.setUserId(createUser.getId());
+        createResume.setPersonalIntro("测试简历正文");
+        createResume.setSkills("采访、写作");
+        readResumeService.save(createResume);
 
         JobPostEntity createJob = new JobPostEntity();
         createJob.setCompanyName("export-company");
@@ -200,5 +214,57 @@ class QuestionnaireExportTest {
         assertThat(readEntries).contains("applications.csv");
         assertThat(readEntries).contains("resumes/1_修改后的姓名_export-student_个人简历.pdf");
         assertThat(readFile).isEqualTo("pdf-data");
+    }
+
+    @Test
+    void exportSelectedProfileAndResumeContent() {
+        byte[] readCsv = readExportService.buildCsv(
+                readJobId, List.of(readAnswerId), List.of("profile", "resume"));
+        String readText = new String(readCsv, StandardCharsets.UTF_8);
+
+        assertThat(readText).contains(
+                "用户资料-手机", "13800000000", "用户资料-专业", "新闻传播学",
+                "简历正文-个人简况", "测试简历正文", "简历正文-技能", "采访、写作");
+    }
+
+    @Test
+    void exportSelectedResumeFiles() throws Exception {
+        Long readUserId = readAnswerService.getById(readAnswerId).getUserId();
+        ResumeFileEntity createFile = new ResumeFileEntity();
+        createFile.setUserId(readUserId);
+        createFile.setOriginalName("portfolio.docx");
+        createFile.setStoragePath("resumes/export/portfolio.docx");
+        createFile.setFileSize(9L);
+        createFile.setMimeType("application/docx");
+        createFile.setCreatedAt(LocalDateTime.now().plusSeconds(1));
+        readFileService.save(createFile);
+        Path createPath = Path.of(readUploadProperties.getBaseDir(), createFile.getStoragePath());
+        Files.createDirectories(createPath.getParent());
+        Files.writeString(createPath, "docx-data", StandardCharsets.UTF_8);
+
+        byte[] readZip = readExportService.buildZip(
+                readJobId, List.of(readAnswerId), List.of("files"));
+        List<String> readEntries = new ArrayList<>();
+        try (ZipInputStream readStream = new ZipInputStream(
+                new ByteArrayInputStream(readZip), StandardCharsets.UTF_8)) {
+            ZipEntry readEntry;
+            while ((readEntry = readStream.getNextEntry()) != null) {
+                readEntries.add(readEntry.getName());
+            }
+        }
+
+        assertThat(readEntries).contains("applications.csv");
+        assertThat(readEntries).anyMatch(readName -> readName.endsWith("_portfolio.docx"));
+        assertThat(readEntries.stream().filter(readName -> readName.startsWith("resumes/"))).hasSize(2);
+    }
+
+    @Test
+    void rejectUnsupportedContentSelections() {
+        assertThatThrownBy(() -> readExportService.buildCsv(
+                readJobId, List.of(readAnswerId), List.of("files")))
+                .hasMessageContaining("format 必须为 zip");
+        assertThatThrownBy(() -> readExportService.buildZip(
+                readJobId, List.of(readAnswerId), List.of("unknown")))
+                .hasMessageContaining("仅支持 profile、resume 或 files");
     }
 }
