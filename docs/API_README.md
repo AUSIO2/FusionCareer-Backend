@@ -246,11 +246,15 @@ POST 退出响应：
 ```text
 GET /admin/questionnaire/answers/job/{jobPostId}/export?format=csv
 GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
+GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip&content=profile&content=resume&content=files
 ```
 
 - `answerIds` 可选，可重复传递或使用逗号分隔，只导出选中的投递。
+- `content` 可选且可重复传递，支持 `profile`（用户资料）、`resume`（在线简历正文）和 `files`（用户上传的简历文件）。
+- 选择 `profile` 或 `resume` 时，相应字段追加到 `applications.csv`；选择 `files` 时必须使用 ZIP。
 - CSV 带 UTF-8 BOM，可直接用 Excel 打开。
-- ZIP 包含 `applications.csv` 和问卷文件题引用的简历附件。
+- 未传 `content` 时保持旧行为：ZIP 包含 `applications.csv` 和问卷文件题引用的附件。
+- 传入 `content=files` 时，ZIP 包含选中投递用户上传的全部简历文件。
 - 草稿不会进入导出结果。
 
 系统管理用户接口（全部要求 SUPERADMIN）：
