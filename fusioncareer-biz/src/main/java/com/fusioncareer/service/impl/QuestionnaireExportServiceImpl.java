@@ -198,8 +198,12 @@ public class QuestionnaireExportServiceImpl implements QuestionnaireExportServic
 
     private void appendValues(StringBuilder createCsv, Object readBean, String[][] readColumns) {
         for (String[] readColumn : readColumns) {
-            createCsv.append(',').append(escapeCsv(
-                    readBean == null ? null : BeanUtil.getProperty(readBean, readColumn[0])));
+            Object readValue = readBean == null ? null : BeanUtil.getProperty(readBean, readColumn[0]);
+            if (readValue instanceof Enum<?>) {
+                Object readDescription = BeanUtil.getProperty(readValue, "desc");
+                if (readDescription != null) readValue = readDescription;
+            }
+            createCsv.append(',').append(escapeCsv(readValue));
         }
     }
 
@@ -333,10 +337,6 @@ public class QuestionnaireExportServiceImpl implements QuestionnaireExportServic
     }
 
     private String escapeCsv(Object readValue) {
-        if (readValue instanceof Enum<?>) {
-            Object readDescription = BeanUtil.getProperty(readValue, "desc");
-            readValue = readDescription == null ? readValue : readDescription;
-        }
         String updateValue = readValue == null ? "" : String.valueOf(readValue);
         return '"' + updateValue.replace("\r", " ").replace("\n", " ").replace("\"", "\"\"") + '"';
     }
