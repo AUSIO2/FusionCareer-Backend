@@ -11,6 +11,7 @@ import com.fusioncareer.dto.req.JobRecycleRequest;
 import com.fusioncareer.dto.res.JobPostAdminResponse;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.entity.JobPostEntity;
+import com.fusioncareer.enums.EduLevel;
 import com.fusioncareer.enums.JobPostSort;
 import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.exception.ResultCode;
@@ -26,8 +27,10 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static com.fusioncareer.util.PaginationUtil.createPage;
@@ -42,6 +45,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     @Override
     public JobPostResponse createJobPost(JobPostRequest request) {
         JobPostEntity entity = BeanUtil.copyProperties(request, JobPostEntity.class);
+        normalizeRequirements(entity);
         applyDefaultDeadline(entity);
         prepareRecycleFields(entity);
         save(entity);
@@ -53,6 +57,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     public void createJobPostBatch(List<JobPostRequest> requests) {
         List<JobPostEntity> entities = requests.stream().map(req -> {
             JobPostEntity e = BeanUtil.copyProperties(req, JobPostEntity.class);
+            normalizeRequirements(e);
             applyDefaultDeadline(e);
             prepareRecycleFields(e);
             return e;
@@ -135,6 +140,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     public void updateJobPost(Long id, JobPostRequest request) {
         JobPostEntity entity = BeanUtil.copyProperties(request, JobPostEntity.class);
         entity.setId(id);
+        normalizeRequirements(entity);
         updateById(entity);
     }
 
@@ -215,7 +221,13 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
          .eq(readQuery.getWorkPeriodType() != null, JobPostEntity::getWorkPeriodType, readQuery.getWorkPeriodType())
          .eq(readQuery.getWorkMode() != null, JobPostEntity::getWorkMode, readQuery.getWorkMode())
          .eq(StringUtils.hasText(readQuery.getWorkProvince()), JobPostEntity::getWorkProvince, readQuery.getWorkProvince())
-         .eq(StringUtils.hasText(readQuery.getWorkCity()), JobPostEntity::getWorkCity, readQuery.getWorkCity())
+         .and(StringUtils.hasText(readQuery.getWorkCity()), readCity -> readCity
+                 .eq(JobPostEntity::getWorkCity, readQuery.getWorkCity())
+                 .or().apply("JSON_CONTAINS(work_cities, JSON_QUOTE({0}))", readQuery.getWorkCity()))
+         .and(readQuery.getReqEduLevel() != null, readEducation -> readEducation
+                 .eq(JobPostEntity::getReqEduLevel, readQuery.getReqEduLevel())
+                 .or().apply("JSON_CONTAINS(req_edu_levels, JSON_QUOTE({0}))",
+                         readQuery.getReqEduLevel().name()))
          .ge(readQuery.getSalaryMin() != null, JobPostEntity::getSalaryMax, readQuery.getSalaryMin())
          .le(readQuery.getSalaryMax() != null, JobPostEntity::getSalaryMin, readQuery.getSalaryMax())
          .eq(readQuery.getRecommended() != null, JobPostEntity::getRecommended, readQuery.getRecommended())
@@ -267,6 +279,7 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     private JobPostResponse toResponse(JobPostEntity entity) {
         if (entity == null) return null;
         JobPostResponse resp = BeanUtil.copyProperties(entity, JobPostResponse.class);
+        copyRequirements(entity, resp);
         resp.setApplicationCount(0L);
         return resp;
     }
@@ -274,7 +287,40 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     private JobPostAdminResponse toAdminResponse(JobPostEntity entity) {
         if (entity == null) return null;
         JobPostAdminResponse resp = BeanUtil.copyProperties(entity, JobPostAdminResponse.class);
+        copyRequirements(entity, resp);
         resp.setApplicationCount(0L);
         return resp;
+    }
+
+    private void normalizeRequirements(JobPostEntity updateJob) {
+        List<String> readCities = updateJob.getWorkCities() == null ? List.of()
+                : updateJob.getWorkCities().stream()
+                .filter(StringUtils::hasText).map(String::trim)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toCollection(LinkedHashSet::new), List::copyOf));
+        if (readCities.isEmpty() && StringUtils.hasText(updateJob.getWorkCity())) {
+            readCities = List.of(updateJob.getWorkCity().trim());
+        }
+        updateJob.setWorkCities(readCities.isEmpty() ? null : readCities);
+        updateJob.setWorkCity(readCities.isEmpty() ? null : readCities.get(0));
+
+        List<EduLevel> readEducation = updateJob.getReqEduLevels() == null
+                ? List.of() : updateJob.getReqEduLevels().stream().filter(Objects::nonNull)
+                .collect(Collectors.collectingAndThen(
+                        Collectors.toCollection(LinkedHashSet::new), List::copyOf));
+        if (readEducation.isEmpty() && updateJob.getReqEduLevel() != null) {
+            readEducation = List.of(updateJob.getReqEduLevel());
+        }
+        updateJob.setReqEduLevels(readEducation.isEmpty() ? null : readEducation);
+        updateJob.setReqEduLevel(readEducation.isEmpty() ? null : readEducation.get(0));
+    }
+
+    private void copyRequirements(JobPostEntity readJob, JobPostResponse updateResponse) {
+        updateResponse.setWorkCities(readJob.getWorkCities() == null || readJob.getWorkCities().isEmpty()
+                ? (StringUtils.hasText(readJob.getWorkCity()) ? List.of(readJob.getWorkCity()) : List.of())
+                : readJob.getWorkCities());
+        updateResponse.setReqEduLevels(readJob.getReqEduLevels() == null || readJob.getReqEduLevels().isEmpty()
+                ? (readJob.getReqEduLevel() == null ? List.of() : List.of(readJob.getReqEduLevel()))
+                : readJob.getReqEduLevels());
     }
 }

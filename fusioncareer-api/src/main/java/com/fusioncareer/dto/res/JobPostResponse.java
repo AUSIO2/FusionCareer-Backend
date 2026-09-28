@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class JobPostResponse {
@@ -27,6 +28,7 @@ public class JobPostResponse {
     private WorkPeriodType workPeriodType;
     private WorkMode workMode;
     private String workCity;
+    private List<String> workCities;
     private String workProvince;
     private String workLocation;
     private Integer salaryMin;
@@ -34,6 +36,7 @@ public class JobPostResponse {
     private String salaryDisplay;
     private String jobDesc;
     private EduLevel reqEduLevel;
+    private List<EduLevel> reqEduLevels;
     private String reqMajor;
     private String reqGradYear;
     private String reqSkills;

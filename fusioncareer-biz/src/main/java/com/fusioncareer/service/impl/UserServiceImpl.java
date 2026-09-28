@@ -7,21 +7,30 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.req.UserRequest;
 import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.entity.UserProfileEntity;
 import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.exception.ResultCode;
 import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.UserMapper;
+import com.fusioncareer.mapper.UserProfileMapper;
 import com.fusioncareer.service.UserService;
 import cn.hutool.core.bean.BeanUtil;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static com.fusioncareer.util.PaginationUtil.createPage;
 
 @Service
+@RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> implements UserService {
+
+    private final UserProfileMapper userProfileMapper;
 
     @Transactional
     @Override
@@ -43,11 +52,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
 
     @Override
     public PageResult<UserResponse> listUsers(int page, int size, String username, UserRole role, List<Long> userIds) {
+        List<Long> readNameUserIds = StringUtils.hasText(username)
+                ? userProfileMapper.selectList(new LambdaQueryWrapper<UserProfileEntity>()
+                        .like(UserProfileEntity::getRealName, username)).stream()
+                        .map(UserProfileEntity::getUserId).toList()
+                : List.of();
         LambdaQueryWrapper<UserEntity> wrapper = new LambdaQueryWrapper<>();
         wrapper.and(StringUtils.hasText(username), readQuery -> readQuery
                        .like(UserEntity::getUsername, username)
                        .or()
-                       .like(UserEntity::getStudentId, username))
+                       .like(UserEntity::getStudentId, username)
+                       .or(!readNameUserIds.isEmpty())
+                       .in(!readNameUserIds.isEmpty(), UserEntity::getId, readNameUserIds))
                .eq(role != null, UserEntity::getRole, role)
                .in(userIds != null && !userIds.isEmpty(), UserEntity::getId, userIds)
                .orderByDesc(UserEntity::getCreatedAt)
@@ -57,7 +73,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
 
         PageResult<UserResponse> readPage = new PageResult<>(readUsers.getTotal(),
                 (int) readUsers.getCurrent(), (int) readUsers.getSize());
-        readUsers.getRecords().forEach(e -> readPage.add(toResponse(e)));
+        Map<Long, UserProfileEntity> readProfiles = readUsers.getRecords().isEmpty() ? Map.of()
+                : userProfileMapper.selectBatchIds(
+                        readUsers.getRecords().stream().map(UserEntity::getId).toList()).stream()
+                        .collect(Collectors.toMap(UserProfileEntity::getUserId, Function.identity()));
+        readUsers.getRecords().forEach(readUser -> {
+            UserResponse readResponse = toResponse(readUser);
+            UserProfileEntity readProfile = readProfiles.get(readUser.getId());
+            if (readProfile != null) readResponse.setRealName(readProfile.getRealName());
+            readPage.add(readResponse);
+        });
         return readPage;
     }
 

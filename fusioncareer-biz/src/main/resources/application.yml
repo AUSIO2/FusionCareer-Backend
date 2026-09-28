@@ -84,11 +84,13 @@ upload:
   # 允许上传的 MIME 类型白名单
   allowed-mime-types:
     - application/pdf
+    - application/vnd.openxmlformats-officedocument.wordprocessingml.document
     - image/jpeg
     - image/png
   # 允许上传的文件扩展名白名单（小写）
   allowed-extensions:
     - pdf
+    - docx
     - jpg
     - jpeg
     - png

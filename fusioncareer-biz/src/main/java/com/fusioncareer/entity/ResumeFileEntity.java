@@ -37,7 +37,7 @@ public class ResumeFileEntity implements Serializable {
     /** 文件大小（字节） */
     private Long fileSize;
 
-    /** MIME 类型：application/pdf / image/jpeg / image/png */
+    /** MIME 类型：application/pdf / DOCX Open XML / image/jpeg / image/png */
     private String mimeType;
 
     private LocalDateTime createdAt;

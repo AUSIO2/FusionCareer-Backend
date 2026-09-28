@@ -50,6 +50,7 @@ public class UploadProperties {
      */
     private List<String> allowedMimeTypes = List.of(
             "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "image/jpeg",
             "image/png"
     );
@@ -57,7 +58,7 @@ public class UploadProperties {
     /**
      * 允许上传的文件扩展名白名单（小写）
      */
-    private List<String> allowedExtensions = List.of("pdf", "jpg", "jpeg", "png");
+    private List<String> allowedExtensions = List.of("pdf", "docx", "jpg", "jpeg", "png");
 
     // ── 派生方法（避免调用方重复 new HashSet） ─────────────────────────────────
 

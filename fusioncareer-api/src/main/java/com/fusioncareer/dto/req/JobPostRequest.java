@@ -4,6 +4,7 @@ import com.fusioncareer.enums.*;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @Data
 public class JobPostRequest {
@@ -26,6 +27,7 @@ public class JobPostRequest {
     private WorkPeriodType workPeriodType;
     private WorkMode workMode;
     private String workCity;
+    private List<String> workCities;
     private String workProvince;
     private String workLocation;
     private Integer salaryMin;
@@ -34,6 +36,7 @@ public class JobPostRequest {
     private String careerDirection;
     private String jobDesc;
     private EduLevel reqEduLevel;
+    private List<EduLevel> reqEduLevels;
     private String reqMajor;
     private String reqGradYear;
     private String reqSkills;

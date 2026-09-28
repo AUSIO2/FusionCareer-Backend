@@ -21,6 +21,7 @@ public class JobPostQueryRequest {
     private WorkMode workMode;
     private String workProvince;
     private String workCity;
+    private EduLevel reqEduLevel;
     private Integer salaryMin;
     private Integer salaryMax;
     private JobPostSort sortBy = JobPostSort.NEWEST;

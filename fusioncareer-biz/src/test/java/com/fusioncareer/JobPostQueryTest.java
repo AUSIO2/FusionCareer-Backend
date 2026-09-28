@@ -7,6 +7,7 @@ import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
 import com.fusioncareer.enums.JobCategory;
+import com.fusioncareer.enums.EduLevel;
 import com.fusioncareer.enums.JobPostSort;
 import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.enums.RecruitType;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,6 +75,33 @@ class JobPostQueryTest {
 
         assertThat(readJobs.getList()).extracting(JobPostResponse::getPositionName)
                 .containsExactly("gamma");
+    }
+
+    @Test
+    void persistAndFilterMultipleCitiesAndEducationLevels() {
+        JobPostRequest createJob = new JobPostRequest();
+        createJob.setCompanyName("multi-company");
+        createJob.setPositionName("multi-position");
+        createJob.setJobCategory(JobCategory.MEDIA);
+        createJob.setRecruitType(RecruitType.DAILY_INTERNSHIP);
+        createJob.setStatus(JobPostStatus.PUBLISHED);
+        createJob.setWorkCities(List.of("上海", "北京"));
+        createJob.setReqEduLevels(List.of(EduLevel.UNDERGRADUATE, EduLevel.ACADEMIC_MASTER));
+
+        JobPostResponse readCreated = readJobService.createJobPost(createJob);
+
+        assertThat(readCreated.getWorkCities()).containsExactly("上海", "北京");
+        assertThat(readCreated.getWorkCity()).isEqualTo("上海");
+        assertThat(readCreated.getReqEduLevels())
+                .containsExactly(EduLevel.UNDERGRADUATE, EduLevel.ACADEMIC_MASTER);
+        JobPostQueryRequest readCity = new JobPostQueryRequest();
+        readCity.setWorkCity("北京");
+        assertThat(readJobService.listPublishedJobPosts(readCity).getList())
+                .extracting(JobPostResponse::getPositionName).contains("multi-position");
+        JobPostQueryRequest readEducation = new JobPostQueryRequest();
+        readEducation.setReqEduLevel(EduLevel.ACADEMIC_MASTER);
+        assertThat(readJobService.listPublishedJobPosts(readEducation).getList())
+                .extracting(JobPostResponse::getPositionName).contains("multi-position");
     }
 
     @Test

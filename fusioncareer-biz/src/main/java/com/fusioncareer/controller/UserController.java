@@ -93,7 +93,7 @@ public class UserController {
 
     @PostMapping(value = "/resume/file/upload", consumes = "multipart/form-data")
     @Operation(summary = "上传简历文件",
-            description = "支持 PDF / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB")
+            description = "支持 PDF / DOCX / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB")
     public R<ResumeUploadResponse> uploadResumeFile(
             @Parameter(description = "简历文件", required = true)
             @RequestParam("file") MultipartFile file,

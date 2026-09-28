@@ -98,6 +98,12 @@ class AdminUserTest {
 
     @Test
     void superAdminCanReadProfilesResumesAndDownload() throws Exception {
+        assertThat(users.listUsers(1, 20, null, null).getList())
+                .filteredOn(readUser -> readUser.getId().equals(target.getId()))
+                .singleElement().extracting("realName").isEqualTo("测试同学");
+        mvc.perform(get("/admin/user/list").header("Fusion-Token", token).param("username", "测试同学"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.list[0].realName").value("测试同学"));
         mvc.perform(get("/admin/user/{id}", target.getId()).header("Fusion-Token", token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.password").doesNotExist());
         mvc.perform(get("/admin/user/{id}/profile", target.getId()).header("Fusion-Token", token))

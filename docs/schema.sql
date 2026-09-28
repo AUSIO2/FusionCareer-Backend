@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     `work_period_type`  TINYINT                DEFAULT NULL COMMENT '实习时长：1-3个月以内 2-3到6个月 3-6个月以上',
     `work_mode`         TINYINT                DEFAULT NULL COMMENT '工作形式：1-线上 2-线下 3-线上线下均可',
     `work_city`         VARCHAR(32)            DEFAULT NULL COMMENT '工作城市',
+    `work_cities`       JSON                   DEFAULT NULL COMMENT '工作城市列表',
     `work_province`     VARCHAR(32)            DEFAULT NULL COMMENT '工作省份',
     `work_location`     VARCHAR(128)           DEFAULT NULL COMMENT '详细工作地点',
     `salary_min`        INT                    DEFAULT NULL COMMENT '薪资下限（元/月）',
@@ -127,6 +128,7 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
     `job_desc`          TEXT                   DEFAULT NULL COMMENT '岗位职责描述',
     -- 招聘要求
     `req_edu_level`     TINYINT                DEFAULT NULL COMMENT '要求学历层次（同 fc_user_profile.edu_level）',
+    `req_edu_levels`    JSON                   DEFAULT NULL COMMENT '要求学历层次列表',
     `req_major`         VARCHAR(256)           DEFAULT NULL COMMENT '要求专业方向（可多个，逗号分隔）',
     `req_grad_year`     VARCHAR(16)            DEFAULT NULL COMMENT '要求毕业时间，如：2026届',
     `req_skills`        VARCHAR(512)           DEFAULT NULL COMMENT '技能经验要求',
@@ -162,7 +164,7 @@ CREATE TABLE IF NOT EXISTS `fc_job_post`
 
 -- ----------------------------
 -- 10. 用户简历文件表 fc_resume_file
---     存储用户上传的简历文件元数据（PDF / JPG / PNG）
+--     存储用户上传的简历文件元数据（PDF / DOCX / JPG / PNG）
 --     每用户总配额 30MB，由业务层（ResumeFileService）在写入前校验
 -- ----------------------------
 CREATE TABLE IF NOT EXISTS `fc_resume_file`
@@ -172,7 +174,7 @@ CREATE TABLE IF NOT EXISTS `fc_resume_file`
     `original_name` VARCHAR(255)  NOT NULL COMMENT '用户上传时的原始文件名',
     `storage_path`  VARCHAR(512)  NOT NULL COMMENT '服务器相对存储路径（相对于 upload.base-dir）',
     `file_size`     BIGINT        NOT NULL COMMENT '文件大小（字节）',
-    `mime_type`     VARCHAR(64)   NOT NULL COMMENT 'MIME类型：application/pdf / image/jpeg / image/png',
+    `mime_type`     VARCHAR(128)  NOT NULL COMMENT 'MIME类型：PDF / DOCX / JPEG / PNG',
     `created_at`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
     PRIMARY KEY (`id`),
     KEY `idx_user_id` (`user_id`)

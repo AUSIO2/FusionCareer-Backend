@@ -142,7 +142,7 @@ POST 退出响应：
 | DELETE | `/user/resume/file/{fileId}` | 删除指定简历文件 |
 | GET | `/user/resume/file/quota` | 查询存储配额 |
 
-**上传限制**: PDF / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB
+**上传限制**: PDF / DOCX / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB
 
 **文件列表响应** `ResumeFileResponse`:
 ```json
@@ -177,7 +177,8 @@ POST 退出响应：
 | `workPeriodType` | enum | 实习时长 |
 | `workMode` | enum | 工作形式 |
 | `workProvince` | string | 工作省份 |
-| `workCity` | string | 工作城市 |
+| `workCity` | string | 工作城市；同时兼容匹配 `workCities` 中的任一城市 |
+| `reqEduLevel` | enum | 学历要求；同时兼容匹配 `reqEduLevels` 中的任一学历 |
 | `salaryMin` | int | 查询薪资下限，与岗位薪资区间相交 |
 | `salaryMax` | int | 查询薪资上限，与岗位薪资区间相交 |
 | `sortBy` | enum | `NEWEST`（默认）或 `DEADLINE` |
@@ -188,6 +189,8 @@ POST 退出响应：
 
 - `recommended`：是否推荐。
 - `applicationCount`：已提交和已审核的投递数，不包含草稿。
+- `workCities`：工作城市数组；旧数据会由 `workCity` 补为单元素数组。
+- `reqEduLevels`：学历要求数组；旧数据会由 `reqEduLevel` 补为单元素数组。
 
 ### 3.5 岗位投递问卷
 
@@ -398,13 +401,15 @@ UPDATE fc_user SET role = 2 WHERE student_id = '指定的学号或工号' AND st
   "workPeriodType": "THREE_TO_SIX_MONTHS",
   "workMode": "OFFLINE",
   "workCity": "上海",
+  "workCities": ["上海", "北京"],
   "workProvince": "上海市",
   "workLocation": "复旦大学邯郸路校区",
   "salaryMin": 3000,
   "salaryMax": 5000,
   "salaryDisplay": "150/天",
   "jobDesc": "协助老师完成日常行政工作...",
-  "reqEduLevel": "BACHELOR",
+  "reqEduLevel": "UNDERGRADUATE",
+  "reqEduLevels": ["UNDERGRADUATE", "ACADEMIC_MASTER"],
   "reqMajor": "不限",
   "reqGradYear": "2026届",
   "reqSkills": "Office 办公软件",
@@ -454,7 +459,7 @@ UPDATE fc_user SET role = 2 WHERE student_id = '指定的学号或工号' AND st
     "title": "请上传个人简历",
     "questionType": "FILE_UPLOAD",
     "required": false,
-    "placeholder": "支持 PDF/JPG/PNG"
+    "placeholder": "支持 PDF/DOCX/JPG/PNG"
   }
 ]
 ```

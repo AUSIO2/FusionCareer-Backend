@@ -1,5 +1,6 @@
 package com.fusioncareer.dto.res;
 
+import com.fusioncareer.enums.JobCategory;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
 import lombok.Data;
 
@@ -18,6 +19,7 @@ public class MyQuestionnaireListItemResponse {
     private Long jobPostId;
     private String positionName;
     private String companyName;
+    private JobCategory jobCategory;
     private LocalDate questionnaireDeadline;
     private Boolean expired;
     private String sourceUrl;
