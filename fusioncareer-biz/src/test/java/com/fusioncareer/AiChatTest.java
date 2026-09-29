@@ -186,6 +186,12 @@ class AiChatTest {
         updateSession.setLeaseUntil(LocalDateTime.now().minusSeconds(1));
         readSessions.updateById(updateSession);
 
+        assertThat(manageChat.recoverExpiredRun(
+                createUser.getId(), 1L, createRun.assistantMessage().runId())).isTrue();
+        assertThat(manageChat.recoverExpiredRun(
+                createUser.getId(), 1L, createRun.assistantMessage().runId())).isFalse();
+        assertThat(readSessions.selectById(createUser.getId()).getActiveRunId()).isNull();
+
         AiChatService.RunStart readExpired = manageChat.startRun(
                 createUser.getId(), new AiMessageRequest("request-expired", "超时", List.of()));
         assertThat(readExpired.reused()).isTrue();

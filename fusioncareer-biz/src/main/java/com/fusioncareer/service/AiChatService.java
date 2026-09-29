@@ -433,10 +433,22 @@ public class AiChatService {
                 || !readSession.getLeaseUntil().isBefore(LocalDateTime.now())) {
             return;
         }
+        recoverExpiredRun(
+                readSession.getUserId(), readSession.getEpoch(), readSession.getActiveRunId());
+    }
+
+    @Transactional
+    public boolean recoverExpiredRun(
+            Long updateUserId,
+            Long readEpoch,
+            String readRunId) {
+        if (sessionMapper.releaseExpiredRun(updateUserId, readEpoch, readRunId) != 1) {
+            return false;
+        }
         UpdateWrapper<AiMessageEntity> updateMessage = new UpdateWrapper<>();
-        updateMessage.eq("user_id", readSession.getUserId())
-                .eq("epoch", readSession.getEpoch())
-                .eq("run_id", readSession.getActiveRunId())
+        updateMessage.eq("user_id", updateUserId)
+                .eq("epoch", readEpoch)
+                .eq("run_id", readRunId)
                 .eq("role", AiMessageRole.ASSISTANT.getCode())
                 .in("status", AiMessageStatus.PENDING.getCode(), AiMessageStatus.STREAMING.getCode())
                 .set("status", AiMessageStatus.FAILED.getCode())
@@ -445,7 +457,8 @@ public class AiChatService {
                 .set("finish_reason", "error")
                 .set("updated_at", LocalDateTime.now());
         messageMapper.update(null, updateMessage);
-        rejectActions(readSession.getUserId(), readSession.getEpoch(), readSession.getActiveRunId());
+        rejectActions(updateUserId, readEpoch, readRunId);
+        return true;
     }
 
     private void supersedeActions(Long updateUserId, Long readEpoch) {

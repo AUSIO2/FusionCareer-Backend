@@ -1718,6 +1718,8 @@ CHAT_PROVIDER_STREAM_TOOLS=true
 
 长会话摘要已落地：上下文限制为最近 12 条/20K 字符，达到 10 个完整轮次或字符阈值后异步调用无 Tool 摘要接口，并按 `epoch + summaryThroughMessageId` CAS 写回；摘要失败不阻塞当前回答。
 
+过期租约恢复已落地：Java 定时批量扫描并以 `userId + epoch + activeRunId + leaseUntil` 条件释放运行，将消息置为 `FAILED/LEASE_EXPIRED`，同时拒绝该 run 的 PENDING Action；条件更新保证多实例幂等。
+
 实现：
 
 - 复用已完成的 `PersonalSpaceMutationService`；

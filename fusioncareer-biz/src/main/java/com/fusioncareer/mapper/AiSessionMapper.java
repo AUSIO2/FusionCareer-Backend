@@ -46,4 +46,14 @@ public interface AiSessionMapper extends BaseMapper<AiSessionEntity> {
             @Param("updateUserId") Long updateUserId,
             @Param("readEpoch") Long readEpoch,
             @Param("readRunId") String readRunId);
+
+    @Update("UPDATE fc_ai_session SET active_run_id = NULL, lease_until = NULL, "
+            + "updated_at = CURRENT_TIMESTAMP(3) "
+            + "WHERE user_id = #{updateUserId} AND epoch = #{readEpoch} "
+            + "AND active_run_id = #{readRunId} "
+            + "AND lease_until < CURRENT_TIMESTAMP(3)")
+    int releaseExpiredRun(
+            @Param("updateUserId") Long updateUserId,
+            @Param("readEpoch") Long readEpoch,
+            @Param("readRunId") String readRunId);
 }

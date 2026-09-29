@@ -166,6 +166,8 @@ AI Session 以 `userId` 为主键，同一用户最多一条记录，并在第�
 
 模型上下文最多携带摘要后的最近 12 条、20K 字符消息。累计 20 条完整消息或超过字符预算时，Java 在回复落库后异步调用 `/api/internal/chat/summarize`；摘要端点没有 Tool 权限，写回使用 `epoch + summaryThroughMessageId` CAS，失败不影响当前 SSE。
 
+后台任务每分钟回收 `lease_until` 已过期的运行：助手消息转为 `FAILED`、错误码为 `LEASE_EXPIRED`，对应未确认提案转为 `REJECTED/RUN_NOT_COMPLETED`，Session 重新允许发起新请求。
+
 当前只读 Tool 包含：`get_my_space`、`get_my_account`、`get_my_profile`、`get_my_resume`、`list_my_files`、`get_my_file`、`get_my_file_quota`、`get_my_memory`、`list_my_applications`、`get_my_application`、`search_jobs`、`get_job`、`get_job_questionnaire`、`list_my_changes`、`get_my_change`。模型不可传入 userId；Python 只原样转发 Java 签发的 AgentContext，Java 在每次 Tool 调用时重新校验签名、过期时间、run、epoch、租约和 scope。
 
 `AI_CHAT_WRITE_ENABLED=true` 时开放 `propose_profile_patch`、`propose_resume_patch`、`propose_memory_patch`、`propose_file_delete`、`propose_questionnaire_draft`、`propose_questionnaire_submit` 和 `parse_resume_file`。前三者使用 `changes: [{field, operation, value?}]`；文件删除只接受当前用户未删除的 `fileId`；问卷 Tool 使用结构化 `{questionId,value}` 数组；简历解析只接受当前用户活动文件，并生成 Profile + Resume 多 Item Action。Java 从 AgentContext 确定用户和当前版本，并以 `runId + toolCallId` 派生幂等键。Tool 只保存加密的 `PENDING` Action；Python 会产生 `action_proposed` SSE 事件。确认和拒绝只能由登录用户调用 `/personal-space/actions/{id}/confirm|reject`，确认时再次执行版本 CAS，成功后该 Action 可随时 Revert。

@@ -125,6 +125,8 @@ Agent 运行时默认最多调用 4 个 Tool、查询 Tool 3 秒超时、整轮 
 
 单 Session 上下文固定最多 12 条、20K 字符。累计 10 个完整轮次或超过字符预算后，Java 异步调用无 Tool 摘要接口，并用 `epoch + summaryThroughMessageId` CAS 写回；摘要失败不阻塞当前回复，也不会把 Tool 结果写入长期摘要。
 
+Java 每分钟扫描过期运行租约：使用条件更新释放匹配的 `activeRunId`，将未完成助手消息标记为 `FAILED/LEASE_EXPIRED`，并拒绝该运行产生的未确认 Action。多实例同时扫描时只有一个实例能成功回收。
+
 #### 个人资料 & 简历
 
 | 方法 | 路径 | 说明 |
