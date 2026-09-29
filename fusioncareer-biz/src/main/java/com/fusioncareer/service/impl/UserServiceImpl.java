@@ -25,6 +25,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static com.fusioncareer.util.PaginationUtil.createPage;
+import static com.fusioncareer.util.PersonNameUtil.readName;
 
 @Service
 @RequiredArgsConstructor
@@ -37,12 +38,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
     public UserResponse createUser(UserRequest request) {
         UserEntity entity = BeanUtil.copyProperties(request, UserEntity.class);
         save(entity);
-        return toResponse(entity);
+        return getUserById(entity.getId());
     }
 
     @Override
     public UserResponse getUserById(Long id) {
-        return toResponse(getById(id));
+        return toResponse(getById(id), userProfileMapper.selectById(id));
     }
 
     @Override
@@ -78,10 +79,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
                         readUsers.getRecords().stream().map(UserEntity::getId).toList()).stream()
                         .collect(Collectors.toMap(UserProfileEntity::getUserId, Function.identity()));
         readUsers.getRecords().forEach(readUser -> {
-            UserResponse readResponse = toResponse(readUser);
-            UserProfileEntity readProfile = readProfiles.get(readUser.getId());
-            if (readProfile != null) readResponse.setRealName(readProfile.getRealName());
-            readPage.add(readResponse);
+            readPage.add(toResponse(readUser, readProfiles.get(readUser.getId())));
         });
         return readPage;
     }
@@ -106,9 +104,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, UserEntity> impleme
         return getUserById(id);
     }
 
-    private UserResponse toResponse(UserEntity entity) {
-        if (entity == null) return null;
-        UserResponse resp = BeanUtil.copyProperties(entity, UserResponse.class);
-        return resp;
+    private UserResponse toResponse(UserEntity readUser, UserProfileEntity readProfile) {
+        if (readUser == null) return null;
+        UserResponse readResponse = BeanUtil.copyProperties(readUser, UserResponse.class);
+        readResponse.setRealName(readName(readUser.getStudentId(),
+                readProfile == null ? null : readProfile.getRealName(), readUser.getUsername()));
+        return readResponse;
     }
 }

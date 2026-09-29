@@ -15,6 +15,7 @@ from app.api.deps.admin_auth import require_agent_admin
 from app.api.exceptions import register_exception_handlers
 from app.api.routers import admin as admin_router
 from app.api.routers import internal as internal_router
+from app.api.routers import chat as chat_router
 from app.catalog.catalog import DataClassCatalog
 from app.catalog.ref_index import DataClassRefIndex
 from app.catalog.workflow_catalog import WorkflowCatalog
@@ -148,6 +149,7 @@ app = FastAPI(
 register_exception_handlers(app)
 app.include_router(admin_router.router)
 app.include_router(internal_router.router)
+app.include_router(chat_router.router)
 
 
 class RunWorkflowRequest(BaseModel):

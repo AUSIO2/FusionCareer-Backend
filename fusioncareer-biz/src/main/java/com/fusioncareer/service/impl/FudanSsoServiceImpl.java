@@ -1,6 +1,7 @@
 package com.fusioncareer.service.impl;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.fusioncareer.util.PersonNameUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.config.FudanOAuth2Properties;
@@ -105,7 +106,8 @@ public class FudanSsoServiceImpl implements FudanSsoService {
                 throw new RuntimeException("Failed to get user info");
             }
 
-            String userName = resolveFudanUserName(userInfo, userId);
+            String readName = readFudanName(userInfo, userId);
+            String userName = readName == null ? userId : readName;
             String readPhone = readFudanValue(userInfo, "mobile", "phone", "mobilePhone");
             String readEmail = readFudanValue(userInfo, "email", "mail");
             String readMajor = readFudanValue(userInfo, "major", "majorName", "major_name");
@@ -125,7 +127,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
                 // 同步复旦 UIS 用户资料到 UserProfile
                 UserProfileEntity profile = new UserProfileEntity();
                 profile.setUserId(user.getId());
-                profile.setRealName(userName.equals(userId) ? null : userName);
+                profile.setRealName(readName);
                 profile.setPhone(readPhone);
                 profile.setEmail(readEmail);
                 profile.setMajor(readMajor);
@@ -140,7 +142,7 @@ public class FudanSsoServiceImpl implements FudanSsoService {
 
                 log.info("Registered new user from Fudan SSO");
             } else {
-                updateSsoProfile(user, userId, userName, readPhone, readEmail, readMajor);
+                updateSsoProfile(user, userId, readName, readPhone, readEmail, readMajor);
             }
 
             if (user.getStatus() == UserStatus.DISABLED) {
@@ -302,10 +304,16 @@ public class FudanSsoServiceImpl implements FudanSsoService {
         return readFudanValue(userInfo, "userId", "sub", "uid", "username", "user_id");
     }
 
-    private String resolveFudanUserName(JsonNode userInfo, String fallback) {
-        String readName = readFudanValue(
-                userInfo, "userName", "name", "realName", "real_name", "displayName", "nickname", "cn");
-        return readName == null ? fallback : readName;
+    private String readFudanName(JsonNode readInfo, String readStudentId) {
+        if (readInfo == null || !readInfo.isObject()) return null;
+        // userName 可能是学工号；跳过标识后继续查找真实姓名。
+        for (String readField : new String[]{"realName", "real_name", "name", "cn", "displayName", "userName", "nickname"}) {
+            JsonNode readValue = readInfo.get(readField);
+            String readName = PersonNameUtil.readName(
+                    readStudentId, readValue != null && readValue.isTextual() ? readValue.asText() : null);
+            if (readName != null) return readName;
+        }
+        return readFudanName(readInfo.get("data"), readStudentId);
     }
 
     private String readFudanValue(JsonNode readInfo, String... readFields) {
@@ -333,7 +341,8 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             String readPhone,
             String readEmail,
             String readMajor) {
-        if (readUserId.equals(updateUser.getUsername()) && !readUserName.equals(readUserId)) {
+        if (readUserName != null && PersonNameUtil.readName(
+                readUserId, updateUser.getUsername()) == null) {
             updateUser.setUsername(readUserName);
             userService.updateById(updateUser);
         }
@@ -343,8 +352,8 @@ public class FudanSsoServiceImpl implements FudanSsoService {
             updateProfile.setUserId(updateUser.getId());
             updateProfile.setCreatedAt(LocalDateTime.now());
         }
-        if ((updateProfile.getRealName() == null || updateProfile.getRealName().equals(readUserId))
-                && !readUserName.equals(readUserId)) {
+        if (readUserName != null && PersonNameUtil.readName(
+                readUserId, updateProfile.getRealName()) == null) {
             updateProfile.setRealName(readUserName);
         }
         if (updateProfile.getPhone() == null && readPhone != null) {

@@ -1,6 +1,7 @@
 package com.fusioncareer.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import com.fusioncareer.util.PersonNameUtil;
 import com.fusioncareer.service.QuestionnaireExportService;
 import com.fusioncareer.service.QuestionnaireAnswerService;
 import com.fusioncareer.service.JobPostQuestionService;
@@ -24,7 +25,6 @@ import com.fusioncareer.dto.res.JobPostQuestionResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -150,9 +150,11 @@ public class QuestionnaireExportServiceImpl implements QuestionnaireExportServic
         for (int readIndex = 0; readIndex < readAnswers.size(); readIndex++) {
             QuestionnaireAnswerEntity readAnswer = readAnswers.get(readIndex);
             UserEntity readUser = readUsers.get(readAnswer.getUserId());
+            UserProfileEntity readProfile = readProfiles.get(readAnswer.getUserId());
+            if (readProfile != null) readProfile.setRealName(readDisplayName(readUser, readProfile));
             Map<Long, Object> readValues = answerValues(readAnswer.getAnswers());
             createCsv.append(escapeCsv(readIndex + 1)).append(',')
-                    .append(escapeCsv(displayName(readUser, readProfiles.get(readAnswer.getUserId())))).append(',')
+                    .append(escapeCsv(readDisplayName(readUser, readProfiles.get(readAnswer.getUserId())))).append(',')
                     .append(escapeCsv(readUser == null ? null : readUser.getStudentId())).append(',')
                     .append(escapeCsv(readAnswer.getSubmissionStatus())).append(',')
                     .append(escapeCsv(readAnswer.getCreatedAt())).append(',')
@@ -160,7 +162,7 @@ public class QuestionnaireExportServiceImpl implements QuestionnaireExportServic
                     .append(escapeCsv(readAnswer.getReviewPassed())).append(',')
                     .append(escapeCsv(readAnswer.getReviewComments()));
             if (readContent.contains("profile")) {
-                appendValues(createCsv, readProfiles.get(readAnswer.getUserId()), PROFILE_COLUMNS);
+                appendValues(createCsv, readProfile, PROFILE_COLUMNS);
             }
             if (readContent.contains("resume")) {
                 appendValues(createCsv, readResumes.get(readAnswer.getUserId()), RESUME_COLUMNS);
@@ -237,7 +239,7 @@ public class QuestionnaireExportServiceImpl implements QuestionnaireExportServic
         for (ResumeFileEntity readFile : readFiles) {
             UserEntity readUser = readUsers.get(readFile.getUserId());
             String createName = "resumes/" + readSequences.get(readFile.getUserId()) + "_"
-                    + sanitizeFilename(displayName(readUser, readProfiles.get(readFile.getUserId()))) + "_"
+                    + sanitizeFilename(readDisplayName(readUser, readProfiles.get(readFile.getUserId()))) + "_"
                     + sanitizeFilename(readUser == null ? "" : readUser.getStudentId()) + "_"
                     + readFile.getId() + "_" + sanitizeFilename(readFile.getOriginalName());
             writeFile(createZip, createName, readFile);
@@ -272,7 +274,7 @@ public class QuestionnaireExportServiceImpl implements QuestionnaireExportServic
                 if (readQuestionIds.contains(readQuestionId) && readFileId != null) {
                     readOwners.put(readFileId, new ResumeExport(
                             readAnswer.getUserId(), readIndex + 1,
-                            displayName(readUser, readProfiles.get(readAnswer.getUserId())),
+                            readDisplayName(readUser, readProfiles.get(readAnswer.getUserId())),
                             readUser == null ? "" : readUser.getStudentId()));
                 }
             }
@@ -298,11 +300,12 @@ public class QuestionnaireExportServiceImpl implements QuestionnaireExportServic
                 .stream().collect(Collectors.toMap(ResumeEntity::getUserId, Function.identity()));
     }
 
-    private String displayName(UserEntity readUser, UserProfileEntity readProfile) {
-        if (readProfile != null && StringUtils.hasText(readProfile.getRealName())) {
-            return readProfile.getRealName();
-        }
-        return readUser == null ? "" : readUser.getUsername();
+    private String readDisplayName(UserEntity readUser, UserProfileEntity readProfile) {
+        String readName = PersonNameUtil.readName(
+                readUser == null ? null : readUser.getStudentId(),
+                readProfile == null ? null : readProfile.getRealName(),
+                readUser == null ? null : readUser.getUsername());
+        return readName == null ? "未填写姓名" : readName;
     }
 
     private Map<Long, Object> answerValues(String readAnswers) {

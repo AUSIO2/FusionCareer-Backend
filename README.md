@@ -68,7 +68,7 @@ FusionCareer-Backend/
 
 ---
 
-## API 接口总览（47 个）
+## API 接口总览
 
 > 详细文档（含请求体/响应体示例、枚举值参考）见 [`docs/API_README.md`](docs/API_README.md)
 
@@ -86,6 +86,40 @@ FusionCareer-Backend/
 
 ### 用户端接口（需要 `Fusion-Token` 认证）
 
+#### 个人空间
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/personal-space` | 获取当前用户个人空间总览 |
+| GET | `/personal-space/profile` | 获取个人空间资料 |
+| PATCH | `/personal-space/profile` | 使用 SET/CLEAR 和版本号修改资料 |
+| GET | `/personal-space/resume` | 获取个人空间结构化简历 |
+| PATCH | `/personal-space/resume` | 使用 SET/CLEAR 和版本号修改结构化简历 |
+| GET | `/personal-space/documents` | 获取个人空间文件与配额 |
+| GET | `/personal-space/documents/deleted` | 获取个人空间回收站文件 |
+| DELETE | `/personal-space/documents/{fileId}` | 将个人空间文件移入回收站 |
+| POST | `/personal-space/documents/{fileId}/restore` | 恢复回收站文件 |
+| GET | `/personal-space/applications` | 分页获取个人空间投递 |
+| GET | `/personal-space/memory` | 获取轻量长期记忆 |
+| PUT | `/personal-space/memory/{key}` | 设置一个长期记忆项 |
+| DELETE | `/personal-space/memory/{key}` | 删除一个长期记忆项 |
+| DELETE | `/personal-space/memory` | 清空长期记忆 |
+| GET | `/personal-space/actions` | 分页获取安全变更历史 |
+| GET | `/personal-space/actions/{actionId}` | 获取一条变更的安全详情 |
+| POST | `/personal-space/actions/{actionId}/revert` | 创建三方比较回退提案 |
+| POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行回退提案 |
+| POST | `/personal-space/actions/{actionId}/reject` | 拒绝回退提案 |
+| GET | `/personal-space/assistant/session` | 获取当前用户唯一 AI Session 状态 |
+| GET | `/personal-space/assistant/messages` | 分页获取当前 epoch 消息 |
+| POST | `/personal-space/assistant/messages/stream` | 发送消息并获取 SSE 文本流 |
+| POST | `/personal-space/assistant/run/cancel` | 取消当前 AI 运行 |
+| POST | `/personal-space/assistant/session/clear` | 清空对话并保留 Memory |
+| DELETE | `/personal-space/assistant/session` | 重置 Session 并保留 Memory 与历史 |
+
+Profile、Resume 和 Memory 的 canonical 写入会在同一事务中记录不可变 Action/Item。实际修改字段的 before/after 使用 AES-256-GCM 加密；任意 APPLIED 操作均可创建永久回退提案，确认时使用版本 CAS 和 before/after/current 三方比较，Revert 本身也可再次 Revert。生产部署必须配置 `USER_CHANGE_KEY`（可用 `openssl rand -base64 32` 生成）和 `USER_CHANGE_KEY_VERSION`。
+
+AI 当前开放 15 个固定只读 Tool：个人空间、账号、资料、简历、文件列表/详情/配额、Memory、投递列表/详情、岗位搜索/详情/问卷、变更历史列表/详情。Tool Schema 不包含 userId，Java 使用 5 分钟 HMAC AgentContext 重新校验用户、run、epoch 和 scope；生产部署需额外配置独立的 `AGENT_CONTEXT_SECRET`。
+
 #### 个人资料 & 简历
 
 | 方法 | 路径 | 说明 |
@@ -102,7 +136,7 @@ FusionCareer-Backend/
 | POST | `/user/resume/file/upload` | 上传简历文件（multipart） |
 | GET | `/user/resume/file/list` | 获取文件列表 |
 | GET | `/user/resume/file/{fileId}/download` | 下载文件 |
-| DELETE | `/user/resume/file/{fileId}` | 删除文件 |
+| DELETE | `/user/resume/file/{fileId}` | 将文件移入回收站 |
 | GET | `/user/resume/file/quota` | 查询存储配额 |
 
 #### 岗位浏览

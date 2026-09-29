@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.dto.res.JobPostQuestionResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
 import com.fusioncareer.entity.JobPostQuestionEntity;
-import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.service.UserService;
 import com.fusioncareer.service.impl.JobPostQuestionServiceImpl;
 import com.fusioncareer.service.impl.QuestionnaireAnswerServiceImpl;
@@ -31,17 +31,18 @@ class BeanMappingTest {
     }
 
     @Test
-    void userEnrichmentPreservesAnswerId() {
-        UserService users = mock(UserService.class);
-        when(users.getById(7L)).thenReturn(BeanUtil.toBean(Map.of(
-                "id", 7L, "username", "姓名", "studentId", "2026001"), UserEntity.class));
-        QuestionnaireAnswerResponse response = BeanUtil.toBean(
+    void preserveAnswerId() {
+        UserService readUsers = mock(UserService.class);
+        when(readUsers.getUserById(7L)).thenReturn(BeanUtil.toBean(Map.of(
+                "id", 7L, "username", "2026001", "realName", "姓名", "studentId", "2026001"), UserResponse.class));
+        QuestionnaireAnswerResponse readResponse = BeanUtil.toBean(
                 Map.of("id", 42L, "userId", 7L), QuestionnaireAnswerResponse.class);
-        ReflectionTestUtils.invokeMethod(new QuestionnaireAnswerServiceImpl(users, null, null, null),
-                "enrichUserInfo", response, 7L);
-        assertThat(response.getId()).isEqualTo(42L);
-        assertThat(response.getUserId()).isEqualTo(7L);
-        assertThat(response.getUsername()).isEqualTo("姓名");
-        assertThat(response.getStudentId()).isEqualTo("2026001");
+        ReflectionTestUtils.invokeMethod(new QuestionnaireAnswerServiceImpl(readUsers, null, null, null, null),
+                "enrichUser", readResponse, 7L);
+        assertThat(readResponse.getId()).isEqualTo(42L);
+        assertThat(readResponse.getUserId()).isEqualTo(7L);
+        assertThat(readResponse.getUsername()).isEqualTo("2026001");
+        assertThat(readResponse.getRealName()).isEqualTo("姓名");
+        assertThat(readResponse.getStudentId()).isEqualTo("2026001");
     }
 }

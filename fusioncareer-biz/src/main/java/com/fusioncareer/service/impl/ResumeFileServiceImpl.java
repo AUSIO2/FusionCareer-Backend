@@ -3,11 +3,12 @@ package com.fusioncareer.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.config.UploadProperties;
 import com.fusioncareer.dto.res.ResumeFileResponse;
 import com.fusioncareer.entity.ResumeFileEntity;
 import com.fusioncareer.exception.ResumeErrorCode;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.ResumeFileMapper;
 import com.fusioncareer.service.FileStorageService;
 import com.fusioncareer.service.ResumeFileService;
@@ -65,7 +66,10 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
         entity.setStoragePath(relativePath);
         entity.setFileSize(file.getSize());
         entity.setMimeType(file.getContentType());
-        entity.setCreatedAt(LocalDateTime.now());
+        entity.setVersion(0L);
+        LocalDateTime createNow = LocalDateTime.now();
+        entity.setCreatedAt(createNow);
+        entity.setUpdatedAt(createNow);
         save(entity);
 
         log.info("用户 {} 上传简历文件: {}, size={}KB", userId, file.getOriginalFilename(), file.getSize() / 1024);
@@ -77,27 +81,59 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
         List<ResumeFileEntity> entities = list(
                 new LambdaQueryWrapper<ResumeFileEntity>()
                         .eq(ResumeFileEntity::getUserId, userId)
+                        .isNull(ResumeFileEntity::getDeletedAt)
                         .orderByDesc(ResumeFileEntity::getCreatedAt)
         );
         return entities.stream().map(this::toResponse).toList();
     }
 
+    @Override
+    public List<ResumeFileResponse> listDeletedByUser(Long userId) {
+        return list(new LambdaQueryWrapper<ResumeFileEntity>()
+                .eq(ResumeFileEntity::getUserId, userId)
+                .isNotNull(ResumeFileEntity::getDeletedAt)
+                .orderByDesc(ResumeFileEntity::getDeletedAt)).stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
     @Transactional
     @Override
     public void delete(Long userId, Long fileId) {
-        ResumeFileEntity entity = getById(fileId);
-        if (entity == null) {
-            throw ServiceException.of(ResumeErrorCode.FILE_NOT_FOUND);
-        }
-        if (!entity.getUserId().equals(userId)) {
-            throw ServiceException.of(ResumeErrorCode.DELETE_FORBIDDEN);
-        }
+        ResumeFileEntity updateFile = getOwnFile(userId, fileId);
+        LocalDateTime readNow = LocalDateTime.now();
+        updateFile.setDeletedAt(readNow);
+        updateFile.setUpdatedAt(readNow);
+        updateFile(updateFile);
+        log.info("用户 {} 将简历文件移入回收站: id={}", userId, fileId);
+    }
 
-        // 删除磁盘文件
-        fileStorageService.deleteFile(entity.getStoragePath());
+    @Transactional
+    @Override
+    public void restore(Long userId, Long fileId) {
+        ResumeFileEntity updateFile = getUserFile(userId, fileId, true);
+        boolean readUpdated = lambdaUpdate()
+                .eq(ResumeFileEntity::getId, fileId)
+                .eq(ResumeFileEntity::getUserId, userId)
+                .eq(ResumeFileEntity::getVersion, updateFile.getVersion())
+                .isNotNull(ResumeFileEntity::getDeletedAt)
+                .set(ResumeFileEntity::getDeletedAt, null)
+                .set(ResumeFileEntity::getUpdatedAt, LocalDateTime.now())
+                .setSql("version = version + 1")
+                .update();
+        if (!readUpdated) {
+            throw ServiceException.of(ResultCode.CONFLICT, "文件已发生变化，请刷新后重试");
+        }
+        log.info("用户 {} 恢复简历文件: id={}", userId, fileId);
+    }
 
+    @Transactional
+    @Override
+    public void purge(Long userId, Long fileId) {
+        ResumeFileEntity deleteFile = getUserFile(userId, fileId, null);
+        fileStorageService.deleteFile(deleteFile.getStoragePath());
         removeById(fileId);
-        log.info("用户 {} 删除简历文件: id={}, path={}", userId, fileId, entity.getStoragePath());
+        log.info("用户 {} 永久删除简历文件: id={}", userId, fileId);
     }
 
     @Override
@@ -106,15 +142,37 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
     }
 
     @Override
+    public long countByUser(Long userId) {
+        return count(new LambdaQueryWrapper<ResumeFileEntity>()
+                .eq(ResumeFileEntity::getUserId, userId)
+                .isNull(ResumeFileEntity::getDeletedAt));
+    }
+
+    @Override
     public ResumeFileEntity getOwnFile(Long userId, Long fileId) {
-        ResumeFileEntity entity = getById(fileId);
+        return getUserFile(userId, fileId, false);
+    }
+
+    private ResumeFileEntity getUserFile(Long userId, Long fileId, Boolean requireDeleted) {
+        LambdaQueryWrapper<ResumeFileEntity> readQuery = new LambdaQueryWrapper<ResumeFileEntity>()
+                .eq(ResumeFileEntity::getId, fileId)
+                .eq(ResumeFileEntity::getUserId, userId);
+        if (Boolean.TRUE.equals(requireDeleted)) {
+            readQuery.isNotNull(ResumeFileEntity::getDeletedAt);
+        } else if (Boolean.FALSE.equals(requireDeleted)) {
+            readQuery.isNull(ResumeFileEntity::getDeletedAt);
+        }
+        ResumeFileEntity entity = getOne(readQuery);
         if (entity == null) {
             throw ServiceException.of(ResumeErrorCode.FILE_NOT_FOUND);
         }
-        if (!entity.getUserId().equals(userId)) {
-            throw ServiceException.of(ResumeErrorCode.DELETE_FORBIDDEN);
-        }
         return entity;
+    }
+
+    private void updateFile(ResumeFileEntity updateFile) {
+        if (!updateById(updateFile)) {
+            throw ServiceException.of(ResultCode.CONFLICT, "文件已发生变化，请刷新后重试");
+        }
     }
 
     @Override
@@ -126,8 +184,9 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
 
     private ResumeFileResponse toResponse(ResumeFileEntity entity) {
         ResumeFileResponse resp = BeanUtil.copyProperties(entity, ResumeFileResponse.class);
-        // 拼接可访问的 URL
-        resp.setUrl(fileStorageService.buildUrl(entity.getStoragePath()));
+        if (entity.getDeletedAt() == null) {
+            resp.setUrl(fileStorageService.buildUrl(entity.getStoragePath()));
+        }
         return resp;
     }
 }

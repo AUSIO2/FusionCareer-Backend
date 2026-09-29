@@ -32,6 +32,9 @@ public interface ResumeFileService extends IService<ResumeFileEntity> {
      */
     List<ResumeFileResponse> listByUser(Long userId);
 
+    /** 列出当前用户回收站文件。 */
+    List<ResumeFileResponse> listDeletedByUser(Long userId);
+
     /**
      * 下载指定文件（只能下载自己的）
      *
@@ -50,12 +53,20 @@ public interface ResumeFileService extends IService<ResumeFileEntity> {
     Resource loadAsResource(String storagePath);
 
     /**
-     * 删除指定文件（只能删除自己的）
+     * 将指定文件移入回收站（只能操作自己的）
      *
      * @param userId 当前用户ID
      * @param fileId 文件ID
      */
     void delete(Long userId, Long fileId);
+
+    /** 从回收站恢复文件。 */
+    void restore(Long userId, Long fileId);
+
+    /**
+     * 永久删除文件，仅供明确的数据清除流程和测试清理使用。
+     */
+    void purge(Long userId, Long fileId);
 
     /**
      * 查询用户已使用的存储空间（字节）
@@ -64,4 +75,6 @@ public interface ResumeFileService extends IService<ResumeFileEntity> {
      * @return 已用字节数
      */
     long getUsedBytes(Long userId);
+
+    long countByUser(Long userId);
 }

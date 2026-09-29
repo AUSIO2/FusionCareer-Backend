@@ -75,6 +75,23 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     }
 
     @Override
+    public JobPostResponse getVisibleJobPost(Long id) {
+        JobPostResponse readJob = toResponse(getVisibleJob(id));
+        if (readJob != null) {
+            mapApplications(List.of(readJob));
+        }
+        return readJob;
+    }
+
+    @Override
+    public JobPostEntity getVisibleJob(Long id) {
+        LambdaQueryWrapper<JobPostEntity> readQuery = new LambdaQueryWrapper<JobPostEntity>()
+                .eq(JobPostEntity::getId, id);
+        filterVisibleJobs(readQuery);
+        return getOne(readQuery);
+    }
+
+    @Override
     public JobPostAdminResponse getAdminJobPost(Long id) {
         JobPostAdminResponse readJob = toAdminResponse(getById(id));
         if (readJob != null) {
@@ -123,16 +140,20 @@ public class JobPostServiceImpl extends ServiceImpl<JobPostMapper, JobPostEntity
     @Override
     public PageResult<JobPostResponse> listPublishedJobPosts(JobPostQueryRequest query) {
         LambdaQueryWrapper<JobPostEntity> buildQuery = buildJobQuery(query);
-        LocalDate readToday = LocalDate.now();
-        buildQuery.eq(JobPostEntity::getStatus, JobPostStatus.PUBLISHED)
-                .and(readJob -> readJob.isNull(JobPostEntity::getApplicationDeadline)
-                        .or().ge(JobPostEntity::getApplicationDeadline, readToday))
-                .and(readJob -> readJob.isNull(JobPostEntity::getWorkEndDate)
-                        .or().ge(JobPostEntity::getWorkEndDate, readToday));
+        filterVisibleJobs(buildQuery);
 
         Page<JobPostEntity> readJobs = page(
                 createPage(query.getPage(), query.getSize()), buildQuery);
         return mapPage(readJobs);
+    }
+
+    private void filterVisibleJobs(LambdaQueryWrapper<JobPostEntity> updateQuery) {
+        LocalDate readToday = LocalDate.now();
+        updateQuery.eq(JobPostEntity::getStatus, JobPostStatus.PUBLISHED)
+                .and(readJob -> readJob.isNull(JobPostEntity::getApplicationDeadline)
+                        .or().ge(JobPostEntity::getApplicationDeadline, readToday))
+                .and(readJob -> readJob.isNull(JobPostEntity::getWorkEndDate)
+                        .or().ge(JobPostEntity::getWorkEndDate, readToday));
     }
 
     @Transactional

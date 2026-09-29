@@ -19,6 +19,10 @@ public interface JobPostService extends IService<JobPostEntity> {
 
     JobPostResponse getJobPost(Long id);
 
+    JobPostResponse getVisibleJobPost(Long id);
+
+    JobPostEntity getVisibleJob(Long id);
+
     JobPostAdminResponse getAdminJobPost(Long id);
 
     PageResult<JobPostResponse> listJobPosts(JobPostQueryRequest query);

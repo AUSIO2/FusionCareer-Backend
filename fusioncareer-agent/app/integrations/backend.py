@@ -107,6 +107,21 @@ class BackendClient:
         if create_jobs:
             await self._post("/internal/job-post/batch", create_jobs)
 
+    async def run_agent_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        agent_context: str,
+    ) -> Any:
+        client = await self._ensure_client()
+        resp = await client.post(
+            f"/internal/agent/tools/{tool_name}",
+            json=arguments,
+            headers={"X-Agent-Context": agent_context},
+        )
+        resp.raise_for_status()
+        return self._unwrap(resp)
+
     # ── 通用方法 ──────────────────────────────
 
     async def _post(self, path: str, data: Any) -> Any:

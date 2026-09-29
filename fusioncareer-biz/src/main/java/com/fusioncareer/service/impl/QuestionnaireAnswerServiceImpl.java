@@ -4,22 +4,26 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fusioncareer.common.PageResult;
+import com.fusioncareer.dto.QuestionnaireApplicationCount;
 import com.fusioncareer.dto.req.QuestionnaireReviewRequest;
 import com.fusioncareer.dto.req.QuestionnaireSubmitRequest;
 import com.fusioncareer.dto.res.JobPostQuestionResponse;
 import com.fusioncareer.dto.res.MyQuestionnaireListItemResponse;
 import com.fusioncareer.dto.res.MyQuestionnaireListPageResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
+import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
-import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.enums.QuestionType;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
 import com.fusioncareer.exception.QuestionnaireErrorCode;
+import com.fusioncareer.exception.ResultCode;
 import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.QuestionnaireAnswerMapper;
 import com.fusioncareer.service.JobPostQuestionService;
 import com.fusioncareer.service.JobPostService;
 import com.fusioncareer.service.QuestionnaireAnswerService;
+import com.fusioncareer.service.ResumeFileService;
 import com.fusioncareer.service.UserService;
 import com.fusioncareer.util.QuestionnaireAnswerValidator;
 import com.fusioncareer.util.QuestionnaireDeadlineUtil;
@@ -52,11 +56,16 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
     private final JobPostService jobPostService;
     private final JobPostQuestionService jobPostQuestionService;
     private final QuestionnaireAnswerValidator answerValidator;
+    private final ResumeFileService resumeFileService;
 
     @Transactional
     @Override
     public QuestionnaireAnswerResponse saveDraft(Long userId, QuestionnaireSubmitRequest request) {
         requireOpenJob(request.getJobPostId());
+        List<JobPostQuestionResponse> readQuestions = jobPostQuestionService.listByJobPostId(request.getJobPostId());
+        Map<Long, Object> readAnswers = answerValidator.validateDraftAnswers(
+                request.getAnswers(), readQuestions);
+        validateFileAnswers(userId, readAnswers, readQuestions);
         QuestionnaireAnswerEntity existing = findByUserAndJob(userId, request.getJobPostId());
         assertCanEdit(existing);
         if (existing != null && existing.getSubmissionStatus() == QuestionnaireSubmissionStatus.SUBMITTED) {
@@ -69,12 +78,13 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
             clearReviewMetadata(existing);
             existing.setSubmissionStatus(QuestionnaireSubmissionStatus.DRAFT);
             existing.setUpdatedAt(LocalDateTime.now());
-            updateById(existing);
+            updateAnswer(existing);
             return toResponse(existing);
         }
 
         QuestionnaireAnswerEntity entity = newQuestionnaireAnswer(userId, request);
         entity.setSubmissionStatus(QuestionnaireSubmissionStatus.DRAFT);
+        entity.setVersion(0L);
         save(entity);
         return toResponse(entity);
     }
@@ -84,7 +94,8 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
     public QuestionnaireAnswerResponse submit(Long userId, QuestionnaireSubmitRequest request) {
         requireOpenJob(request.getJobPostId());
         List<JobPostQuestionResponse> questions = jobPostQuestionService.listByJobPostId(request.getJobPostId());
-        answerValidator.validateRequiredAnswers(request.getAnswers(), questions);
+        Map<Long, Object> readAnswers = answerValidator.validateRequiredAnswers(request.getAnswers(), questions);
+        validateFileAnswers(userId, readAnswers, questions);
 
         QuestionnaireAnswerEntity existing = findByUserAndJob(userId, request.getJobPostId());
         if (existing != null && existing.getSubmissionStatus() == QuestionnaireSubmissionStatus.REVIEWED) {
@@ -96,13 +107,14 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
             clearReviewMetadata(existing);
             existing.setSubmissionStatus(QuestionnaireSubmissionStatus.SUBMITTED);
             existing.setUpdatedAt(LocalDateTime.now());
-            updateById(existing);
+            updateAnswer(existing);
             log.info("用户 {} 提交岗位 {} 的问卷", userId, request.getJobPostId());
             return toResponse(existing);
         }
 
         QuestionnaireAnswerEntity entity = newQuestionnaireAnswer(userId, request);
         entity.setSubmissionStatus(QuestionnaireSubmissionStatus.SUBMITTED);
+        entity.setVersion(0L);
         save(entity);
         log.info("用户 {} 首次提交岗位 {} 的问卷", userId, request.getJobPostId());
         return toResponse(entity);
@@ -114,6 +126,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
                 createPage(page, size),
                 new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
                         .eq(QuestionnaireAnswerEntity::getJobPostId, jobPostId)
+                        .isNull(QuestionnaireAnswerEntity::getDeletedAt)
                         .ne(QuestionnaireAnswerEntity::getSubmissionStatus,
                                 QuestionnaireSubmissionStatus.DRAFT)
                         .orderByDesc(QuestionnaireAnswerEntity::getCreatedAt)
@@ -133,7 +146,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
 
     @Override
     public QuestionnaireAnswerResponse getDetail(Long id) {
-        return toResponse(getById(id));
+        return toResponse(findActiveAnswer(id));
     }
 
     @Override
@@ -141,6 +154,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
                                                           QuestionnaireSubmissionStatus status) {
         LambdaQueryWrapper<QuestionnaireAnswerEntity> wrapper = new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
                 .eq(QuestionnaireAnswerEntity::getUserId, userId)
+                .isNull(QuestionnaireAnswerEntity::getDeletedAt)
                 .orderByDesc(QuestionnaireAnswerEntity::getUpdatedAt);
         if (status != null) {
             wrapper.eq(QuestionnaireAnswerEntity::getSubmissionStatus, status);
@@ -164,8 +178,22 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
 
         MyQuestionnaireListPageResponse response = new MyQuestionnaireListPageResponse();
         response.setPage(readPage);
-        response.setTabCounts(countTabCounts(userId));
+        response.setTabCounts(mapApplicationCounts(countMyApplications(userId)));
         return response;
+    }
+
+    @Override
+    public QuestionnaireApplicationCount countMyApplications(Long userId) {
+        return baseMapper.countMyApplications(userId);
+    }
+
+    private Map<String, Long> mapApplicationCounts(QuestionnaireApplicationCount readCount) {
+        Map<String, Long> createCounts = new LinkedHashMap<>();
+        createCounts.put("all", readCount.getTotal());
+        createCounts.put("draft", readCount.getDraft());
+        createCounts.put("pending", readCount.getPending());
+        createCounts.put("done", readCount.getDone());
+        return createCounts;
     }
 
     @Transactional
@@ -173,7 +201,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
     public QuestionnaireAnswerResponse review(Long answerId, QuestionnaireReviewRequest request, Long reviewedBy) {
         boolean passed = answerValidator.requireReviewPassed(request);
         String comments = answerValidator.normalizeReviewComments(request.getComments());
-        QuestionnaireAnswerEntity entity = getById(answerId);
+        QuestionnaireAnswerEntity entity = findActiveAnswer(answerId);
         if (entity == null) {
             throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND, "投递记录不存在");
         }
@@ -184,7 +212,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
             throw ServiceException.of(QuestionnaireErrorCode.INVALID_SUBMISSION_STATUS);
         }
         applyReview(entity, passed, comments, reviewedBy);
-        updateById(entity);
+        updateAnswer(entity);
         return toResponse(entity);
     }
 
@@ -196,6 +224,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         List<QuestionnaireAnswerEntity> pending = list(
                 new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
                         .eq(QuestionnaireAnswerEntity::getJobPostId, jobPostId)
+                        .isNull(QuestionnaireAnswerEntity::getDeletedAt)
                         .eq(QuestionnaireAnswerEntity::getSubmissionStatus, QuestionnaireSubmissionStatus.SUBMITTED)
         );
         if (pending.isEmpty()) {
@@ -204,12 +233,12 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         for (QuestionnaireAnswerEntity entity : pending) {
             applyReview(entity, passed, comments, reviewedBy);
         }
-        updateBatchById(pending);
+        pending.forEach(this::updateAnswer);
         return pending.size();
     }
 
     private JobPostEntity requireOpenJob(Long jobPostId) {
-        JobPostEntity job = jobPostService.getById(jobPostId);
+        JobPostEntity job = jobPostService.getVisibleJob(jobPostId);
         if (job == null) {
             throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND);
         }
@@ -231,7 +260,37 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
                 new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
                         .eq(QuestionnaireAnswerEntity::getUserId, userId)
                         .eq(QuestionnaireAnswerEntity::getJobPostId, jobPostId)
+                        .isNull(QuestionnaireAnswerEntity::getDeletedAt)
         );
+    }
+
+    private QuestionnaireAnswerEntity findActiveAnswer(Long answerId) {
+        return getOne(new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
+                .eq(QuestionnaireAnswerEntity::getId, answerId)
+                .isNull(QuestionnaireAnswerEntity::getDeletedAt));
+    }
+
+    private void updateAnswer(QuestionnaireAnswerEntity updateAnswer) {
+        if (!updateById(updateAnswer)) {
+            throw ServiceException.of(ResultCode.CONFLICT, "投递记录已发生变化，请刷新后重试");
+        }
+    }
+
+    private void validateFileAnswers(
+            Long userId,
+            Map<Long, Object> readAnswers,
+            List<JobPostQuestionResponse> readQuestions) {
+        for (JobPostQuestionResponse readQuestion : readQuestions) {
+            if (readQuestion.getQuestionType() != QuestionType.FILE_UPLOAD
+                    || !readAnswers.containsKey(readQuestion.getId())) {
+                continue;
+            }
+            Object readValue = readAnswers.get(readQuestion.getId());
+            if (readValue == null || readValue instanceof String readText && readText.isBlank()) {
+                continue;
+            }
+            resumeFileService.getOwnFile(userId, answerValidator.readFileId(readValue));
+        }
     }
 
     private void applySubmitRequest(QuestionnaireAnswerEntity entity, QuestionnaireSubmitRequest request) {
@@ -262,32 +321,6 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         entity.setReviewPassed(passed);
         entity.setReviewComments(comments);
         entity.setUpdatedAt(LocalDateTime.now());
-    }
-
-    private Map<String, Long> countTabCounts(Long userId) {
-        List<QuestionnaireAnswerEntity> all = list(
-                new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
-                        .eq(QuestionnaireAnswerEntity::getUserId, userId)
-                        .select(QuestionnaireAnswerEntity::getSubmissionStatus)
-        );
-        long draft = 0, pending = 0, done = 0;
-        for (QuestionnaireAnswerEntity e : all) {
-            if (e.getSubmissionStatus() == null) {
-                pending++;
-                continue;
-            }
-            switch (e.getSubmissionStatus()) {
-                case DRAFT -> draft++;
-                case SUBMITTED -> pending++;
-                case REVIEWED -> done++;
-            }
-        }
-        Map<String, Long> counts = new LinkedHashMap<>();
-        counts.put("all", (long) all.size());
-        counts.put("draft", draft);
-        counts.put("pending", pending);
-        counts.put("done", done);
-        return counts;
     }
 
     private Map<Long, JobPostEntity> loadJobPostMap(List<QuestionnaireAnswerEntity> records) {
@@ -322,7 +355,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         }
         QuestionnaireAnswerResponse resp = BeanUtil.copyProperties(entity, QuestionnaireAnswerResponse.class);
         applyStatusLabel(resp, entity.getSubmissionStatus());
-        enrichUserInfo(resp, entity.getUserId());
+        enrichUser(resp, entity.getUserId());
         return resp;
     }
 
@@ -342,16 +375,16 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         return status != null ? status : QuestionnaireSubmissionStatus.SUBMITTED;
     }
 
-    private void enrichUserInfo(QuestionnaireAnswerResponse resp, Long userId) {
+    private void enrichUser(QuestionnaireAnswerResponse readResponse, Long readUserId) {
         try {
-            UserEntity user = userService.getById(userId);
-            if (user != null) {
-                BeanUtil.copyProperties(user, resp, CopyOptions.create()
-                        .setPropertiesFilter((field, value) ->
-                                "username".equals(field.getName()) || "studentId".equals(field.getName())));
+            UserResponse readUser = userService.getUserById(readUserId);
+            if (readUser != null) {
+                readResponse.setUsername(readUser.getUsername());
+                readResponse.setRealName(readUser.getRealName());
+                readResponse.setStudentId(readUser.getStudentId());
             }
         } catch (Exception e) {
-            log.warn("查询投递用户信息失败, userId={}", userId, e);
+            log.warn("查询投递用户信息失败, userId={}", readUserId, e);
         }
     }
 }

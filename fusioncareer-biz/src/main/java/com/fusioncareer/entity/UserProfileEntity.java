@@ -2,6 +2,7 @@ package com.fusioncareer.entity;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import com.fusioncareer.enums.EduLevel;
 import com.fusioncareer.enums.Gender;
 import com.fusioncareer.enums.Mindset;
@@ -43,6 +44,8 @@ public class UserProfileEntity implements Serializable {
     private String intentionCity;
     private String intentionDream;
     private Mindset mindset;
+    @Version
+    private Long version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

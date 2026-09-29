@@ -26,5 +26,8 @@ python-service:
 internal-service:
   token: ${INTERNAL_SERVICE_TOKEN:dev-internal}
 
+agent-context:
+  secret: ${AGENT_CONTEXT_SECRET:dev-agent-context-secret-at-least-32-bytes}
+
 sa-token:
   is-log: false

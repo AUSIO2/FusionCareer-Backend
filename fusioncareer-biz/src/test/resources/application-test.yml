@@ -32,6 +32,13 @@ python-service:
 internal-service:
   token: test-internal
 
+user-change:
+  key-version: 1
+  key: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+
+agent-context:
+  secret: test-agent-context-secret-32-bytes-minimum
+
 logging:
   level:
     com.fusioncareer.exception.GlobalExceptionHandler: OFF

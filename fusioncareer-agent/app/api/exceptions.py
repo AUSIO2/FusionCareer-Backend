@@ -82,7 +82,7 @@ def register_exception_handlers(app: FastAPI):
                 "code": 422,
                 "error": "validation_error",
                 "message": "请求参数校验失败",
-                "detail": exc.errors(),
+                "detail": readErrors,
             },
         )
 

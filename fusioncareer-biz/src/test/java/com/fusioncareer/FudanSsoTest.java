@@ -213,6 +213,47 @@ class FudanSsoTest {
     }
 
     @Test
+    void selectRealName() throws Exception {
+        loginPayload("{\"data\":{\"userId\":\"202600001\",\"userName\":\"202600001\","
+                + "\"name\":\"２０２６００００１\",\"realName\":\"张同学\"}}");
+        UserEntity readUser = readUserService.lambdaQuery().eq(UserEntity::getStudentId, "202600001").one();
+        assertThat(readUser.getUsername()).isEqualTo("张同学");
+        assertThat(readProfileService.getById(readUser.getId()).getRealName()).isEqualTo("张同学");
+        assertThat(readUserService.getUserById(readUser.getId()).getRealName()).isEqualTo("张同学");
+    }
+
+    @Test
+    void skipInvalidName() throws Exception {
+        loginPayload("{\"userName\":\"202600002\",\"data\":{\"userId\":\"202600002\","
+                + "\"realName\":\"202600002\",\"name\":\"null\",\"cn\":\"李同学\"}}");
+        UserEntity readUser = readUserService.lambdaQuery().eq(UserEntity::getStudentId, "202600002").one();
+        assertThat(readProfileService.getById(readUser.getId()).getRealName()).isEqualTo("李同学");
+    }
+
+    @Test
+    void repairBlankName() throws Exception {
+        UserEntity readUser = createUser("test-blank", UserRole.NORMAL, UserStatus.NORMAL);
+        UserProfileEntity createProfile = new UserProfileEntity();
+        createProfile.setUserId(readUser.getId());
+        createProfile.setRealName(" ");
+        readProfileService.save(createProfile);
+        loginPayload("{\"userId\":\"test-blank\",\"userName\":\"test-blank\",\"name\":\"王同学\"}");
+        assertThat(readProfileService.getById(readUser.getId()).getRealName()).isEqualTo("王同学");
+        createProfile.setRealName("用户填写的姓名");
+        readProfileService.updateById(createProfile);
+        loginPayload("{\"userId\":\"test-blank\",\"name\":\"王同学\"}");
+        assertThat(readProfileService.getById(readUser.getId()).getRealName()).isEqualTo("用户填写的姓名");
+    }
+
+    @Test
+    void omitMissingName() throws Exception {
+        loginPayload("{\"userId\":\"202600003\",\"userName\":\"２０２６００００３\"}");
+        UserEntity readUser = readUserService.lambdaQuery().eq(UserEntity::getStudentId, "202600003").one();
+        assertThat(readProfileService.getById(readUser.getId()).getRealName()).isNull();
+        assertThat(readUserService.getUserById(readUser.getId()).getRealName()).isNull();
+    }
+
+    @Test
     void readRoles() {
         UserEntity createUser = createUser("test-admin", UserRole.ADMIN, UserStatus.NORMAL);
 

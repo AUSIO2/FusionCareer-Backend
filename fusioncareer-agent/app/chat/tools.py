@@ -1,0 +1,227 @@
+"""Fixed read-only Tool registry for the career assistant."""
+
+import json
+from typing import Any
+
+from app.integrations.backend import BackendClient
+
+READ_TOOLS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_space",
+            "description": "读取当前用户个人空间各分区摘要。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_account",
+            "description": "读取当前用户账号的安全投影。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_profile",
+            "description": "读取当前用户完整个人资料。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_resume",
+            "description": "读取当前用户结构化简历。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_my_files",
+            "description": "分页列出当前用户未删除文件的安全元数据。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page": {"type": "integer", "minimum": 1},
+                    "size": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_file",
+            "description": "读取一个当前用户自有文件的安全元数据，不返回文件路径或二进制。",
+            "parameters": {
+                "type": "object",
+                "properties": {"fileId": {"type": "string", "pattern": "^[0-9]+$"}},
+                "required": ["fileId"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_file_quota",
+            "description": "读取当前用户文件数量和存储配额。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_memory",
+            "description": "读取当前用户白名单长期记忆。",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_my_applications",
+            "description": "分页读取当前用户自己的问卷草稿和投递。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["DRAFT", "SUBMITTED", "REVIEWED", "WITHDRAWN"],
+                    },
+                    "page": {"type": "integer", "minimum": 1},
+                    "size": {"type": "integer", "minimum": 1, "maximum": 10},
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_application",
+            "description": "读取当前用户对指定岗位的草稿或投递。",
+            "parameters": {
+                "type": "object",
+                "properties": {"jobPostId": {"type": "string", "pattern": "^[0-9]+$"}},
+                "required": ["jobPostId"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_jobs",
+            "description": "搜索当前用户可见且未截止的公开岗位。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string", "maxLength": 100},
+                    "jobCategory": {"type": "string"},
+                    "recruitType": {"type": "string"},
+                    "workMode": {"type": "string"},
+                    "workProvince": {"type": "string", "maxLength": 32},
+                    "workCity": {"type": "string", "maxLength": 32},
+                    "page": {"type": "integer", "minimum": 1},
+                    "size": {"type": "integer", "minimum": 1, "maximum": 10},
+                    "sort": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_job",
+            "description": "读取一个当前仍可见的公开岗位详情。",
+            "parameters": {
+                "type": "object",
+                "properties": {"jobId": {"type": "string", "pattern": "^[0-9]+$"}},
+                "required": ["jobId"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_job_questionnaire",
+            "description": "读取一个当前可见岗位的动态问卷题目。",
+            "parameters": {
+                "type": "object",
+                "properties": {"jobPostId": {"type": "string", "pattern": "^[0-9]+$"}},
+                "required": ["jobPostId"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_my_changes",
+            "description": "分页读取当前用户个人空间安全变更历史。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beforeId": {"type": "string", "pattern": "^[0-9]+$"},
+                    "size": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_my_change",
+            "description": "读取一条属于当前用户的安全变更详情，不返回加密快照。",
+            "parameters": {
+                "type": "object",
+                "properties": {"actionId": {"type": "string", "pattern": "^[0-9]+$"}},
+                "required": ["actionId"],
+                "additionalProperties": False,
+            },
+        },
+    },
+]
+
+TOOL_NAMES = {readTool["function"]["name"] for readTool in READ_TOOLS}
+
+
+async def runTool(
+    readBackend: BackendClient,
+    readContext: str,
+    readName: str,
+    readArguments: str,
+) -> str:
+    if readName not in TOOL_NAMES:
+        return json.dumps({"error": "UNKNOWN_TOOL"}, ensure_ascii=False)
+    try:
+        readArgs = json.loads(readArguments or "{}")
+        if not isinstance(readArgs, dict):
+            raise TypeError("tool arguments must be an object")
+    except (json.JSONDecodeError, TypeError):
+        return json.dumps({"error": "INVALID_TOOL_ARGUMENTS"}, ensure_ascii=False)
+    try:
+        readResult = await readBackend.run_agent_tool(readName, readArgs, readContext)
+        writeResult = json.dumps(
+            {"untrustedData": readResult}, ensure_ascii=False, separators=(",", ":"), default=str,
+        )
+        if len(writeResult) > 16_000:
+            writeResult = json.dumps({
+                "untrustedData": writeResult[:12_000],
+                "truncated": True,
+            }, ensure_ascii=False, separators=(",", ":"))
+        return writeResult
+    except Exception as readError:  # noqa: BLE001 - Tool errors become model-safe data
+        return json.dumps({
+            "error": "TOOL_UNAVAILABLE",
+            "message": type(readError).__name__,
+        }, ensure_ascii=False, separators=(",", ":"))

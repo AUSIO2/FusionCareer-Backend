@@ -78,7 +78,7 @@ class AdminUserTest {
     @AfterEach
     void cleanup() {
         if (file != null) {
-            files.delete(target.getId(), file.getId());
+            files.purge(target.getId(), file.getId());
         }
         actors.forEach(StpUtil::logout);
     }
@@ -105,7 +105,11 @@ class AdminUserTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.list[0].realName").value("测试同学"));
         mvc.perform(get("/admin/user/{id}", target.getId()).header("Fusion-Token", token))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data.password").doesNotExist());
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.password").doesNotExist())
+                .andExpect(jsonPath("$.data.realName").value("测试同学"));
+        String readToken = StpUtil.getStpLogic().createLoginSession(target.getId());
+        mvc.perform(get("/user/me").header("Fusion-Token", readToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.realName").value("测试同学"));
         mvc.perform(get("/admin/user/{id}/profile", target.getId()).header("Fusion-Token", token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.realName").value("测试同学"));
         mvc.perform(get("/admin/user/{id}/resume", target.getId()).header("Fusion-Token", token))
@@ -122,6 +126,28 @@ class AdminUserTest {
         mvc.perform(get("/admin/user/-1/profile").header("Fusion-Token", token)).andExpect(status().isNotFound());
         mvc.perform(get("/admin/user/{id}/profile", superAdmin.getId()).header("Fusion-Token", token))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void hideIdentifierNames() throws Exception {
+        target.setUsername(target.getStudentId());
+        users.updateById(target);
+        UserProfileRequest updateProfile = new UserProfileRequest();
+        updateProfile.setRealName(target.getStudentId().toUpperCase());
+        profiles.saveOrUpdateProfile(target.getId(), updateProfile);
+        assertThat(users.getUserById(target.getId()).getRealName()).isNull();
+        assertThat(profiles.getProfile(target.getId()).getRealName()).isNull();
+        assertThat(users.listUsers(1, 20, target.getStudentId(), null).getList())
+                .singleElement().extracting("realName").isNull();
+        mvc.perform(get("/admin/user/export").header("Fusion-Token", token)
+                        .param("userIds", target.getId().toString()))
+                .andExpect(status().isOk())
+                .andDo(readResponse -> {
+                    try (XSSFWorkbook readWorkbook = new XSSFWorkbook(new ByteArrayInputStream(
+                            readResponse.getResponse().getContentAsByteArray()))) {
+                        assertThat(readWorkbook.getSheet("用户资料").getRow(1).getCell(1).getStringCellValue()).isEmpty();
+                    }
+                });
     }
 
     @Test

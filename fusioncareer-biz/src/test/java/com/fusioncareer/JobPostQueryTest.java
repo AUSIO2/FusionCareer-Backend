@@ -3,6 +3,7 @@ package com.fusioncareer;
 import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
+import com.fusioncareer.dto.req.QuestionnaireSubmitRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
@@ -27,6 +28,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -170,6 +172,35 @@ class JobPostQueryTest {
                     assertThat(readQuestion.getTitle()).isEqualTo("个人简历");
                     assertThat(readQuestion.getRequired()).isTrue();
                 });
+    }
+
+    @Test
+    void hideUnavailableJob() {
+        JobPostRequest createOffline = new JobPostRequest();
+        createOffline.setCompanyName("hidden-company");
+        createOffline.setPositionName("hidden-position");
+        createOffline.setJobCategory(JobCategory.MEDIA);
+        createOffline.setRecruitType(RecruitType.DAILY_INTERNSHIP);
+        createOffline.setStatus(JobPostStatus.OFFLINE);
+        JobPostResponse readOffline = readJobService.createJobPost(createOffline);
+
+        assertThat(readJobService.getVisibleJobPost(readOffline.getId())).isNull();
+        QuestionnaireSubmitRequest createDraft = new QuestionnaireSubmitRequest();
+        createDraft.setJobPostId(readOffline.getId());
+        createDraft.setAnswers("[]");
+        assertThatThrownBy(() -> readAnswerService.saveDraft(991L, createDraft))
+                .hasMessageContaining("岗位不存在");
+
+        JobPostRequest createExpired = new JobPostRequest();
+        createExpired.setCompanyName("expired-company");
+        createExpired.setPositionName("expired-position");
+        createExpired.setJobCategory(JobCategory.MEDIA);
+        createExpired.setRecruitType(RecruitType.DAILY_INTERNSHIP);
+        createExpired.setStatus(JobPostStatus.PUBLISHED);
+        createExpired.setApplicationDeadline(LocalDate.now().minusDays(1));
+        JobPostResponse readExpired = readJobService.createJobPost(createExpired);
+
+        assertThat(readJobService.getVisibleJobPost(readExpired.getId())).isNull();
     }
 
     @Test

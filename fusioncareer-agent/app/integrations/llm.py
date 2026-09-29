@@ -3,6 +3,7 @@
 import ast
 import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -179,3 +180,98 @@ class LLMClient:
                 if readAttempt == 2:
                     raise
         raise RuntimeError("LLM JSON retry exhausted")
+
+    async def stream_chat(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str = "",
+        model: str | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """流式返回纯文本增量和一个最终完成事件。"""
+        readClient = self._ensure_client()
+        readModel = model or settings.llm_model
+        sendMessages: list[dict[str, str]] = []
+        if system_prompt:
+            sendMessages.append({"role": "system", "content": system_prompt})
+        sendMessages.extend(messages)
+        logger.info(
+            "LLM 流请求: model=%s, messages=%d, chars=%d",
+            readModel,
+            len(sendMessages),
+            sum(len(readMessage.get("content", "")) for readMessage in sendMessages),
+        )
+        readStream = await readClient.chat.completions.create(
+            model=readModel,
+            messages=sendMessages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        readFinishReason = "stop"
+        readPromptTokens: int | None = None
+        readCompletionTokens: int | None = None
+        async for readChunk in readStream:
+            readUsage = getattr(readChunk, "usage", None)
+            if readUsage is not None:
+                readPromptTokens = getattr(readUsage, "prompt_tokens", None)
+                readCompletionTokens = getattr(readUsage, "completion_tokens", None)
+            if not readChunk.choices:
+                continue
+            readChoice = readChunk.choices[0]
+            if readChoice.finish_reason:
+                readFinishReason = readChoice.finish_reason
+            readText = readChoice.delta.content or ""
+            if readText:
+                yield {"type": "delta", "text": readText}
+        yield {
+            "type": "done",
+            "model": readModel,
+            "finishReason": readFinishReason,
+            "usage": {
+                "promptTokens": readPromptTokens,
+                "completionTokens": readCompletionTokens,
+            },
+        }
+
+    async def plan_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        system_prompt: str = "",
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """执行一次非流式只读 Tool 决策，不暴露 reasoning。"""
+        readClient = self._ensure_client()
+        readModel = model or settings.llm_model
+        sendMessages: list[dict[str, Any]] = []
+        if system_prompt:
+            sendMessages.append({"role": "system", "content": system_prompt})
+        sendMessages.extend(messages)
+        readResponse = await readClient.chat.completions.create(
+            model=readModel,
+            messages=sendMessages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=0.1,
+            max_tokens=2048,
+        )
+        readMessage = readResponse.choices[0].message
+        readToolCalls = [
+            {
+                "id": readCall.id,
+                "type": "function",
+                "function": {
+                    "name": readCall.function.name,
+                    "arguments": readCall.function.arguments,
+                },
+            }
+            for readCall in (readMessage.tool_calls or [])
+        ]
+        return {
+            "content": readMessage.content or "",
+            "toolCalls": readToolCalls,
+            "model": readModel,
+        }

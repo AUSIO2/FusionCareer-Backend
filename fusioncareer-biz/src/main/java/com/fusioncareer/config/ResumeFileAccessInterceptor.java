@@ -26,7 +26,9 @@ public class ResumeFileAccessInterceptor implements HandlerInterceptor {
         String prefix = request.getContextPath() + "/files/";
         String path = UriUtils.decode(request.getRequestURI().substring(prefix.length()), StandardCharsets.UTF_8);
         ResumeFileEntity file = resumeFileService.lambdaQuery()
-                .eq(ResumeFileEntity::getStoragePath, path).one();
+                .eq(ResumeFileEntity::getStoragePath, path)
+                .isNull(ResumeFileEntity::getDeletedAt)
+                .one();
         if (file == null) {
             throw ServiceException.of(ResultCode.NOT_FOUND, "简历文件不存在");
         }

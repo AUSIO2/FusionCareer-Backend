@@ -1,7 +1,9 @@
 # FusionCareer Backend API 接口文档
 
-> **Base URL**: `http://localhost:8080`  
-> **认证方式**: Sa-Token，Header 传递 `Fusion-Token: <token>`  
+> **Base URL**: `http://localhost:8080`
+>
+> **认证方式**: Sa-Token，Header 传递 `Fusion-Token: <token>`
+>
 > **统一响应格式**:
 > ```json
 > { "code": 200, "message": "操作成功", "data": ... }
@@ -18,6 +20,7 @@
 - [1. 系统接口](#1-系统接口)
 - [2. 认证接口（复旦 SSO）](#2-认证接口复旦-sso)
 - [3. 用户端接口（需登录）](#3-用户端接口需登录)
+  - [3.0 个人空间](#30-个人空间)
   - [3.1 个人资料](#31-个人资料)
   - [3.2 个人简历](#32-个人简历)
   - [3.3 简历文件](#33-简历文件)
@@ -78,6 +81,144 @@ POST 退出响应：
 
 > 所有接口需要 Header: `Fusion-Token: <token>`
 
+姓名展示约定：`GET /user/me`、用户列表/详情及投递审核响应的 `realName` 优先读取用户资料，
+其次使用确实为姓名的历史 `username`。空值、纯数字及与 `studentId` 相同的标识不作为姓名，
+无可用姓名时返回 `null`，界面显示“未填写姓名”。`username` 仍为账号字段，`studentId` 单独展示为学工号。
+`/user/profile/get` 使用同样的姓名规则；个人空间的 `displayName` 无姓名时为“未填写姓名”。
+UIS 登录会跳过姓名字段中的学工号，并在有真实姓名时修复历史空白或学工号占位，保留用户已填写的有效姓名。
+
+### 3.0 个人空间
+
+个人空间是当前登录用户账号、资料、简历、文件、投递、长期记忆和唯一 AI Session 的统一入口。总览只返回摘要和链接，不包含联系方式、简历正文、文件列表、问卷答案、记忆正文或聊天消息。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/personal-space` | 获取个人空间轻量总览 |
+| GET | `/personal-space/profile` | 获取当前用户资料 |
+| PATCH | `/personal-space/profile` | 按字段修改当前用户资料 |
+| GET | `/personal-space/resume` | 获取当前用户结构化简历 |
+| PATCH | `/personal-space/resume` | 按字段修改当前用户结构化简历 |
+| GET | `/personal-space/documents` | 获取文件列表和配额 |
+| GET | `/personal-space/documents/deleted` | 获取回收站文件 |
+| DELETE | `/personal-space/documents/{fileId}` | 将文件移入回收站 |
+| POST | `/personal-space/documents/{fileId}/restore` | 恢复回收站文件 |
+| GET | `/personal-space/applications?page=&size=&status=` | 分页获取我的投递 |
+| GET | `/personal-space/memory` | 获取轻量长期记忆 |
+| PUT | `/personal-space/memory/{key}` | 设置一个长期记忆项 |
+| DELETE | `/personal-space/memory/{key}?expectedVersion=` | 删除一个长期记忆项 |
+| DELETE | `/personal-space/memory?expectedVersion=` | 清空长期记忆 |
+| GET | `/personal-space/actions?beforeId=&size=` | 游标分页获取安全变更历史 |
+| GET | `/personal-space/actions/{actionId}` | 获取一条变更的安全详情 |
+| POST | `/personal-space/actions/{actionId}/revert` | 创建一个 PENDING 回退提案 |
+| POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行回退提案 |
+| POST | `/personal-space/actions/{actionId}/reject` | 拒绝回退提案 |
+| GET | `/personal-space/assistant/session` | 获取当前用户唯一 AI Session 状态 |
+| GET | `/personal-space/assistant/messages?beforeId=&size=` | 游标分页获取当前 epoch 消息 |
+| POST | `/personal-space/assistant/messages/stream` | 发送消息并获取 `text/event-stream` |
+| POST | `/personal-space/assistant/run/cancel` | 取消当前 active run |
+| POST | `/personal-space/assistant/session/clear` | epoch 加一并清空当前对话 |
+| DELETE | `/personal-space/assistant/session` | 删除 Session 和消息 |
+
+Profile 和 Resume 的 PATCH 请求使用统一的 SET/CLEAR 语义：
+
+```json
+{
+  "expectedVersion": 6,
+  "set": {
+    "major": "新闻传播学",
+    "intentionCity": ["上海", "杭州"]
+  },
+  "clear": ["supervisor"]
+}
+```
+
+- `expectedVersion` 必填；与当前资源版本不一致时返回 HTTP 409；资源尚不存在时使用 `0` 创建。
+- 同一字段不能同时出现在 `set` 和 `clear`；`set` 不接受 `null` 或空字符串，清空必须使用 `clear`。
+- Profile 只允许修改 16 个公开用户字段，Resume 只允许修改 9 个公开用户字段；账号和系统字段会返回 HTTP 400。
+- `intentionCity` 在 PATCH 中使用字符串数组；服务端负责转换为数据库 JSON 表示。
+- 实际值没有变化时是幂等成功，不递增 `version`。
+
+Memory 只接受以下固定 key：
+
+- 字符串：`responseStyle`、`currentGoal`；
+- 字符串数组：`targetCities`、`targetIndustries`、`preferredWorkModes`、`temporaryConstraints`。
+
+PUT 请求体：
+
+```json
+{
+  "expectedVersion": 1,
+  "value": ["上海", "杭州"]
+}
+```
+
+单个字符串最多 256 字符，数组包含 1–10 个不重复非空字符串，全部记忆序列化后最多 4KB。Memory 使用独立版本 CAS；首次创建使用版本 `0`，无实际变化时不递增版本。清空 Agent Session 不会清除该资源。
+
+Profile、Resume 和 Memory 的 canonical 写入会与 `APPLIED` Action/Item 在同一事务中提交。历史查询只返回操作来源、资源、字段名和版本，不返回 before/after 或密文。实际变更字段的快照使用 AES-256-GCM 加密，并以用户、Action、资源和快照方向作为认证附加数据；密文被修改或移动到其他资源后无法通过认证。
+
+回退没有时间窗口。`revert` 会使用原 Action 的 before/after 与当前资源逐字段比较：当前值仍等于 after 时生成反向修改，已经等于 before 的字段视为无操作，其他值返回 HTTP 409。`confirm` 再次执行版本 CAS 后应用修改；原 Action 永远保持 `APPLIED`，新 Revert Action 也可再次 Revert。当前自动回退范围为单资源 Profile、Resume 和 Memory；文件、问卷及跨资源 Action 使用后续领域化回退。
+
+AI Session 以 `userId` 为主键，同一用户最多一条记录，并在第一次发送消息时惰性创建。清空对话通过 `epoch + 1` 隔离旧消息和迟到的模型结果；重置会删除 Session 与聊天消息，但两者都保留 PersonalSpace Memory 和已应用变更历史。消息流通过 Java 登录态接口转发 Python AsyncOpenAI，依次产生 `start`、`delta`、`ping` 和一个 `done/error/cancelled` 终态；Java 必须先完成最终消息落库和租约释放，再发送 `done`。相同 `clientRequestId` 的已完成请求只重放 snapshot，不再次调用模型。
+
+当前只读 Tool 包含：`get_my_space`、`get_my_account`、`get_my_profile`、`get_my_resume`、`list_my_files`、`get_my_file`、`get_my_file_quota`、`get_my_memory`、`list_my_applications`、`get_my_application`、`search_jobs`、`get_job`、`get_job_questionnaire`、`list_my_changes`、`get_my_change`。模型不可传入 userId；Python 只原样转发 Java 签发的 AgentContext，Java 在每次 Tool 调用时重新校验签名、过期时间、run、epoch、租约和 scope。
+
+总览响应示例：
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "account": {
+      "id": "2050967238021779458",
+      "username": "zhangsan",
+      "displayName": "张三",
+      "studentId": "22300000000",
+      "role": "NORMAL",
+      "status": "NORMAL"
+    },
+    "sections": {
+      "profile": {
+        "exists": true,
+        "version": "0",
+        "updatedAt": "2026-09-28T10:00:00",
+        "href": "/api/personal-space/profile"
+      },
+      "resume": {
+        "exists": true,
+        "version": "0",
+        "updatedAt": "2026-09-28T10:01:00",
+        "href": "/api/personal-space/resume"
+      },
+      "documents": {
+        "count": "2",
+        "usedBytes": "102400",
+        "quotaBytes": "31457280",
+        "href": "/api/personal-space/documents"
+      },
+      "applications": {
+        "total": "3",
+        "draft": "1",
+        "submitted": "1",
+        "reviewed": "1",
+        "href": "/api/personal-space/applications"
+      },
+      "memory": {
+        "count": 2,
+        "version": "1",
+        "updatedAt": "2026-09-29T10:00:00",
+        "href": "/api/personal-space/memory"
+      },
+      "assistant": {
+        "sessionExists": true,
+        "activeRun": false,
+        "href": "/api/personal-space/assistant/session"
+      }
+    }
+  }
+}
+```
+
 ### 3.1 个人资料
 
 | 方法 | 路径 | 说明 |
@@ -101,7 +242,7 @@ POST 退出响应：
   "hometown": "上海市",
   "grade": "2022级",
   "major": "新闻学",
-  "eduLevel": "BACHELOR",
+  "eduLevel": "UNDERGRADUATE",
   "supervisor": "李教授",
   "intentionOrder": "企业公司,新闻媒体",
   "intentionCity": "[\"上海\",\"北京\"]",
@@ -139,7 +280,7 @@ POST 退出响应：
 | POST | `/user/resume/file/upload` | 上传简历文件（multipart/form-data, field: `file`） |
 | GET | `/user/resume/file/list` | 获取我的简历文件列表 |
 | GET | `/user/resume/file/{fileId}/download` | 下载指定简历文件（流式） |
-| DELETE | `/user/resume/file/{fileId}` | 删除指定简历文件 |
+| DELETE | `/user/resume/file/{fileId}` | 将指定简历文件移入回收站 |
 | GET | `/user/resume/file/quota` | 查询存储配额 |
 
 **上传限制**: PDF / DOCX / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB
@@ -152,7 +293,10 @@ POST 退出响应：
   "url": "http://localhost:8080/files/resumes/xxx/2026-05-03/abc.pdf",
   "fileSize": 102400,
   "mimeType": "application/pdf",
-  "createdAt": "2026-05-03T12:00:00"
+  "version": "0",
+  "deletedAt": null,
+  "createdAt": "2026-05-03T12:00:00",
+  "updatedAt": "2026-05-03T12:00:00"
 }
 ```
 
@@ -162,6 +306,8 @@ POST 退出响应：
 |------|------|------|
 | GET | `/job/{id}` | 获取岗位详情 |
 | GET | `/job/list` | 分页查询已发布岗位列表 |
+
+岗位详情与列表使用相同可见性条件：仅返回 `PUBLISHED`，且投递截止日期和工作结束日期均未过期的岗位；不存在或不可见详情返回 404。
 
 **GET `/job/list` 查询参数**:
 
@@ -208,6 +354,8 @@ POST 退出响应：
   "answers": "[{\"questionId\":1,\"value\":\"研一\"},{\"questionId\":2,\"value\":\"男\"},{\"questionId\":3,\"value\":\"310101200001011234\"}]"
 }
 ```
+
+草稿与提交均要求岗位当前可见且未截止。答案必须引用当前岗位的题目，并按 `TEXT`、`TEXTAREA`、`RADIO`、`CHECKBOX`、`FILE_UPLOAD` 校验类型、长度和选项；文件答案必须属于当前用户且未在回收站。草稿可缺少必填项，正式提交必须填写全部 required 题。
 > `answers` 字段是 JSON 字符串，数组中每个对象包含 `questionId`（题目ID）和 `value`（作答值）。
 
 **问卷题目响应** `JobPostQuestionResponse`:
@@ -273,7 +421,7 @@ GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip&content=profi
 | GET | `/admin/user/export?username=xxx&role=NORMAL&userIds=1,2` | 下载用户信息 `.xlsx`，参数均可选 |
 | PUT | `/admin/user/{id}/role?role=SUPERADMIN` | 设置为 NORMAL、ADMIN 或 SUPERADMIN；不可撤销自己的超级管理员权限 |
 
-列表与导出的 `username` 匹配用户名或学号/工号，`role` 精确匹配角色；`userIds` 支持逗号分隔或重复参数，
+列表与导出的 `username` 匹配姓名、用户名或学号/工号，`role` 精确匹配角色；`userIds` 支持逗号分隔或重复参数，
 与其他筛选条件取交集。未传筛选时导出全部用户，包含所有分页，而非仅当前页。
 Excel 包含账号信息、用户资料、简历正文三个工作表，用用户ID关联；无资料的用户保留空白行，
 不包含密码、登录令牌和文件存储路径。ID、学号、手机号按文本保存，用户输入不会成为 Excel 公式。

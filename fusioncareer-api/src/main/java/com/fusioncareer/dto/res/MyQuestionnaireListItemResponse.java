@@ -32,4 +32,5 @@ public class MyQuestionnaireListItemResponse {
     /** 审阅是否通过 */
     private Boolean reviewPassed;
     private String reviewComments;
+    private Long version;
 }

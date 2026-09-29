@@ -27,6 +27,9 @@ public class ResumeFileResponse {
     /** MIME 类型 */
     private String mimeType;
 
+    private Long version;
+    private LocalDateTime deletedAt;
     /** 上传时间 */
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

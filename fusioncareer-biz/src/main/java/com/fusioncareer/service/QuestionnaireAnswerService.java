@@ -2,6 +2,7 @@ package com.fusioncareer.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.fusioncareer.common.PageResult;
+import com.fusioncareer.dto.QuestionnaireApplicationCount;
 import com.fusioncareer.dto.req.QuestionnaireReviewRequest;
 import com.fusioncareer.dto.req.QuestionnaireSubmitRequest;
 import com.fusioncareer.dto.res.MyQuestionnaireListPageResponse;
@@ -26,6 +27,8 @@ public interface QuestionnaireAnswerService extends IService<QuestionnaireAnswer
 
     MyQuestionnaireListPageResponse listMyByUserId(Long userId, int page, int size,
                                                     QuestionnaireSubmissionStatus status);
+
+    QuestionnaireApplicationCount countMyApplications(Long userId);
 
     QuestionnaireAnswerResponse review(Long answerId, QuestionnaireReviewRequest request, Long reviewedBy);
 

@@ -72,7 +72,13 @@ public class UserExportServiceImpl implements UserExportService {
                         .collect(Collectors.toMap(ResumeEntity::getUserId, Function.identity()));
                 for (UserResponse user : users.getList()) {
                     writeRow(accounts, rowIndex, user, user.getId(), ACCOUNT_COLUMNS);
-                    writeRow(profiles, rowIndex, profileMap.get(user.getId()), user.getId(), PROFILE_COLUMNS);
+                    UserProfileEntity readProfile = profileMap.get(user.getId());
+                    if (readProfile == null) {
+                        readProfile = new UserProfileEntity();
+                        readProfile.setUserId(user.getId());
+                    }
+                    readProfile.setRealName(user.getRealName());
+                    writeRow(profiles, rowIndex, readProfile, user.getId(), PROFILE_COLUMNS);
                     writeRow(resumes, rowIndex, resumeMap.get(user.getId()), user.getId(), RESUME_COLUMNS);
                     rowIndex++;
                 }

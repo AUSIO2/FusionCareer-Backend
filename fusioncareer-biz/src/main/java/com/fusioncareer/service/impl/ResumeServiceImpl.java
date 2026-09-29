@@ -7,6 +7,8 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.req.ResumeRequest;
 import com.fusioncareer.dto.res.ResumeResponse;
 import com.fusioncareer.entity.ResumeEntity;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.ResumeMapper;
 import com.fusioncareer.service.ResumeService;
 import cn.hutool.core.bean.BeanUtil;
@@ -28,7 +30,16 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, ResumeEntity> i
     public void saveOrUpdateResume(Long userId, ResumeRequest request) {
         ResumeEntity entity = BeanUtil.copyProperties(request, ResumeEntity.class);
         entity.setUserId(userId);
-        saveOrUpdate(entity);
+        ResumeEntity readResume = getById(userId);
+        if (readResume == null) {
+            entity.setVersion(0L);
+            save(entity);
+            return;
+        }
+        entity.setVersion(readResume.getVersion());
+        if (!updateById(entity)) {
+            throw ServiceException.of(ResultCode.CONFLICT, "简历已发生变化，请刷新后重试");
+        }
     }
 
     @Override
@@ -47,7 +58,14 @@ public class ResumeServiceImpl extends ServiceImpl<ResumeMapper, ResumeEntity> i
     public void updateResume(Long userId, ResumeRequest request) {
         ResumeEntity entity = BeanUtil.copyProperties(request, ResumeEntity.class);
         entity.setUserId(userId);
-        updateById(entity);
+        ResumeEntity readResume = getById(userId);
+        if (readResume == null) {
+            throw ServiceException.of(ResultCode.NOT_FOUND, "简历不存在");
+        }
+        entity.setVersion(readResume.getVersion());
+        if (!updateById(entity)) {
+            throw ServiceException.of(ResultCode.CONFLICT, "简历已发生变化，请刷新后重试");
+        }
     }
 
     private ResumeResponse toResponse(ResumeEntity entity) {

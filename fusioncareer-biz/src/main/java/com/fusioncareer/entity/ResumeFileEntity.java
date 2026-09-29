@@ -3,6 +3,7 @@ package com.fusioncareer.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import lombok.Data;
 
 import java.io.Serial;
@@ -40,5 +41,9 @@ public class ResumeFileEntity implements Serializable {
     /** MIME 类型：application/pdf / DOCX Open XML / image/jpeg / image/png */
     private String mimeType;
 
+    @Version
+    private Long version;
+    private LocalDateTime deletedAt;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

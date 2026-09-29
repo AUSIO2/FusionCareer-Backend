@@ -193,6 +193,24 @@ class QuestionnaireExportTest {
 
         assertThat(readPage.getTotal()).isEqualTo(1);
         assertThat(readPage.getList()).extracting("id").containsExactly(readAnswerId);
+        assertThat(readPage.getList()).extracting("realName").containsExactly("修改后的姓名");
+    }
+
+    @Test
+    void omitIdentifierNames() {
+        Long readUserId = readAnswerService.getById(readAnswerId).getUserId();
+        UserEntity updateUser = readUserService.getById(readUserId);
+        updateUser.setUsername(updateUser.getStudentId());
+        readUserService.updateById(updateUser);
+        UserProfileEntity updateProfile = readProfileService.getById(readUserId);
+        updateProfile.setRealName(updateUser.getStudentId());
+        readProfileService.updateById(updateProfile);
+        assertThat(readAnswerService.listByJobPostId(readJobId, 1, 20).getList())
+                .singleElement().extracting("realName").isNull();
+        String readCsv = new String(readExportService.buildCsv(readJobId, List.of(readAnswerId)), StandardCharsets.UTF_8);
+        // 学工号只保留在独立列，展示姓名和资料姓名均不能再输出标识。
+        assertThat(readCsv.split("export-student", -1)).hasSize(2);
+        assertThat(readCsv).contains("未填写姓名");
     }
 
     @Test

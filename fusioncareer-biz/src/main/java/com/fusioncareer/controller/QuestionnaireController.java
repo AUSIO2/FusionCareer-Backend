@@ -42,7 +42,7 @@ public class QuestionnaireController {
     @GetMapping("/questions/{jobPostId}")
     @Operation(summary = "获取某岗位的投递问卷（含截止信息）")
     public R<JobPostQuestionnaireResponse> getQuestions(@PathVariable Long jobPostId) {
-        JobPostEntity job = jobPostService.getById(jobPostId);
+        JobPostEntity job = jobPostService.getVisibleJob(jobPostId);
         if (job == null) {
             throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND);
         }
