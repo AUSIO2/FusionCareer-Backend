@@ -138,6 +138,7 @@ async def streamEvents(readBody: ChatStreamBody, readContext: str, readBackend):
                         "resourceType": readAction.get("resourceType"),
                         "changedFields": readAction.get("changedFields") or [],
                         "baseVersion": readAction.get("baseVersion"),
+                        "resources": readAction.get("resources") or [],
                     })
             if readToolCount >= 8 or hasProposedAction:
                 break

@@ -1,6 +1,6 @@
 # FusionCareer AI Agent 单会话、轻量记忆与可逆工具实施计划
 
-> 状态：实施中；PersonalSpace 前置能力、单 Session、纯文本 SSE、HMAC AgentContext、15 个只读 Tool，以及 Profile/Resume/Memory/File/Questionnaire 六个可确认写提案 Tool 已落地
+> 状态：实施中；PersonalSpace 前置能力、单 Session、纯文本 SSE、HMAC AgentContext、15 个只读 Tool，以及 7 个可确认写提案 Tool（含 Profile + Resume 跨资源简历解析）已落地
 >
 > 日期：2026-09-28
 >
@@ -1712,7 +1712,7 @@ CHAT_PROVIDER_STREAM_TOOLS=true
 
 ### 阶段 6：可逆写 Tool
 
-当前进度：Profile、Resume、Memory、文件软删除、问卷草稿与问卷提交的强类型提案、Tool Call 幂等、`action_proposed` SSE、登录用户 confirm/reject 与永久 Revert 已落地，并由 `AI_CHAT_WRITE_ENABLED` 双端开关控制。已审核投递撤回使用 WITHDRAWN 且保留审核信息。简历解析跨资源提案和前端确认卡仍待实现。
+当前进度：Profile、Resume、Memory、文件软删除、问卷草稿/提交及简历解析的强类型提案、Tool Call 幂等、`action_proposed` SSE、登录用户 confirm/reject 与永久 Revert 已落地，并由 `AI_CHAT_WRITE_ENABLED` 双端开关控制。简历解析使用一个多 Item Action 原子修改 Profile + Resume；已审核投递撤回使用 WITHDRAWN 且保留审核信息。前端确认卡仍待实现。
 
 实现：
 

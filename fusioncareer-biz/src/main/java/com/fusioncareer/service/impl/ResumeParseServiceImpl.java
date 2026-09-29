@@ -1,5 +1,8 @@
 package com.fusioncareer.service.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.client.PythonServiceClient;
 import com.fusioncareer.dto.req.ResumeParseRequest;
 import com.fusioncareer.dto.req.ResumeRequest;
@@ -7,6 +10,8 @@ import com.fusioncareer.dto.req.UserProfileRequest;
 import com.fusioncareer.dto.res.ResumeParseResponse;
 import com.fusioncareer.dto.res.ResumeUploadResponse;
 import com.fusioncareer.enums.ResumeParseStatus;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.service.ResumeFileService;
 import com.fusioncareer.service.ResumeParseService;
 import com.fusioncareer.service.ResumeService;
@@ -21,7 +26,9 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.beans.PropertyDescriptor;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +39,37 @@ public class ResumeParseServiceImpl implements ResumeParseService {
     private final UserProfileService updateProfileService;
     private final ResumeService updateResumeService;
     private final PythonServiceClient readPythonClient;
+    private final ObjectMapper objectMapper;
+
+    @Override
+    public ParsedPatches parseForProposal(Long userId, Long fileId) {
+        readFileService.getOwnFile(userId, fileId);
+        ResumeParseResponse readResponse;
+        try {
+            readResponse = readPythonClient.parseResume(new ResumeParseRequest(userId, fileId));
+        } catch (RestClientException readError) {
+            throw ServiceException.of(ResultCode.INTERNAL_SERVER_ERROR, "简历解析服务暂时不可用");
+        }
+        if (readResponse == null) {
+            throw ServiceException.of(ResultCode.INTERNAL_SERVER_ERROR, "简历解析服务未返回结果");
+        }
+        Map<String, Object> readProfileSet = readPatchValues(
+                readResponse.getProfilePatch(), true);
+        Map<String, Object> readResumeSet = readPatchValues(
+                readResponse.getResumePatch(), false);
+        if (readProfileSet.isEmpty() && readResumeSet.isEmpty()) {
+            throw ServiceException.of(ResultCode.VALIDATE_FAILED, "未识别到可更新的资料字段");
+        }
+        List<String> readWarnings = readResponse.getWarnings() == null
+                ? List.of()
+                : readResponse.getWarnings().stream()
+                .filter(readWarning -> readWarning != null && !readWarning.isBlank())
+                .limit(20)
+                .map(readWarning -> readWarning.length() > 256
+                        ? readWarning.substring(0, 256) : readWarning)
+                .toList();
+        return new ParsedPatches(readProfileSet, readResumeSet, readWarnings);
+    }
 
     @Override
     @Transactional
@@ -98,5 +136,42 @@ public class ResumeParseServiceImpl implements ResumeParseService {
             }
         }
         return readFields;
+    }
+
+    private Map<String, Object> readPatchValues(Object readPatch, boolean readProfile) {
+        Map<String, Object> readValues = new LinkedHashMap<>();
+        if (readPatch == null) {
+            return readValues;
+        }
+        BeanWrapper readWrapper = PropertyAccessorFactory.forBeanPropertyAccess(readPatch);
+        for (PropertyDescriptor readProperty : readWrapper.getPropertyDescriptors()) {
+            String readName = readProperty.getName();
+            if ("class".equals(readName) || !readWrapper.isReadableProperty(readName)) {
+                continue;
+            }
+            Object readValue = readWrapper.getPropertyValue(readName);
+            if (readValue == null || readValue instanceof String readText && readText.isBlank()) {
+                continue;
+            }
+            if (readValue instanceof Enum<?> readEnum) {
+                readValues.put(readName, readEnum.name());
+            } else if (readProfile && "intentionCity".equals(readName)) {
+                readValues.put(readName, readCities(readValue));
+            } else {
+                readValues.put(readName, readValue);
+            }
+        }
+        return readValues;
+    }
+
+    private List<String> readCities(Object readValue) {
+        if (readValue instanceof List<?> readCities) {
+            return readCities.stream().map(String::valueOf).toList();
+        }
+        try {
+            return objectMapper.readValue(String.valueOf(readValue), new TypeReference<>() { });
+        } catch (JsonProcessingException readError) {
+            throw ServiceException.of(ResultCode.VALIDATE_FAILED, "解析结果中的意向城市格式无效");
+        }
     }
 }

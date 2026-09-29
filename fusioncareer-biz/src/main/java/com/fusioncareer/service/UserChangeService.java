@@ -46,35 +46,49 @@ public class UserChangeService {
 
     @Transactional
     public Long recordApplied(AppliedChange readChange) {
+        return recordApplied(List.of(readChange));
+    }
+
+    @Transactional
+    public Long recordApplied(List<AppliedChange> readChanges) {
+        AppliedChange readFirst = requireChanges(readChanges);
         LocalDateTime createTime = LocalDateTime.now();
         UserChangeActionEntity createAction = new UserChangeActionEntity();
-        createAction.setUserId(readChange.userId());
+        createAction.setUserId(readFirst.userId());
         createAction.setActorType(ChangeActorType.USER);
-        createAction.setOrigin(readChange.origin());
+        createAction.setOrigin(readFirst.origin());
         createAction.setActionType(ChangeActionType.APPLY);
         createAction.setStatus(ChangeActionStatus.APPLIED);
         createAction.setSchemaVersion(SCHEMA_VERSION);
-        createAction.setReason(readChange.reason());
+        createAction.setReason(readFirst.reason());
         createAction.setConfirmedAt(createTime);
         createAction.setAppliedAt(createTime);
-        return saveAction(createAction, readChange);
+        return saveAction(createAction, readChanges);
     }
 
     @Transactional
     public UserChangeActionResponse recordPendingRevert(
             Long readActionId,
             AppliedChange readChange) {
+        return recordPendingRevert(readActionId, List.of(readChange));
+    }
+
+    @Transactional
+    public UserChangeActionResponse recordPendingRevert(
+            Long readActionId,
+            List<AppliedChange> readChanges) {
+        AppliedChange readFirst = requireChanges(readChanges);
         UserChangeActionEntity createAction = new UserChangeActionEntity();
-        createAction.setUserId(readChange.userId());
+        createAction.setUserId(readFirst.userId());
         createAction.setActorType(ChangeActorType.USER);
-        createAction.setOrigin(readChange.origin());
+        createAction.setOrigin(readFirst.origin());
         createAction.setActionType(ChangeActionType.REVERT);
         createAction.setRevertsActionId(readActionId);
         createAction.setStatus(ChangeActionStatus.PENDING);
         createAction.setSchemaVersion(SCHEMA_VERSION);
-        createAction.setReason(readChange.reason());
-        Long createActionId = saveAction(createAction, readChange);
-        return readAction(readChange.userId(), createActionId);
+        createAction.setReason(readFirst.reason());
+        Long createActionId = saveAction(createAction, readChanges);
+        return readAction(readFirst.userId(), createActionId);
     }
 
     /**
@@ -90,20 +104,35 @@ public class UserChangeService {
             String readToolName,
             String readIdempotencyKey,
             String readArgsHash) {
+        return recordPendingApply(
+                List.of(readChange), readEpoch, readRunId, readRequestId,
+                readToolName, readIdempotencyKey, readArgsHash);
+    }
+
+    @Transactional
+    public UserChangeActionResponse recordPendingApply(
+            List<AppliedChange> readChanges,
+            Long readEpoch,
+            String readRunId,
+            String readRequestId,
+            String readToolName,
+            String readIdempotencyKey,
+            String readArgsHash) {
+        AppliedChange readFirst = requireChanges(readChanges);
         UserChangeActionEntity readExisting = actionMapper.selectOne(
                 new LambdaQueryWrapper<UserChangeActionEntity>()
-                        .eq(UserChangeActionEntity::getUserId, readChange.userId())
+                        .eq(UserChangeActionEntity::getUserId, readFirst.userId())
                         .eq(UserChangeActionEntity::getIdempotencyKey, readIdempotencyKey)
                         .last("LIMIT 1"));
         if (readExisting != null) {
             return verifyIdempotentAction(
-                    readChange.userId(), readExisting, readToolName, readArgsHash);
+                    readFirst.userId(), readExisting, readToolName, readArgsHash);
         }
 
         UserChangeActionEntity createAction = new UserChangeActionEntity();
-        createAction.setUserId(readChange.userId());
+        createAction.setUserId(readFirst.userId());
         createAction.setActorType(ChangeActorType.AGENT);
-        createAction.setOrigin(readChange.origin());
+        createAction.setOrigin(readFirst.origin());
         createAction.setEpoch(readEpoch);
         createAction.setRunId(readRunId);
         createAction.setRequestId(readRequestId);
@@ -113,21 +142,21 @@ public class UserChangeService {
         createAction.setIdempotencyKey(readIdempotencyKey);
         createAction.setArgsHash(readArgsHash);
         createAction.setSchemaVersion(SCHEMA_VERSION);
-        createAction.setReason(readChange.reason());
+        createAction.setReason(readFirst.reason());
         try {
-            Long createActionId = saveAction(createAction, readChange);
-            return readAction(readChange.userId(), createActionId);
+            Long createActionId = saveAction(createAction, readChanges);
+            return readAction(readFirst.userId(), createActionId);
         } catch (DuplicateKeyException readError) {
             UserChangeActionEntity readConcurrent = actionMapper.selectOne(
                     new LambdaQueryWrapper<UserChangeActionEntity>()
-                            .eq(UserChangeActionEntity::getUserId, readChange.userId())
+                            .eq(UserChangeActionEntity::getUserId, readFirst.userId())
                             .eq(UserChangeActionEntity::getIdempotencyKey, readIdempotencyKey)
                             .last("LIMIT 1"));
             if (readConcurrent == null) {
                 throw readError;
             }
             return verifyIdempotentAction(
-                    readChange.userId(), readConcurrent, readToolName, readArgsHash);
+                    readFirst.userId(), readConcurrent, readToolName, readArgsHash);
         }
     }
 
@@ -144,12 +173,38 @@ public class UserChangeService {
         return readAction(readUserId, readAction.getId());
     }
 
+    @Transactional(readOnly = true)
+    public UserChangeActionResponse readIdempotentAction(
+            Long readUserId,
+            String readToolName,
+            String readIdempotencyKey,
+            String readArgsHash) {
+        UserChangeActionEntity readAction = actionMapper.selectOne(
+                new LambdaQueryWrapper<UserChangeActionEntity>()
+                        .eq(UserChangeActionEntity::getUserId, readUserId)
+                        .eq(UserChangeActionEntity::getIdempotencyKey, readIdempotencyKey)
+                        .last("LIMIT 1"));
+        return readAction == null ? null : verifyIdempotentAction(
+                readUserId, readAction, readToolName, readArgsHash);
+    }
+
     private Long saveAction(
             UserChangeActionEntity createAction,
-            AppliedChange readChange) {
+            List<AppliedChange> readChanges) {
         if (actionMapper.insert(createAction) != 1) {
             throw buildFailure();
         }
+        short createItemOrder = 0;
+        for (AppliedChange readChange : readChanges) {
+            saveItem(createAction, readChange, createItemOrder++);
+        }
+        return createAction.getId();
+    }
+
+    private void saveItem(
+            UserChangeActionEntity createAction,
+            AppliedChange readChange,
+            short readItemOrder) {
         Map<String, Object> writeBefore = buildSnapshot(
                 readChange.beforeExists(), readChange.beforeFields());
         Map<String, Object> writeAfter = buildSnapshot(
@@ -167,7 +222,7 @@ public class UserChangeService {
 
         UserChangeItemEntity createItem = new UserChangeItemEntity();
         createItem.setActionId(createAction.getId());
-        createItem.setItemOrder((short) 0);
+        createItem.setItemOrder(readItemOrder);
         createItem.setResourceType(readChange.resourceType());
         createItem.setResourceKey(readChange.resourceKey());
         createItem.setOperation(readChange.operation());
@@ -180,7 +235,26 @@ public class UserChangeService {
         if (itemMapper.insert(createItem) != 1) {
             throw buildFailure();
         }
-        return createAction.getId();
+    }
+
+    private AppliedChange requireChanges(List<AppliedChange> readChanges) {
+        if (readChanges == null || readChanges.isEmpty() || readChanges.size() > 16) {
+            throw buildFailure();
+        }
+        AppliedChange readFirst = readChanges.get(0);
+        Map<String, Boolean> readResources = new LinkedHashMap<>();
+        for (AppliedChange readChange : readChanges) {
+            if (!Objects.equals(readFirst.userId(), readChange.userId())
+                    || !Objects.equals(readFirst.origin(), readChange.origin())
+                    || !Objects.equals(readFirst.reason(), readChange.reason())
+                    || readChange.changedFields() == null
+                    || readChange.changedFields().isEmpty()
+                    || readResources.put(
+                    readChange.resourceType() + "|" + readChange.resourceKey(), true) != null) {
+                throw buildFailure();
+            }
+        }
+        return readFirst;
     }
 
     @Transactional(readOnly = true)

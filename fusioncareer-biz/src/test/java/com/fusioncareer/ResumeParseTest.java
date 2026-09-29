@@ -123,6 +123,30 @@ class ResumeParseTest {
         assertThat(readResult.getParseStatus()).isEqualTo(ResumeParseStatus.ALGORITHM_FAILED);
     }
 
+    @Test
+    void prepareProposalNormalizesEnumsAndCities() {
+        UserEntity createUser = createUser("parse-proposal");
+        ResumeFileResponse createFile = createFileService.upload(createUser.getId(),
+                new MockMultipartFile("file", "resume.pdf", "application/pdf", "%PDF".getBytes()));
+        UserProfileRequest createProfile = new UserProfileRequest();
+        createProfile.setGender(Gender.FEMALE);
+        createProfile.setIntentionCity("[\"上海\",\"杭州\"]");
+        ResumeRequest createResume = new ResumeRequest();
+        createResume.setSkills("Python");
+        ResumeParseResponse createResponse = new ResumeParseResponse();
+        createResponse.setProfilePatch(createProfile);
+        createResponse.setResumePatch(createResume);
+        when(readPythonClient.parseResume(any())).thenReturn(createResponse);
+
+        ResumeParseService.ParsedPatches readPatches = updateParseService.parseForProposal(
+                createUser.getId(), createFile.getId());
+
+        assertThat(readPatches.profileSet())
+                .containsEntry("gender", "FEMALE")
+                .containsEntry("intentionCity", java.util.List.of("上海", "杭州"));
+        assertThat(readPatches.resumeSet()).containsEntry("skills", "Python");
+    }
+
     private UserEntity createUser(String createStudentId) {
         UserEntity createUser = new UserEntity();
         createUser.setUsername(createStudentId);

@@ -70,19 +70,39 @@ public class PersonalSpaceRevertService {
         }
 
         UserChangeActionEntity readAction = loadApplied(readUserId, readActionId);
-        UserChangeItemEntity readItem = loadItem(readActionId, false);
+        List<UserChangeItemEntity> readItems = loadItems(readActionId, false);
+        if (readItems.size() == 1) {
+            UserChangeItemEntity readItem = readItems.get(0);
+            List<String> readFields = parseFields(readItem.getChangedFields());
+            Snapshot readAfter = decryptSnapshot(
+                    readUserId, readActionId, readItem, "after");
+            ResourceState readCurrent = loadState(
+                    readUserId, readItem.getResourceType(),
+                    readItem.getResourceKey(), readFields);
+            UserChangeActionResponse readWithdrawal = createReviewedWithdrawal(
+                    readUserId, readAction, readItem, readAfter, readCurrent);
+            if (readWithdrawal != null) {
+                return readWithdrawal;
+            }
+        }
+
+        List<UserChangeService.AppliedChange> createChanges = new ArrayList<>();
+        for (UserChangeItemEntity readItem : readItems) {
+            createChanges.add(prepareRevertChange(
+                    readUserId, readActionId, readItem));
+        }
+        return changeService.recordPendingRevert(readActionId, createChanges);
+    }
+
+    private UserChangeService.AppliedChange prepareRevertChange(
+            Long readUserId,
+            Long readActionId,
+            UserChangeItemEntity readItem) {
         List<String> readFields = parseFields(readItem.getChangedFields());
         Snapshot readBefore = decryptSnapshot(readUserId, readActionId, readItem, "before");
         Snapshot readAfter = decryptSnapshot(readUserId, readActionId, readItem, "after");
         ResourceState readCurrent = loadState(
                 readUserId, readItem.getResourceType(), readItem.getResourceKey(), readFields);
-
-        UserChangeActionResponse readWithdrawal = createReviewedWithdrawal(
-                readUserId, readAction, readItem, readAfter, readCurrent);
-        if (readWithdrawal != null) {
-            return readWithdrawal;
-        }
-
         Map<String, Object> readCurrentFields = new LinkedHashMap<>();
         Map<String, Object> updateFields = new LinkedHashMap<>();
         if (readBefore.exists() != readAfter.exists()) {
@@ -121,7 +141,7 @@ public class PersonalSpaceRevertService {
                 readCurrent.exists(),
                 readBefore.exists(),
                 readBefore.fields());
-        UserChangeService.AppliedChange createRevert = new UserChangeService.AppliedChange(
+        return new UserChangeService.AppliedChange(
                 readUserId,
                 "HISTORY_UI",
                 readItem.getResourceType(),
@@ -135,7 +155,6 @@ public class PersonalSpaceRevertService {
                 readCurrentFields,
                 updateFields,
                 "回退操作 " + readActionId);
-        return changeService.recordPendingRevert(readActionId, createRevert);
     }
 
     @Transactional
@@ -148,24 +167,35 @@ public class PersonalSpaceRevertService {
             throw buildConflict("该操作当前不可确认");
         }
 
-        UserChangeItemEntity updateItem = loadItem(readActionId, true);
-        List<String> readFields = parseFields(updateItem.getChangedFields());
-        Snapshot readBefore = decryptSnapshot(readUserId, readActionId, updateItem, "before");
-        Snapshot readAfter = decryptSnapshot(readUserId, readActionId, updateItem, "after");
-        ResourceState readCurrent = loadState(
-                readUserId, updateItem.getResourceType(), updateItem.getResourceKey(), readFields);
-        if (!Objects.equals(readCurrent.version(), updateItem.getExpectedVersion())
-                || !matchesState(readCurrent, readBefore, readFields)) {
-            throw buildConflict("资源在确认前已发生变化，请重新生成提案");
+        List<PendingApplication> updateApplications = new ArrayList<>();
+        for (UserChangeItemEntity updateItem : loadItems(readActionId, true)) {
+            List<String> readFields = parseFields(updateItem.getChangedFields());
+            Snapshot readBefore = decryptSnapshot(
+                    readUserId, readActionId, updateItem, "before");
+            Snapshot readAfter = decryptSnapshot(
+                    readUserId, readActionId, updateItem, "after");
+            ResourceState readCurrent = loadState(
+                    readUserId, updateItem.getResourceType(),
+                    updateItem.getResourceKey(), readFields);
+            if (!Objects.equals(readCurrent.version(), updateItem.getExpectedVersion())
+                    || !matchesState(readCurrent, readBefore, readFields)) {
+                throw buildConflict("资源在确认前已发生变化，请重新生成提案");
+            }
+            updateApplications.add(new PendingApplication(
+                    updateItem, readCurrent, readAfter));
         }
 
-        Long updateVersion = applySnapshot(
-                readUserId, updateItem.getResourceType(), updateItem.getResourceKey(),
-                readCurrent.version(),
-                readAfter.exists(), readAfter.fields());
-        updateItem.setAppliedVersion(updateVersion);
-        if (itemMapper.updateById(updateItem) != 1) {
-            throw buildConflict("操作项状态更新失败");
+        for (PendingApplication updateApplication : updateApplications) {
+            UserChangeItemEntity updateItem = updateApplication.item();
+            Long updateVersion = applySnapshot(
+                    readUserId, updateItem.getResourceType(), updateItem.getResourceKey(),
+                    updateApplication.current().version(),
+                    updateApplication.after().exists(),
+                    updateApplication.after().fields());
+            updateItem.setAppliedVersion(updateVersion);
+            if (itemMapper.updateById(updateItem) != 1) {
+                throw buildConflict("操作项状态更新失败");
+            }
         }
         LocalDateTime updateTime = LocalDateTime.now();
         updateAction.setStatus(ChangeActionStatus.APPLIED);
@@ -309,19 +339,19 @@ public class PersonalSpaceRevertService {
         return readAction;
     }
 
-    private UserChangeItemEntity loadItem(Long readActionId, boolean lockItem) {
+    private List<UserChangeItemEntity> loadItems(Long readActionId, boolean lockItems) {
         LambdaQueryWrapper<UserChangeItemEntity> readQuery =
                 new LambdaQueryWrapper<UserChangeItemEntity>()
                         .eq(UserChangeItemEntity::getActionId, readActionId)
                         .orderByAsc(UserChangeItemEntity::getItemOrder);
-        if (lockItem) {
+        if (lockItems) {
             readQuery.last("FOR UPDATE");
         }
         List<UserChangeItemEntity> readItems = itemMapper.selectList(readQuery);
-        if (readItems.size() != 1) {
-            throw buildConflict("当前仅支持单资源操作");
+        if (readItems.isEmpty() || readItems.size() > 16) {
+            throw buildConflict("操作项数量无效");
         }
-        return readItems.get(0);
+        return readItems;
     }
 
     private Snapshot decryptSnapshot(
@@ -496,5 +526,11 @@ public class PersonalSpaceRevertService {
     }
 
     private record ResourceState(boolean exists, Long version, Map<String, Object> fields) {
+    }
+
+    private record PendingApplication(
+            UserChangeItemEntity item,
+            ResourceState current,
+            Snapshot after) {
     }
 }

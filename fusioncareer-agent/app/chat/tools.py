@@ -311,6 +311,25 @@ WRITE_TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "parse_resume_file",
+            "description": (
+                "仅当用户当前消息明确要求解析并应用自己的简历文件时，解析文件并创建"
+                "Profile + Resume 跨资源待确认提案。不会直接修改资料。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fileId": {"type": "string", "pattern": "^[0-9]+$"},
+                    "reason": {"type": "string", "minLength": 1, "maxLength": 256},
+                },
+                "required": ["fileId", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
     questionnaireTool(
         "propose_questionnaire_draft",
         "仅当用户当前消息明确要求保存指定岗位的问卷草稿时，创建待确认提案。"

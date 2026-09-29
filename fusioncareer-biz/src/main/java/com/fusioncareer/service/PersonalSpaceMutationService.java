@@ -132,6 +132,22 @@ public class PersonalSpaceMutationService {
             Long readUserId,
             Map<String, Object> readSet,
             List<String> readClear) {
+        return prepareProfileProposal(readUserId, readSet, readClear, true);
+    }
+
+    @Transactional(readOnly = true)
+    public PreparedChange prepareProfileProposalIfChanged(
+            Long readUserId,
+            Map<String, Object> readSet,
+            List<String> readClear) {
+        return prepareProfileProposal(readUserId, readSet, readClear, false);
+    }
+
+    private PreparedChange prepareProfileProposal(
+            Long readUserId,
+            Map<String, Object> readSet,
+            List<String> readClear,
+            boolean requireChange) {
         requireAccount(readUserId);
         UserProfileEntity readProfile = profileService.getById(readUserId);
         UserProfileEntity updateProfile = copyProfile(readProfile, readUserId);
@@ -144,7 +160,8 @@ public class PersonalSpaceMutationService {
                 ChangeResourceType.PROFILE,
                 readProfile != null,
                 readProfile == null ? null : readProfile.getVersion(),
-                updatePatch);
+                updatePatch,
+                requireChange);
     }
 
     /**
@@ -155,6 +172,22 @@ public class PersonalSpaceMutationService {
             Long readUserId,
             Map<String, Object> readSet,
             List<String> readClear) {
+        return prepareResumeProposal(readUserId, readSet, readClear, true);
+    }
+
+    @Transactional(readOnly = true)
+    public PreparedChange prepareResumeProposalIfChanged(
+            Long readUserId,
+            Map<String, Object> readSet,
+            List<String> readClear) {
+        return prepareResumeProposal(readUserId, readSet, readClear, false);
+    }
+
+    private PreparedChange prepareResumeProposal(
+            Long readUserId,
+            Map<String, Object> readSet,
+            List<String> readClear,
+            boolean requireChange) {
         requireAccount(readUserId);
         ResumeEntity readResume = resumeService.getById(readUserId);
         ResumeEntity updateResume = copyResume(readResume, readUserId);
@@ -166,7 +199,8 @@ public class PersonalSpaceMutationService {
                 ChangeResourceType.RESUME,
                 readResume != null,
                 readResume == null ? null : readResume.getVersion(),
-                updatePatch);
+                updatePatch,
+                requireChange);
     }
 
     private ResumeResponse patchResume(
@@ -289,9 +323,13 @@ public class PersonalSpaceMutationService {
             ChangeResourceType readResourceType,
             boolean readExists,
             Long readVersion,
-            PatchValues readPatch) {
+            PatchValues readPatch,
+            boolean requireChange) {
         if (readPatch.afterFields().isEmpty()) {
-            throw buildInvalid("提案没有产生实际变化");
+            if (requireChange) {
+                throw buildInvalid("提案没有产生实际变化");
+            }
+            return null;
         }
         return new PreparedChange(
                 readResourceType,

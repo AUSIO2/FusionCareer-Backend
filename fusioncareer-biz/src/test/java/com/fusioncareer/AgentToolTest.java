@@ -1,5 +1,6 @@
 package com.fusioncareer;
 
+import com.fusioncareer.client.PythonServiceClient;
 import com.fusioncareer.config.AgentContextProperties;
 import com.fusioncareer.dto.req.AiMessageRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
@@ -8,6 +9,7 @@ import com.fusioncareer.dto.req.QuestionnaireReviewRequest;
 import com.fusioncareer.dto.req.ResumeRequest;
 import com.fusioncareer.dto.req.UserProfileRequest;
 import com.fusioncareer.dto.res.ResumeFileResponse;
+import com.fusioncareer.dto.res.ResumeParseResponse;
 import com.fusioncareer.dto.res.UserChangeActionResponse;
 import com.fusioncareer.entity.UserEntity;
 import com.fusioncareer.enums.ChangeActionStatus;
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
@@ -56,6 +59,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -83,6 +90,8 @@ class AgentToolTest {
     @Autowired JobPostQuestionService readQuestions;
     @Autowired QuestionnaireAnswerService manageAnswers;
     @Autowired PersonalSpaceService manageSpace;
+
+    @MockBean PythonServiceClient readPythonClient;
 
     private UserEntity createUser;
     private AiChatService.RunStart createRun;
@@ -524,6 +533,95 @@ class AgentToolTest {
         assertThat(manageAnswers.getByUserAndJobPost(
                 createUser.getId(), readJobId).getSubmissionStatus())
                 .isEqualTo(QuestionnaireSubmissionStatus.REVIEWED);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void parseResumeCreatesAtomicMultiResourceProposal() {
+        ResumeFileResponse createFile = readFiles.upload(
+                createUser.getId(),
+                new MockMultipartFile(
+                        "file",
+                        "parsed-resume.pdf",
+                        "application/pdf",
+                        "%PDF-parsed-resume".getBytes(StandardCharsets.UTF_8)));
+        cleanupFileIds.add(createFile.getId());
+
+        UserProfileRequest createProfilePatch = new UserProfileRequest();
+        createProfilePatch.setMajor("计算机科学");
+        createProfilePatch.setIntentionCity("[\"上海\",\"杭州\"]");
+        ResumeRequest createResumePatch = new ResumeRequest();
+        createResumePatch.setSkills("Python");
+        ResumeParseResponse createParsed = new ResumeParseResponse();
+        createParsed.setProfilePatch(createProfilePatch);
+        createParsed.setResumePatch(createResumePatch);
+        when(readPythonClient.parseResume(any())).thenReturn(createParsed);
+
+        Map<String, Object> readProposal = (Map<String, Object>) runTools.executeTool(
+                createContext,
+                "parse_resume_file",
+                Map.of(
+                        "fileId", createFile.getId().toString(),
+                        "reason", "解析简历并更新资料"),
+                "call-parse-resume-1");
+        Long readActionId = Long.valueOf(String.valueOf(readProposal.get("actionId")));
+        Map<String, Object> readRetry = (Map<String, Object>) runTools.executeTool(
+                createContext,
+                "parse_resume_file",
+                Map.of(
+                        "fileId", createFile.getId().toString(),
+                        "reason", "解析简历并更新资料"),
+                "call-parse-resume-1");
+        assertThat(String.valueOf(readRetry.get("actionId"))).isEqualTo(readActionId.toString());
+        verify(readPythonClient, times(1)).parseResume(any());
+        assertThat(readProposal).containsEntry("resourceType", "MULTI");
+        assertThat((List<Map<String, Object>>) readProposal.get("resources"))
+                .extracting(readResource -> readResource.get("resourceType"))
+                .containsExactly(ChangeResourceType.PROFILE, ChangeResourceType.RESUME);
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
+        assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Java");
+
+        UserChangeActionResponse readApplied = manageSpace.confirmAction(
+                createUser.getId(), readActionId);
+        assertThat(readApplied.items()).hasSize(2);
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("计算机科学");
+        assertThat(readProfiles.getProfile(createUser.getId()).getIntentionCity())
+                .contains("上海", "杭州");
+        assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Python");
+
+        UserChangeActionResponse readRevert = manageSpace.createRevert(
+                createUser.getId(), readActionId);
+        assertThat(readRevert.items()).hasSize(2);
+        manageSpace.confirmAction(createUser.getId(), readRevert.id());
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
+        assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Java");
+
+        UserProfileRequest createConflictProfile = new UserProfileRequest();
+        createConflictProfile.setMajor("法学");
+        ResumeRequest createConflictResume = new ResumeRequest();
+        createConflictResume.setSkills("Go");
+        ResumeParseResponse createConflictParsed = new ResumeParseResponse();
+        createConflictParsed.setProfilePatch(createConflictProfile);
+        createConflictParsed.setResumePatch(createConflictResume);
+        when(readPythonClient.parseResume(any())).thenReturn(createConflictParsed);
+        Map<String, Object> readConflictProposal = (Map<String, Object>) runTools.executeTool(
+                createContext,
+                "parse_resume_file",
+                Map.of(
+                        "fileId", createFile.getId().toString(),
+                        "reason", "验证跨资源原子冲突"),
+                "call-parse-resume-2");
+        ResumeRequest updateResume = new ResumeRequest();
+        updateResume.setSkills("Rust");
+        readResumes.saveOrUpdateResume(createUser.getId(), updateResume);
+
+        assertThatThrownBy(() -> manageSpace.confirmAction(
+                createUser.getId(),
+                Long.valueOf(String.valueOf(readConflictProposal.get("actionId")))))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("发生变化");
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
+        assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Rust");
     }
 
     private JobPostRequest createJob(String createName, JobPostStatus createStatus) {

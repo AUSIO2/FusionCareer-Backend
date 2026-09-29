@@ -118,7 +118,7 @@ FusionCareer-Backend/
 
 Profile、Resume 和 Memory 的 canonical 写入会在同一事务中记录不可变 Action/Item。实际修改字段的 before/after 使用 AES-256-GCM 加密；任意 APPLIED 操作均可创建永久回退提案，确认时使用版本 CAS 和 before/after/current 三方比较，Revert 本身也可再次 Revert。生产部署必须配置 `USER_CHANGE_KEY`（可用 `openssl rand -base64 32` 生成）和 `USER_CHANGE_KEY_VERSION`。
 
-AI 当前开放 15 个固定只读 Tool：个人空间、账号、资料、简历、文件列表/详情/配额、Memory、投递列表/详情、岗位搜索/详情/问卷、变更历史列表/详情。设置 `AI_CHAT_WRITE_ENABLED=true` 后额外开放 Profile、Resume、Memory、文件删除、问卷草稿和问卷提交共 6 个提案 Tool；它们只创建 `PENDING` Action，业务数据必须由登录用户通过确认接口应用。文件删除只移入回收站，问卷已审核后的撤回使用 `WITHDRAWN` 并保留审核信息，所有已应用操作均可继续 Revert。Tool Schema 不包含 userId，Java 使用 5 分钟 HMAC AgentContext 重新校验用户、run、epoch 和 scope；生产部署需额外配置独立的 `AGENT_CONTEXT_SECRET`。
+AI 当前开放 15 个固定只读 Tool。设置 `AI_CHAT_WRITE_ENABLED=true` 后额外开放 Profile、Resume、Memory、文件删除、问卷草稿、问卷提交和简历解析共 7 个提案 Tool；它们只创建 `PENDING` Action，业务数据必须由登录用户通过确认接口应用。`parse_resume_file` 在一个 Action 中原子修改 Profile + Resume，任一版本冲突都会整体回滚。文件删除只移入回收站，问卷已审核后的撤回使用 `WITHDRAWN` 并保留审核信息，所有已应用操作均可继续 Revert。Tool Schema 不包含 userId，Java 使用 5 分钟 HMAC AgentContext 重新校验用户、run、epoch 和 scope；生产部署需额外配置独立的 `AGENT_CONTEXT_SECRET`。
 
 #### 个人资料 & 简历
 

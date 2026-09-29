@@ -212,6 +212,31 @@ public class AiStreamService {
                 sendAction.put("reason", readReason);
                 sendAction.put("resourceType", readEvent.data().path("resourceType").asText(""));
                 sendAction.put("changedFields", readFields);
+                List<Map<String, Object>> readResources = new ArrayList<>();
+                readEvent.data().path("resources").forEach(readResource -> {
+                    String readType = readResource.path("resourceType").asText("");
+                    if (readResources.size() >= 16 || readType.length() > 32) {
+                        return;
+                    }
+                    List<String> readResourceFields = new ArrayList<>();
+                    readResource.path("changedFields").forEach(readField -> {
+                        if (readResourceFields.size() < 32
+                                && readField.isTextual()
+                                && readField.asText().length() <= 64) {
+                            readResourceFields.add(readField.asText());
+                        }
+                    });
+                    Map<String, Object> readSafeResource = new LinkedHashMap<>();
+                    readSafeResource.put("resourceType", readType);
+                    readSafeResource.put("changedFields", readResourceFields);
+                    if (!readResource.path("baseVersion").isMissingNode()
+                            && !readResource.path("baseVersion").isNull()) {
+                        readSafeResource.put(
+                                "baseVersion", readResource.path("baseVersion").asText());
+                    }
+                    readResources.add(readSafeResource);
+                });
+                sendAction.put("resources", readResources);
                 if (!readEvent.data().path("baseVersion").isMissingNode()
                         && !readEvent.data().path("baseVersion").isNull()) {
                     sendAction.put("baseVersion",

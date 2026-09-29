@@ -10,6 +10,7 @@ import com.fusioncareer.dto.req.QuestionnaireSubmitRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.dto.res.PersonalSpaceDocumentsResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
+import com.fusioncareer.dto.res.UserChangeActionResponse;
 import com.fusioncareer.enums.ChangeOperation;
 import com.fusioncareer.enums.ChangeResourceType;
 import com.fusioncareer.enums.EduLevel;
@@ -66,7 +67,8 @@ public class AgentToolService {
             Map.entry("propose_memory_patch", "memory:propose"),
             Map.entry("propose_file_delete", "file:propose"),
             Map.entry("propose_questionnaire_draft", "questionnaire:propose"),
-            Map.entry("propose_questionnaire_submit", "questionnaire:propose")
+            Map.entry("propose_questionnaire_submit", "questionnaire:propose"),
+            Map.entry("parse_resume_file", "resume:propose")
     );
 
     private final AgentContextService contextService;
@@ -79,6 +81,7 @@ public class AgentToolService {
     private final UserChangeService changeService;
     private final PersonalSpaceMutationService mutationService;
     private final UserMemoryService memoryService;
+    private final ResumeParseService resumeParseService;
     private final ObjectMapper objectMapper;
 
     public Object executeTool(
@@ -145,6 +148,8 @@ public class AgentToolService {
             case "propose_questionnaire_submit" -> proposeQuestionnaire(
                     readContext, readToolName, readToolCallId, readArgs,
                     QuestionnaireSubmissionStatus.SUBMITTED);
+            case "parse_resume_file" -> proposeResumeParse(
+                    readContext, readToolName, readToolCallId, readArgs);
             default -> throw ServiceException.of(ResultCode.NOT_FOUND, "Agent Tool 不存在");
         };
     }
@@ -453,52 +458,157 @@ public class AgentToolService {
         }
     }
 
-    private Object saveProposal(
+    private Object proposeResumeParse(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs) {
+        requireKeys(readArgs, Set.of("fileId", "reason"));
+        Long readFileId = readLong(readArgs, "fileId");
+        String readReason = readRequiredText(readArgs, "reason", 256);
+        ProposalIdentity readIdentity = proposalIdentity(
+                readContext, readToolName, readToolCallId, readArgs);
+        UserChangeActionResponse readExisting = changeService.readIdempotentAction(
+                readContext.userId(),
+                readToolName,
+                readIdentity.idempotencyKey(),
+                readIdentity.argsHash());
+        if (readExisting != null) {
+            return buildProposalResult(readExisting);
+        }
+        ResumeParseService.ParsedPatches readParsed = resumeParseService.parseForProposal(
+                readContext.userId(), readFileId);
+        List<ProposalChange> createChanges = new ArrayList<>();
+        if (!readParsed.profileSet().isEmpty()) {
+            PersonalSpaceMutationService.PreparedChange readProfile =
+                    mutationService.prepareProfileProposalIfChanged(
+                            readContext.userId(), readParsed.profileSet(), List.of());
+            if (readProfile != null) {
+                createChanges.add(new ProposalChange(
+                        readProfile.resourceType(),
+                        readProfile.resourceKey(),
+                        readProfile.operation(),
+                        readProfile.changedFields(),
+                        readProfile.expectedVersion(),
+                        readProfile.beforeExists(),
+                        readProfile.afterExists(),
+                        readProfile.beforeFields(),
+                        readProfile.afterFields()));
+            }
+        }
+        if (!readParsed.resumeSet().isEmpty()) {
+            PersonalSpaceMutationService.PreparedChange readResume =
+                    mutationService.prepareResumeProposalIfChanged(
+                            readContext.userId(), readParsed.resumeSet(), List.of());
+            if (readResume != null) {
+                createChanges.add(new ProposalChange(
+                        readResume.resourceType(),
+                        readResume.resourceKey(),
+                        readResume.operation(),
+                        readResume.changedFields(),
+                        readResume.expectedVersion(),
+                        readResume.beforeExists(),
+                        readResume.afterExists(),
+                        readResume.beforeFields(),
+                        readResume.afterFields()));
+            }
+        }
+        if (createChanges.isEmpty()) {
+            throw buildInvalid("简历解析结果没有产生实际变化");
+        }
+        return saveProposals(
+                readContext,
+                readToolName,
+                readToolCallId,
+                readArgs,
+                readReason,
+                createChanges);
+    }
+
+    private Map<String, Object> saveProposal(
             AgentContextService.AgentContext readContext,
             String readToolName,
             String readToolCallId,
             Map<String, Object> readArgs,
             String readReason,
             ProposalChange readChange) {
+        return saveProposals(
+                readContext, readToolName, readToolCallId,
+                readArgs, readReason, List.of(readChange));
+    }
+
+    private Map<String, Object> saveProposals(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs,
+            String readReason,
+            List<ProposalChange> readChanges) {
+        ProposalIdentity readIdentity = proposalIdentity(
+                readContext, readToolName, readToolCallId, readArgs);
+        List<UserChangeService.AppliedChange> createChanges = readChanges.stream()
+                .map(readChange -> new UserChangeService.AppliedChange(
+                        readContext.userId(),
+                        "AGENT_TOOL",
+                        readChange.resourceType(),
+                        readChange.resourceKey(),
+                        readChange.operation(),
+                        readChange.changedFields(),
+                        readChange.expectedVersion(),
+                        null,
+                        readChange.beforeExists(),
+                        readChange.afterExists(),
+                        readChange.beforeFields(),
+                        readChange.afterFields(),
+                        readReason))
+                .toList();
+        var readAction = changeService.recordPendingApply(
+                createChanges,
+                readContext.epoch(),
+                readContext.runId(),
+                readContext.requestId(),
+                readToolName,
+                readIdentity.idempotencyKey(),
+                readIdentity.argsHash());
+        return buildProposalResult(readAction);
+    }
+
+    private Map<String, Object> buildProposalResult(UserChangeActionResponse readAction) {
+        Map<String, Object> readResult = new LinkedHashMap<>();
+        readResult.put("actionId", readAction.id());
+        readResult.put("status", readAction.status());
+        readResult.put("reason", readAction.reason());
+        readResult.put("resourceType", readAction.items().size() == 1
+                ? readAction.items().get(0).resourceType() : "MULTI");
+        readResult.put("changedFields", readAction.items().stream()
+                .flatMap(readItem -> readItem.changedFields().stream())
+                .distinct()
+                .toList());
+        readResult.put("baseVersion", readAction.items().size() == 1
+                ? readAction.items().get(0).expectedVersion() : null);
+        readResult.put("resources", readAction.items().stream().map(readItem -> {
+            Map<String, Object> readResource = new LinkedHashMap<>();
+            readResource.put("resourceType", readItem.resourceType());
+            readResource.put("changedFields", readItem.changedFields());
+            readResource.put("baseVersion", readItem.expectedVersion());
+            return readResource;
+        }).toList());
+        readResult.put("requiresConfirmation", true);
+        return readResult;
+    }
+
+    private ProposalIdentity proposalIdentity(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs) {
         String readCallId = requireToolCallId(readToolCallId);
         String readArgsHash = hashCanonical(Map.of(
                 "toolName", readToolName,
                 "arguments", readArgs));
         String readIdempotencyKey = readContext.runId() + ":"
                 + hashText(readCallId).substring(0, 32);
-        UserChangeService.AppliedChange createChange = new UserChangeService.AppliedChange(
-                readContext.userId(),
-                "AGENT_TOOL",
-                readChange.resourceType(),
-                readChange.resourceKey(),
-                readChange.operation(),
-                readChange.changedFields(),
-                readChange.expectedVersion(),
-                null,
-                readChange.beforeExists(),
-                readChange.afterExists(),
-                readChange.beforeFields(),
-                readChange.afterFields(),
-                readReason);
-        var readAction = changeService.recordPendingApply(
-                createChange,
-                readContext.epoch(),
-                readContext.runId(),
-                readContext.requestId(),
-                readToolName,
-                readIdempotencyKey,
-                readArgsHash);
-        Map<String, Object> readResult = new LinkedHashMap<>();
-        readResult.put("actionId", readAction.id());
-        readResult.put("status", readAction.status());
-        readResult.put("reason", readAction.reason());
-        readResult.put("resourceType", readChange.resourceType());
-        readResult.put("changedFields", readAction.items().isEmpty()
-                ? List.of() : readAction.items().get(0).changedFields());
-        readResult.put("baseVersion", readAction.items().isEmpty()
-                ? null : readAction.items().get(0).expectedVersion());
-        readResult.put("requiresConfirmation", true);
-        return readResult;
+        return new ProposalIdentity(readIdempotencyKey, readArgsHash);
     }
 
     private PatchInput readPatch(Map<String, Object> readArgs) {
@@ -713,5 +823,8 @@ public class AgentToolService {
             boolean afterExists,
             Map<String, Object> beforeFields,
             Map<String, Object> afterFields) {
+    }
+
+    private record ProposalIdentity(String idempotencyKey, String argsHash) {
     }
 }

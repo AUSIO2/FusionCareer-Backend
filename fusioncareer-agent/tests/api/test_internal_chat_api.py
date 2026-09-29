@@ -113,6 +113,7 @@ def testWriteToolRegistryIncludesReversibleFileDelete():
     assert "propose_file_delete" in readNames
     assert "propose_questionnaire_draft" in readNames
     assert "propose_questionnaire_submit" in readNames
+    assert "parse_resume_file" in readNames
 
 
 def testProtectStream(client: TestClient):
