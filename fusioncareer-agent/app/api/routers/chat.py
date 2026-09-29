@@ -10,7 +10,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.api.deps.internal_auth import requireInternal
-from app.chat.tools import READ_TOOLS, TOOLS, runTool
+from app.chat.tools import (
+    PROPOSAL_TOOL_NAMES,
+    READ_TOOL_NAMES,
+    READ_TOOLS,
+    TOOLS,
+    runTool,
+    toolError,
+)
 from app.config import settings
 from app.integrations.llm import LLMClient
 
@@ -65,11 +72,7 @@ def encodeEvent(readName: str, readData: dict[str, Any]) -> str:
     return f"event: {readName}\ndata: {json.dumps(readData, ensure_ascii=False, separators=(',', ':'))}\n\n"
 
 
-async def streamEvents(readBody: ChatStreamBody, readContext: str, readBackend):
-    yield encodeEvent("start", {
-        "runId": readBody.runId,
-        "requestId": readBody.requestId,
-    })
+async def conversationEvents(readBody: ChatStreamBody, readContext: str, readBackend):
     readTask: asyncio.Task | None = None
     try:
         readMessages = [readMessage.model_dump() for readMessage in readBody.history]
@@ -87,7 +90,7 @@ async def streamEvents(readBody: ChatStreamBody, readContext: str, readBackend):
             readCalls = readPlan.get("toolCalls") or []
             if not readCalls:
                 break
-            readCalls = readCalls[:8 - readToolCount]
+            readCalls = readCalls[:4 - readToolCount]
             if not readCalls:
                 break
             readToolCount += len(readCalls)
@@ -106,14 +109,27 @@ async def streamEvents(readBody: ChatStreamBody, readContext: str, readBackend):
                     "name": readName,
                     "status": "RUNNING",
                 })
-                readToolResult = await runTool(
-                    readBackend,
-                    readContext,
-                    readName,
-                    readFunction.get("arguments") or "{}",
-                    readCallId,
-                    readAvailableNames,
-                )
+                if hasProposedAction and readName in PROPOSAL_TOOL_NAMES:
+                    readToolResult = toolError(
+                        "PROPOSAL_LIMIT", "本轮已经创建修改提案", False,
+                    )
+                else:
+                    try:
+                        readToolResult = await asyncio.wait_for(
+                            runTool(
+                                readBackend,
+                                readContext,
+                                readName,
+                                readFunction.get("arguments") or "{}",
+                                readCallId,
+                                readAvailableNames,
+                            ),
+                            timeout=toolTimeout(readName),
+                        )
+                    except TimeoutError:
+                        readToolResult = toolError(
+                            "TOOL_TIMEOUT", "工具执行超时", True,
+                        )
                 readMessages.append({
                     "role": "tool",
                     "tool_call_id": readCallId,
@@ -123,7 +139,7 @@ async def streamEvents(readBody: ChatStreamBody, readContext: str, readBackend):
                     "runId": readBody.runId,
                     "callId": readCallId,
                     "name": readName,
-                    "status": "COMPLETED",
+                    "status": "COMPLETED" if readToolResult.succeeded else "FAILED",
                 })
                 if readToolResult.proposed_action is not None:
                     hasProposedAction = True
@@ -140,7 +156,7 @@ async def streamEvents(readBody: ChatStreamBody, readContext: str, readBackend):
                         "baseVersion": readAction.get("baseVersion"),
                         "resources": readAction.get("resources") or [],
                     })
-            if readToolCount >= 8 or hasProposedAction:
+            if readToolCount >= 4 or hasProposedAction:
                 break
         readTextParts: list[str] = []
         readSequence = 0
@@ -200,6 +216,47 @@ async def streamEvents(readBody: ChatStreamBody, readContext: str, readBackend):
         })
 
 
+def toolTimeout(readName: str) -> float:
+    if readName == "parse_resume_file":
+        return settings.ai_chat_parse_timeout_seconds
+    if readName in PROPOSAL_TOOL_NAMES:
+        return settings.ai_chat_write_tool_timeout_seconds
+    if readName in READ_TOOL_NAMES:
+        return settings.ai_chat_read_tool_timeout_seconds
+    return settings.ai_chat_read_tool_timeout_seconds
+
+
+async def streamEvents(
+    readBody: ChatStreamBody,
+    readContext: str,
+    readBackend,
+    readSemaphore: asyncio.Semaphore,
+):
+    yield encodeEvent("start", {
+        "runId": readBody.runId,
+        "requestId": readBody.requestId,
+    })
+    hasAcquired = False
+    try:
+        await asyncio.wait_for(
+            readSemaphore.acquire(), timeout=settings.ai_chat_queue_timeout_seconds,
+        )
+        hasAcquired = True
+        async with asyncio.timeout(settings.ai_chat_run_timeout_seconds):
+            async for readEvent in conversationEvents(readBody, readContext, readBackend):
+                yield readEvent
+    except TimeoutError:
+        yield encodeEvent("error", {
+            "runId": readBody.runId,
+            "reason": "AI_RUN_TIMEOUT" if hasAcquired else "AI_RATE_LIMITED",
+            "message": "本轮处理超时，请重试" if hasAcquired else "当前请求较多，请稍后重试",
+            "retryable": True,
+        })
+    finally:
+        if hasAcquired:
+            readSemaphore.release()
+
+
 @router.post("/stream")
 async def streamChat(
     readBody: ChatStreamBody,
@@ -207,7 +264,12 @@ async def streamChat(
     readContext: str = Header(alias="X-Agent-Context", min_length=16, max_length=4096),
 ) -> StreamingResponse:
     return StreamingResponse(
-        streamEvents(readBody, readContext, readRequest.app.state.backend_client),
+        streamEvents(
+            readBody,
+            readContext,
+            readRequest.app.state.backend_client,
+            readRequest.app.state.chat_semaphore,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )

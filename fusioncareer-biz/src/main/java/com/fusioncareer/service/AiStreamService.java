@@ -176,7 +176,9 @@ public class AiStreamService {
             String readName = readEvent.data().path("name").asText("");
             String readStatus = readEvent.data().path("status").asText("");
             if (readName.length() <= 64
-                    && ("RUNNING".equals(readStatus) || "COMPLETED".equals(readStatus))) {
+                    && ("RUNNING".equals(readStatus)
+                    || "COMPLETED".equals(readStatus)
+                    || "FAILED".equals(readStatus))) {
                 Map<String, Object> sendStatus = new LinkedHashMap<>();
                 sendStatus.put("runId", updateStream.run().assistantMessage().runId());
                 sendStatus.put("callId", readEvent.data().path("callId").asText(""));

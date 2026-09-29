@@ -4,7 +4,11 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from app.integrations.backend import BackendClient
+import httpx
+
+from app.integrations.backend import BackendApiError, BackendClient
+
+MAX_TOOL_RESULT_CHARS = 8_192
 
 READ_TOOLS: list[dict[str, Any]] = [
     {
@@ -344,6 +348,7 @@ WRITE_TOOLS: list[dict[str, Any]] = [
 
 TOOLS = READ_TOOLS + WRITE_TOOLS
 TOOL_NAMES = {readTool["function"]["name"] for readTool in TOOLS}
+READ_TOOL_NAMES = {readTool["function"]["name"] for readTool in READ_TOOLS}
 PROPOSAL_TOOL_NAMES = {readTool["function"]["name"] for readTool in WRITE_TOOLS}
 
 
@@ -351,6 +356,7 @@ PROPOSAL_TOOL_NAMES = {readTool["function"]["name"] for readTool in WRITE_TOOLS}
 class ToolResult:
     content: str
     proposed_action: dict[str, Any] | None = None
+    succeeded: bool = True
 
 
 async def runTool(
@@ -364,33 +370,72 @@ async def runTool(
     if readName not in TOOL_NAMES or (
         readAllowedNames is not None and readName not in readAllowedNames
     ):
-        return ToolResult(json.dumps({"error": "UNKNOWN_TOOL"}, ensure_ascii=False))
+        return ToolResult(
+            json.dumps({"error": "UNKNOWN_TOOL"}, ensure_ascii=False), succeeded=False,
+        )
     try:
         readArgs = json.loads(readArguments or "{}")
         if not isinstance(readArgs, dict):
             raise TypeError("tool arguments must be an object")
     except (json.JSONDecodeError, TypeError):
-        return ToolResult(json.dumps({"error": "INVALID_TOOL_ARGUMENTS"}, ensure_ascii=False))
-    try:
-        readResult = await readBackend.run_agent_tool(
-            readName, readArgs, readContext, tool_call_id=readCallId,
+        return ToolResult(
+            json.dumps({"error": "INVALID_TOOL_ARGUMENTS"}, ensure_ascii=False),
+            succeeded=False,
         )
-        writeResult = json.dumps(
-            {"untrustedData": readResult}, ensure_ascii=False, separators=(",", ":"), default=str,
-        )
-        if len(writeResult) > 16_000:
-            writeResult = json.dumps({
-                "untrustedData": writeResult[:12_000],
-                "truncated": True,
-            }, ensure_ascii=False, separators=(",", ":"))
-        readAction = readResult if (
-            readName in PROPOSAL_TOOL_NAMES
-            and isinstance(readResult, dict)
-            and readResult.get("status") == "PENDING"
-        ) else None
-        return ToolResult(writeResult, readAction)
-    except Exception as readError:  # noqa: BLE001 - Tool errors become model-safe data
-        return ToolResult(json.dumps({
-            "error": "TOOL_UNAVAILABLE",
-            "message": type(readError).__name__,
-        }, ensure_ascii=False, separators=(",", ":")))
+    readAttempts = 2 if readName in READ_TOOL_NAMES else 1
+    for readAttempt in range(readAttempts):
+        try:
+            readResult = await readBackend.run_agent_tool(
+                readName, readArgs, readContext, tool_call_id=readCallId,
+            )
+            writeResult = json.dumps(
+                {"untrustedData": readResult},
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+            if len(writeResult) > MAX_TOOL_RESULT_CHARS:
+                writeResult = json.dumps({
+                    "untrustedData": writeResult[:6_000],
+                    "truncated": True,
+                }, ensure_ascii=False, separators=(",", ":"))
+            readAction = readResult if (
+                readName in PROPOSAL_TOOL_NAMES
+                and isinstance(readResult, dict)
+                and readResult.get("status") == "PENDING"
+            ) else None
+            return ToolResult(writeResult, readAction)
+        except BackendApiError as readError:
+            return safeBackendError(readError)
+        except httpx.TransportError:
+            if readAttempt + 1 < readAttempts:
+                continue
+            return toolError("TOOL_UNAVAILABLE", "查询服务暂时不可用", True)
+        except Exception:  # noqa: BLE001 - Tool errors become model-safe data
+            return toolError("TOOL_UNAVAILABLE", "工具暂时不可用", True)
+    return toolError("TOOL_UNAVAILABLE", "工具暂时不可用", True)
+
+
+def safeBackendError(readError: BackendApiError) -> ToolResult:
+    readCode = readError.code
+    if readCode == 400:
+        return toolError("VALIDATION_ERROR", readError.message, False)
+    if readCode == 403:
+        return toolError("CONTEXT_INVALID", "工具权限已失效", False)
+    if readCode == 404:
+        return toolError("RESOURCE_NOT_FOUND", readError.message, False)
+    if readCode == 409:
+        return toolError("CONFLICT", readError.message, False)
+    return toolError("TOOL_UNAVAILABLE", "工具暂时不可用", True)
+
+
+def toolError(readCode: str, readMessage: str, readRetryable: bool) -> ToolResult:
+    readSafeMessage = " ".join(str(readMessage).split())[:256]
+    return ToolResult(
+        json.dumps({
+            "error": readCode,
+            "message": readSafeMessage,
+            "retryable": readRetryable,
+        }, ensure_ascii=False, separators=(",", ":")),
+        succeeded=False,
+    )

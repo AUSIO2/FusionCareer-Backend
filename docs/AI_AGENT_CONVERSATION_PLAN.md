@@ -1714,6 +1714,8 @@ CHAT_PROVIDER_STREAM_TOOLS=true
 
 当前进度：Profile、Resume、Memory、文件软删除、问卷草稿/提交及简历解析的强类型提案、显式上传文件的 APPLIED CREATE Action、Tool Call 幂等、`action_proposed` SSE、登录用户 confirm/reject、脱敏确认卡 API 与永久 Revert 已落地，并由 `AI_CHAT_WRITE_ENABLED` 双端开关控制。简历解析使用一个多 Item Action 原子修改 Profile + Resume；已审核投递撤回使用 WITHDRAWN 且保留审核信息。前端页面接入确认卡仍待实现。
 
+运行时硬限制已落地：最多 3 次模型调用、4 次 Tool、1 个成功写提案、8KB Tool 结果、查询/写入/解析分级超时、120 秒总预算和进程内有界并发；业务错误转换为稳定安全码，Tool 失败通过 `tool_status=FAILED` 上报。
+
 实现：
 
 - 复用已完成的 `PersonalSpaceMutationService`；

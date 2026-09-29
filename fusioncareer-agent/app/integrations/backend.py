@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 class BackendApiError(Exception):
     """Java 后端返回业务错误"""
 
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, http_status: int | None = None):
         self.code = code
         self.message = message
+        self.http_status = http_status
         super().__init__(f"Backend API Error [{code}]: {message}")
 
 
@@ -123,7 +124,6 @@ class BackendClient:
             json=arguments,
             headers=read_headers,
         )
-        resp.raise_for_status()
         return self._unwrap(resp)
 
     # ── 通用方法 ──────────────────────────────
@@ -152,8 +152,16 @@ class BackendClient:
     @staticmethod
     def _unwrap(resp: httpx.Response) -> Any:
         """解析统一响应 {"code": 200, "message": "...", "data": ...}"""
-        body = resp.json()
+        try:
+            body = resp.json()
+        except ValueError:
+            resp.raise_for_status()
+            raise BackendApiError(resp.status_code, "后端返回了无效响应", resp.status_code)
         code = body.get("code", -1)
-        if code != 200:
-            raise BackendApiError(code, body.get("message", "Unknown error"))
+        if not resp.is_success or code != 200:
+            raise BackendApiError(
+                code if isinstance(code, int) else resp.status_code,
+                str(body.get("message") or "后端请求失败")[:256],
+                resp.status_code,
+            )
         return body.get("data")

@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     agent_admin_token: str = ""
     internal_service_token: str = ""
     ai_chat_write_enabled: bool = False
+    ai_chat_run_timeout_seconds: float = 120.0
+    ai_chat_read_tool_timeout_seconds: float = 3.0
+    ai_chat_write_tool_timeout_seconds: float = 15.0
+    ai_chat_parse_timeout_seconds: float = 90.0
+    ai_chat_max_concurrency: int = 16
+    ai_chat_queue_timeout_seconds: float = 0.1
 
     # 定时任务时区
     schedule_timezone: str = "Asia/Shanghai"

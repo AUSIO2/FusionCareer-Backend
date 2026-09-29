@@ -111,6 +111,7 @@ async def lifespan(app: FastAPI):
     app.state.workflow_engine = engine
     app.state.scheduler_service = scheduler_service
     app.state.backend_client = backend_client
+    app.state.chat_semaphore = asyncio.Semaphore(max(1, settings.ai_chat_max_concurrency))
     app.state.structure_drain_task = None
     app.state.structure_drain_state = {
         "status": "IDLE",

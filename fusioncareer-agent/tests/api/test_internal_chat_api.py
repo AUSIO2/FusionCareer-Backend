@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -6,21 +7,34 @@ from fastapi.testclient import TestClient
 from app.api.routers import chat as chat_router
 from app.chat.tools import WRITE_TOOLS
 from app.config import settings
+from app.integrations.backend import BackendApiError
 from app.main import app
 
 
 class FakeChatClient:
     async def plan_tools(self, messages, tools, **readOptions):
         assert tools
-        if messages[-1].get("content") == "找岗位":
+        readContent = messages[-1].get("content")
+        if readContent in {"找岗位", "慢查询", "错误查询"}:
+            readKeyword = {
+                "找岗位": "媒体",
+                "慢查询": "slow",
+                "错误查询": "invalid",
+            }[readContent]
             return {
                 "content": "",
                 "toolCalls": [{
                     "id": "call-1",
                     "type": "function",
-                    "function": {"name": "search_jobs", "arguments": "{\"keyword\":\"媒体\"}"},
+                    "function": {
+                        "name": "search_jobs",
+                        "arguments": f'{{"keyword":"{readKeyword}"}}',
+                    },
                 }],
             }
+        if readContent == "慢模型":
+            await asyncio.sleep(0.05)
+            return {"content": "", "toolCalls": []}
         if messages[-1].get("content") == "更新资料":
             return {
                 "content": "",
@@ -71,7 +85,11 @@ class FakeBackend:
                 "requiresConfirmation": True,
             }
         assert name == "search_jobs"
-        assert arguments == {"keyword": "媒体"}
+        if arguments == {"keyword": "slow"}:
+            await asyncio.sleep(0.05)
+        if arguments == {"keyword": "invalid"}:
+            raise BackendApiError(400, "关键词格式无效\n请修改", 400)
+        assert arguments in ({"keyword": "媒体"}, {"keyword": "slow"})
         return {"jobs": [{"positionName": "编辑"}]}
 
 
@@ -189,3 +207,53 @@ def testWriteFlagBlocksUnexpectedProposalCall(
     assert readResponse.status_code == 200
     assert "event: action_proposed" not in readResponse.text
     assert client.app.state.backend_client.tool_call_id is None
+
+
+def testToolTimeoutIsSafeFailure(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(settings, "ai_chat_read_tool_timeout_seconds", 0.001)
+    updateBody = readBody()
+    updateBody["input"] = "慢查询"
+    readResponse = client.post(
+        "/api/internal/chat/stream", headers=readHeaders(), json=updateBody,
+    )
+
+    assert '"name":"search_jobs","status":"FAILED"' in readResponse.text
+    assert "TOOL_TIMEOUT" not in readResponse.text
+    assert "event: done" in readResponse.text
+
+
+def testBusinessErrorDoesNotLeakInternals(client: TestClient):
+    updateBody = readBody()
+    updateBody["input"] = "错误查询"
+    readResponse = client.post(
+        "/api/internal/chat/stream", headers=readHeaders(), json=updateBody,
+    )
+
+    assert '"name":"search_jobs","status":"FAILED"' in readResponse.text
+    assert "BackendApiError" not in readResponse.text
+    assert "event: done" in readResponse.text
+
+
+def testRunTimeout(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "ai_chat_run_timeout_seconds", 0.001)
+    updateBody = readBody()
+    updateBody["input"] = "慢模型"
+    readResponse = client.post(
+        "/api/internal/chat/stream", headers=readHeaders(), json=updateBody,
+    )
+
+    assert "event: error" in readResponse.text
+    assert '"reason":"AI_RUN_TIMEOUT"' in readResponse.text
+
+
+def testConcurrencyLimit(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, "ai_chat_queue_timeout_seconds", 0.001)
+    client.app.state.chat_semaphore = asyncio.Semaphore(0)
+    readResponse = client.post(
+        "/api/internal/chat/stream", headers=readHeaders(), json=readBody(),
+    )
+
+    assert "event: error" in readResponse.text
+    assert '"reason":"AI_RATE_LIMITED"' in readResponse.text

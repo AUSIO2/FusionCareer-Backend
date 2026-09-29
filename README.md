@@ -121,6 +121,8 @@ Profile、Resume、Memory、文件上传/回收站和问卷写入会在同一事
 
 AI 当前开放 15 个固定只读 Tool。设置 `AI_CHAT_WRITE_ENABLED=true` 后额外开放 Profile、Resume、Memory、文件删除、问卷草稿、问卷提交和简历解析共 7 个提案 Tool；它们只创建 `PENDING` Action，业务数据必须由登录用户通过确认接口应用。`parse_resume_file` 在一个 Action 中原子修改 Profile + Resume，任一版本冲突都会整体回滚。文件删除只移入回收站，问卷已审核后的撤回使用 `WITHDRAWN` 并保留审核信息，所有已应用操作均可继续 Revert。Tool Schema 不包含 userId，Java 使用 5 分钟 HMAC AgentContext 重新校验用户、run、epoch 和 scope；生产部署需额外配置独立的 `AGENT_CONTEXT_SECRET`。
 
+Agent 运行时默认最多调用 4 个 Tool、查询 Tool 3 秒超时、整轮 120 秒超时，并使用有界并发。Tool 业务错误只以稳定安全码进入模型上下文，堆栈、SQL、Header 和内部响应不会进入 SSE 或 Prompt。
+
 #### 个人资料 & 简历
 
 | 方法 | 路径 | 说明 |
