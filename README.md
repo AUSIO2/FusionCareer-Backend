@@ -125,6 +125,8 @@ AI 当前开放 15 个固定只读 Tool。设置 `AI_CHAT_WRITE_ENABLED=true` �
 
 Agent 运行时默认最多调用 4 个 Tool、查询 Tool 3 秒超时、整轮 120 秒超时，并使用有界并发。Tool 业务错误只以稳定安全码进入模型上下文，堆栈、SQL、Header 和内部响应不会进入 SSE 或 Prompt。
 
+Java 与 Python 必须共享 `INTERNAL_SERVICE_TOKEN`；Java 通过 `PYTHON_SERVICE_BASE_URL` 调 Agent，Python 通过 `BACKEND_BASE_URL` 回调固定 Internal Tool API。根目录 Compose 已预接 `backend:9100 ↔ agent:8900`，Nginx 的 `/api/` 读取超时为 300 秒以支持 SSE。
+
 单 Session 上下文固定最多 12 条、20K 字符。累计 10 个完整轮次或超过字符预算后，Java 异步调用无 Tool 摘要接口，并用 `epoch + summaryThroughMessageId` CAS 写回；摘要失败不阻塞当前回复，也不会把 Tool 结果写入长期摘要。
 
 Java 每分钟扫描过期运行租约：使用条件更新释放匹配的 `activeRunId`，将未完成助手消息标记为 `FAILED/LEASE_EXPIRED`，并拒绝该运行产生的未确认 Action。多实例同时扫描时只有一个实例能成功回收。

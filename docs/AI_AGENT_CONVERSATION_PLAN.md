@@ -1724,6 +1724,8 @@ Revert 冲突解决已落地：默认三方比较遇到同字段后续修改仍�
 
 Assistant 能力发现接口已落地：登录用户可读取当前部署的 AgentContext 配置状态、读写 Tool 清单、写入灰度开关和客户端输入上限，前端无需硬编码环境能力。
 
+一体化与双机部署配置已对齐：Java/Python 双向地址和共享 `INTERNAL_SERVICE_TOKEN` 均显式注入，Nginx Java `/api/` 路径使用 300 秒读取超时并尊重应用的 `X-Accel-Buffering: no` SSE 头。
+
 实现：
 
 - 复用已完成的 `PersonalSpaceMutationService`；
