@@ -166,14 +166,14 @@ public class PersonalSpaceController {
     }
 
     @PostMapping("/actions/{actionId}/confirm")
-    @Operation(summary = "确认并执行一个回退提案")
+    @Operation(summary = "确认并执行一个待处理提案")
     public R<UserChangeActionResponse> confirmAction(@PathVariable Long actionId) {
         return R.success(manageSpace.confirmAction(
                 StpUtil.getLoginIdAsLong(), actionId));
     }
 
     @PostMapping("/actions/{actionId}/reject")
-    @Operation(summary = "拒绝一个回退提案")
+    @Operation(summary = "拒绝一个待处理提案")
     public R<UserChangeActionResponse> rejectAction(@PathVariable Long actionId) {
         return R.success(manageSpace.rejectAction(
                 StpUtil.getLoginIdAsLong(), actionId));

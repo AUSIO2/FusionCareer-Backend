@@ -1,6 +1,7 @@
 """Fixed read-only Tool registry for the career assistant."""
 
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from app.integrations.backend import BackendClient
@@ -192,7 +193,84 @@ READ_TOOLS: list[dict[str, Any]] = [
     },
 ]
 
-TOOL_NAMES = {readTool["function"]["name"] for readTool in READ_TOOLS}
+PROFILE_FIELDS = [
+    "realName", "gender", "birthDate", "politicalStatus", "phone", "email", "wechat",
+    "hometown", "grade", "major", "eduLevel", "supervisor", "intentionOrder",
+    "intentionCity", "intentionDream", "mindset",
+]
+RESUME_FIELDS = [
+    "personalIntro", "basicInfo", "education", "internship", "campus", "awards",
+    "skills", "portfolio", "remark",
+]
+MEMORY_FIELDS = [
+    "responseStyle", "currentGoal", "targetCities", "targetIndustries",
+    "preferredWorkModes", "temporaryConstraints",
+]
+
+
+def proposalTool(readName: str, readDescription: str, readFields: list[str]) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": readName,
+            "description": readDescription,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "changes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": len(readFields),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field": {"type": "string", "enum": readFields},
+                                "operation": {"type": "string", "enum": ["SET", "CLEAR"]},
+                                "value": {},
+                            },
+                            "required": ["field", "operation"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "reason": {"type": "string", "minLength": 1, "maxLength": 256},
+                },
+                "required": ["changes", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+WRITE_TOOLS: list[dict[str, Any]] = [
+    proposalTool(
+        "propose_profile_patch",
+        "仅当用户当前消息明确要求保存或修改资料时，创建待用户确认的资料修改提案。"
+        "SET 的枚举值使用英文枚举名；intentionCity 使用字符串数组。不会直接修改资料。",
+        PROFILE_FIELDS,
+    ),
+    proposalTool(
+        "propose_resume_patch",
+        "仅当用户当前消息明确要求保存或修改结构化简历时，创建待用户确认的修改提案。"
+        "不会直接修改简历。",
+        RESUME_FIELDS,
+    ),
+    proposalTool(
+        "propose_memory_patch",
+        "仅当用户当前消息明确要求记住、修改或忘记长期偏好时，创建待用户确认的记忆提案。"
+        "responseStyle/currentGoal 使用字符串，其余字段使用字符串数组。不会直接修改记忆。",
+        MEMORY_FIELDS,
+    ),
+]
+
+TOOLS = READ_TOOLS + WRITE_TOOLS
+TOOL_NAMES = {readTool["function"]["name"] for readTool in TOOLS}
+PROPOSAL_TOOL_NAMES = {readTool["function"]["name"] for readTool in WRITE_TOOLS}
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    content: str
+    proposed_action: dict[str, Any] | None = None
 
 
 async def runTool(
@@ -200,17 +278,23 @@ async def runTool(
     readContext: str,
     readName: str,
     readArguments: str,
-) -> str:
-    if readName not in TOOL_NAMES:
-        return json.dumps({"error": "UNKNOWN_TOOL"}, ensure_ascii=False)
+    readCallId: str,
+    readAllowedNames: set[str] | None = None,
+) -> ToolResult:
+    if readName not in TOOL_NAMES or (
+        readAllowedNames is not None and readName not in readAllowedNames
+    ):
+        return ToolResult(json.dumps({"error": "UNKNOWN_TOOL"}, ensure_ascii=False))
     try:
         readArgs = json.loads(readArguments or "{}")
         if not isinstance(readArgs, dict):
             raise TypeError("tool arguments must be an object")
     except (json.JSONDecodeError, TypeError):
-        return json.dumps({"error": "INVALID_TOOL_ARGUMENTS"}, ensure_ascii=False)
+        return ToolResult(json.dumps({"error": "INVALID_TOOL_ARGUMENTS"}, ensure_ascii=False))
     try:
-        readResult = await readBackend.run_agent_tool(readName, readArgs, readContext)
+        readResult = await readBackend.run_agent_tool(
+            readName, readArgs, readContext, tool_call_id=readCallId,
+        )
         writeResult = json.dumps(
             {"untrustedData": readResult}, ensure_ascii=False, separators=(",", ":"), default=str,
         )
@@ -219,9 +303,14 @@ async def runTool(
                 "untrustedData": writeResult[:12_000],
                 "truncated": True,
             }, ensure_ascii=False, separators=(",", ":"))
-        return writeResult
+        readAction = readResult if (
+            readName in PROPOSAL_TOOL_NAMES
+            and isinstance(readResult, dict)
+            and readResult.get("status") == "PENDING"
+        ) else None
+        return ToolResult(writeResult, readAction)
     except Exception as readError:  # noqa: BLE001 - Tool errors become model-safe data
-        return json.dumps({
+        return ToolResult(json.dumps({
             "error": "TOOL_UNAVAILABLE",
             "message": type(readError).__name__,
-        }, ensure_ascii=False, separators=(",", ":"))
+        }, ensure_ascii=False, separators=(",", ":")))

@@ -5,7 +5,9 @@ import com.fusioncareer.dto.req.AiMessageRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.req.ResumeRequest;
 import com.fusioncareer.dto.req.UserProfileRequest;
+import com.fusioncareer.dto.res.UserChangeActionResponse;
 import com.fusioncareer.entity.UserEntity;
+import com.fusioncareer.enums.ChangeActionStatus;
 import com.fusioncareer.enums.JobCategory;
 import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.enums.RecruitType;
@@ -16,6 +18,7 @@ import com.fusioncareer.service.AgentContextService;
 import com.fusioncareer.service.AgentToolService;
 import com.fusioncareer.service.AiChatService;
 import com.fusioncareer.service.JobPostService;
+import com.fusioncareer.service.PersonalSpaceService;
 import com.fusioncareer.service.ResumeService;
 import com.fusioncareer.service.UserProfileService;
 import com.fusioncareer.service.UserService;
@@ -49,7 +52,8 @@ class AgentToolTest {
     private static final List<String> READ_SCOPES = List.of(
             "space:read", "account:read", "profile:read", "resume:read",
             "file:read", "memory:read", "application:read", "job:search",
-            "job:read", "questionnaire:read", "history:read");
+            "job:read", "questionnaire:read", "history:read",
+            "profile:propose", "resume:propose", "memory:propose");
 
     @Autowired MockMvc readMvc;
     @Autowired UserService readUsers;
@@ -60,6 +64,7 @@ class AgentToolTest {
     @Autowired AgentToolService runTools;
     @Autowired AgentContextProperties contextProperties;
     @Autowired JobPostService readJobs;
+    @Autowired PersonalSpaceService manageSpace;
 
     private UserEntity createUser;
     private AiChatService.RunStart createRun;
@@ -130,6 +135,16 @@ class AgentToolTest {
                 .isInstanceOf(ServiceException.class)
                 .hasMessageContaining("AgentContext");
         assertThatThrownBy(() -> runTools.executeTool(
+                readProfileOnly,
+                "propose_profile_patch",
+                Map.of(
+                        "changes", List.of(Map.of(
+                                "field", "major", "operation", "SET", "value", "法学")),
+                        "reason", "缺少写 scope"),
+                "call-no-write-scope"))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("AgentContext");
+        assertThatThrownBy(() -> runTools.executeTool(
                 createContext + "x", "get_my_profile", Map.of()))
                 .isInstanceOf(ServiceException.class)
                 .hasMessageContaining("AgentContext");
@@ -184,6 +199,115 @@ class AgentToolTest {
                 createContext, "get_job", Map.of("jobId", readOfflineId.toString())))
                 .isInstanceOf(ServiceException.class)
                 .hasMessageContaining("不可见");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void proposeProfileRequiresUserConfirmationAndSupportsRevert() {
+        Map<String, Object> createArgs = Map.of(
+                "changes", List.of(
+                        Map.of("field", "major", "operation", "SET", "value", "人工智能"),
+                        Map.of("field", "phone", "operation", "SET", "value", "13800138000")),
+                "reason", "按用户要求更新求职资料");
+
+        Map<String, Object> readProposal = (Map<String, Object>) runTools.executeTool(
+                createContext, "propose_profile_patch", createArgs, "call-profile-1");
+        Long readActionId = Long.valueOf(String.valueOf(readProposal.get("actionId")));
+        assertThat(readProposal)
+                .containsEntry("status", ChangeActionStatus.PENDING)
+                .containsEntry("requiresConfirmation", true);
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
+
+        Map<String, Object> readRetry = (Map<String, Object>) runTools.executeTool(
+                createContext, "propose_profile_patch", createArgs, "call-profile-1");
+        assertThat(String.valueOf(readRetry.get("actionId")))
+                .isEqualTo(readActionId.toString());
+        assertThatThrownBy(() -> runTools.executeTool(
+                createContext,
+                "propose_profile_patch",
+                Map.of(
+                        "changes", List.of(Map.of(
+                                "field", "major", "operation", "SET", "value", "社会学")),
+                        "reason", "不同参数"),
+                "call-profile-1"))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("幂等键");
+
+        UserChangeActionResponse readApplied = manageSpace.confirmAction(
+                createUser.getId(), readActionId);
+        assertThat(readApplied.status()).isEqualTo(ChangeActionStatus.APPLIED);
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("人工智能");
+        assertThat(readProfiles.getProfile(createUser.getId()).getPhone()).isEqualTo("13800138000");
+
+        UserChangeActionResponse readRevert = manageSpace.createRevert(
+                createUser.getId(), readActionId);
+        manageSpace.confirmAction(createUser.getId(), readRevert.id());
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
+        assertThat(readProfiles.getProfile(createUser.getId()).getPhone()).isNull();
+
+        assertThatThrownBy(() -> runTools.executeTool(
+                createContext, "confirm_action", Map.of("actionId", readActionId), "call-confirm"))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("不存在");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void proposeResumeAndMemoryStayPendingUntilConfirmed() {
+        Map<String, Object> readResumeProposal = (Map<String, Object>) runTools.executeTool(
+                createContext,
+                "propose_resume_patch",
+                Map.of(
+                        "changes", List.of(Map.of(
+                                "field", "skills", "operation", "SET", "value", "Java, Python")),
+                        "reason", "补充技能"),
+                "call-resume-1");
+        assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Java");
+        manageSpace.confirmAction(createUser.getId(), Long.valueOf(
+                String.valueOf(readResumeProposal.get("actionId"))));
+        assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Java, Python");
+
+        Map<String, Object> readMemoryProposal = (Map<String, Object>) runTools.executeTool(
+                createContext,
+                "propose_memory_patch",
+                Map.of(
+                        "changes", List.of(Map.of(
+                                "field", "targetCities",
+                                "operation", "SET",
+                                "value", List.of("上海", "杭州"))),
+                        "reason", "记住目标城市"),
+                "call-memory-1");
+        assertThat(manageSpace.readMemory(createUser.getId()).entries()).isEmpty();
+        manageSpace.confirmAction(createUser.getId(), Long.valueOf(
+                String.valueOf(readMemoryProposal.get("actionId"))));
+        assertThat(manageSpace.readMemory(createUser.getId()).entries().get("targetCities").value())
+                .isEqualTo(List.of("上海", "杭州"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectPendingProposalWhenAgentRunFails() {
+        Map<String, Object> readProposal = (Map<String, Object>) runTools.executeTool(
+                createContext,
+                "propose_profile_patch",
+                Map.of(
+                        "changes", List.of(Map.of(
+                                "field", "major", "operation", "SET", "value", "法学")),
+                        "reason", "运行失败前创建的提案"),
+                "call-profile-failed");
+        Long readActionId = Long.valueOf(String.valueOf(readProposal.get("actionId")));
+
+        assertThat(manageChat.failRun(
+                createUser.getId(),
+                createRun.session().epoch(),
+                createRun.assistantMessage().runId(),
+                "TEST_FAILURE")).isTrue();
+        assertThat(manageSpace.readAction(createUser.getId(), readActionId).status())
+                .isEqualTo(ChangeActionStatus.REJECTED);
+        assertThatThrownBy(() -> manageSpace.confirmAction(createUser.getId(), readActionId))
+                .isInstanceOf(ServiceException.class)
+                .hasMessageContaining("不可确认");
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
     }
 
     private JobPostRequest createJob(String createName, JobPostStatus createStatus) {

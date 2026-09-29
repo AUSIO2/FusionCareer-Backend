@@ -154,6 +154,72 @@ public class UserMemoryService {
         return readMemory(updateUserId);
     }
 
+    /**
+     * 校验并计算 Agent 长期记忆提案，但不写入业务表。
+     */
+    @Transactional(readOnly = true)
+    public PreparedChange prepareProposal(
+            Long readUserId,
+            Map<String, Object> readSet,
+            List<String> readClear) {
+        UserMemoryEntity readMemory = memoryMapper.selectById(readUserId);
+        Map<String, UserMemoryResponse.Entry> updateEntries = parseEntries(readMemory);
+        Map<String, Object> readBeforeFields = new LinkedHashMap<>();
+        Map<String, Object> updateFields = new LinkedHashMap<>();
+
+        Map<String, Object> createSet = readSet == null ? Map.of() : readSet;
+        List<String> createClear = readClear == null ? List.of() : readClear;
+        if (createSet.isEmpty() && createClear.isEmpty()) {
+            throw buildInvalid("set 和 clear 至少需要提供一个记忆项");
+        }
+        Set<String> readClearKeys = new LinkedHashSet<>();
+        for (String readKey : createClear) {
+            validateKey(readKey);
+            if (!readClearKeys.add(readKey)) {
+                throw buildInvalid("clear 中存在重复记忆项: " + readKey);
+            }
+        }
+        for (Map.Entry<String, Object> readChange : createSet.entrySet()) {
+            String readKey = readChange.getKey();
+            validateKey(readKey);
+            if (readClearKeys.contains(readKey)) {
+                throw buildInvalid("记忆项不能同时出现在 set 和 clear 中: " + readKey);
+            }
+            Object updateValue = normalizeValue(readKey, readChange.getValue());
+            UserMemoryResponse.Entry readEntry = updateEntries.get(readKey);
+            if (readEntry != null && Objects.equals(readEntry.value(), updateValue)) {
+                continue;
+            }
+            UserMemoryResponse.Entry updateEntry = new UserMemoryResponse.Entry(
+                    updateValue, null, LocalDateTime.now());
+            readBeforeFields.put(readKey, readEntry);
+            updateFields.put(readKey, updateEntry);
+            updateEntries.put(readKey, updateEntry);
+        }
+        for (String readKey : readClearKeys) {
+            UserMemoryResponse.Entry readEntry = updateEntries.remove(readKey);
+            if (readEntry == null) {
+                continue;
+            }
+            readBeforeFields.put(readKey, readEntry);
+            updateFields.put(readKey, null);
+        }
+        if (updateFields.isEmpty()) {
+            throw buildInvalid("提案没有产生实际变化");
+        }
+        writeEntries(updateEntries);
+        return new PreparedChange(
+                ChangeResourceType.MEMORY,
+                readUserId.toString(),
+                readMemory == null ? ChangeOperation.CREATE : ChangeOperation.PATCH,
+                new ArrayList<>(updateFields.keySet()),
+                readMemory == null ? null : readMemory.getVersion(),
+                readMemory != null,
+                true,
+                readBeforeFields,
+                updateFields);
+    }
+
     @Transactional
     public Long restoreSnapshot(
             Long updateUserId,
@@ -359,5 +425,17 @@ public class UserMemoryService {
     private enum MemoryType {
         TEXT,
         TEXT_LIST
+    }
+
+    public record PreparedChange(
+            ChangeResourceType resourceType,
+            String resourceKey,
+            ChangeOperation operation,
+            List<String> changedFields,
+            Long expectedVersion,
+            boolean beforeExists,
+            boolean afterExists,
+            Map<String, Object> beforeFields,
+            Map<String, Object> afterFields) {
     }
 }

@@ -18,6 +18,7 @@ import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.UserChangeActionMapper;
 import com.fusioncareer.mapper.UserChangeItemMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -73,6 +75,73 @@ public class UserChangeService {
         createAction.setReason(readChange.reason());
         Long createActionId = saveAction(createAction, readChange);
         return readAction(readChange.userId(), createActionId);
+    }
+
+    /**
+     * 保存 Agent 写 Tool 生成的待确认操作。相同幂等键与参数返回原操作，
+     * 相同幂等键但参数不同则拒绝，避免模型或网络重试产生重复提案。
+     */
+    @Transactional
+    public UserChangeActionResponse recordPendingApply(
+            AppliedChange readChange,
+            Long readEpoch,
+            String readRunId,
+            String readRequestId,
+            String readToolName,
+            String readIdempotencyKey,
+            String readArgsHash) {
+        UserChangeActionEntity readExisting = actionMapper.selectOne(
+                new LambdaQueryWrapper<UserChangeActionEntity>()
+                        .eq(UserChangeActionEntity::getUserId, readChange.userId())
+                        .eq(UserChangeActionEntity::getIdempotencyKey, readIdempotencyKey)
+                        .last("LIMIT 1"));
+        if (readExisting != null) {
+            return verifyIdempotentAction(
+                    readChange.userId(), readExisting, readToolName, readArgsHash);
+        }
+
+        UserChangeActionEntity createAction = new UserChangeActionEntity();
+        createAction.setUserId(readChange.userId());
+        createAction.setActorType(ChangeActorType.AGENT);
+        createAction.setOrigin(readChange.origin());
+        createAction.setEpoch(readEpoch);
+        createAction.setRunId(readRunId);
+        createAction.setRequestId(readRequestId);
+        createAction.setToolName(readToolName);
+        createAction.setActionType(ChangeActionType.APPLY);
+        createAction.setStatus(ChangeActionStatus.PENDING);
+        createAction.setIdempotencyKey(readIdempotencyKey);
+        createAction.setArgsHash(readArgsHash);
+        createAction.setSchemaVersion(SCHEMA_VERSION);
+        createAction.setReason(readChange.reason());
+        try {
+            Long createActionId = saveAction(createAction, readChange);
+            return readAction(readChange.userId(), createActionId);
+        } catch (DuplicateKeyException readError) {
+            UserChangeActionEntity readConcurrent = actionMapper.selectOne(
+                    new LambdaQueryWrapper<UserChangeActionEntity>()
+                            .eq(UserChangeActionEntity::getUserId, readChange.userId())
+                            .eq(UserChangeActionEntity::getIdempotencyKey, readIdempotencyKey)
+                            .last("LIMIT 1"));
+            if (readConcurrent == null) {
+                throw readError;
+            }
+            return verifyIdempotentAction(
+                    readChange.userId(), readConcurrent, readToolName, readArgsHash);
+        }
+    }
+
+    private UserChangeActionResponse verifyIdempotentAction(
+            Long readUserId,
+            UserChangeActionEntity readAction,
+            String readToolName,
+            String readArgsHash) {
+        if (!Objects.equals(readAction.getArgsHash(), readArgsHash)
+                || !Objects.equals(readAction.getToolName(), readToolName)) {
+            throw ServiceException.of(ResultCode.CONFLICT,
+                    "Agent Tool 幂等键已被不同参数使用");
+        }
+        return readAction(readUserId, readAction.getId());
     }
 
     private Long saveAction(

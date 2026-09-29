@@ -11,6 +11,7 @@ import com.fusioncareer.dto.res.UserMemoryResponse;
 import com.fusioncareer.entity.ResumeFileEntity;
 import com.fusioncareer.enums.AiMessageStatus;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -37,6 +38,11 @@ public class AiStreamService {
             "space:read", "account:read", "profile:read", "resume:read",
             "file:read", "memory:read", "application:read", "job:search",
             "job:read", "questionnaire:read", "history:read");
+    private static final List<String> WRITE_SCOPES = List.of(
+            "profile:propose", "resume:propose", "memory:propose");
+
+    @Value("${ai-chat.write-enabled:false}")
+    private boolean writeEnabled;
 
     private final AiChatService manageChat;
     private final AgentStreamClient streamClient;
@@ -71,7 +77,7 @@ public class AiStreamService {
                     createRun.assistantMessage().runId(),
                     createRun.session().epoch(),
                     createRun.userMessage().requestId(),
-                    READ_SCOPES);
+                    agentScopes());
             CompletableFuture<Void> readFuture = streamClient.streamChat(
                     sendRequest, createContext,
                     readEvent -> consumeEvent(createStream, readEvent));
@@ -138,6 +144,15 @@ public class AiStreamService {
                 readHistory);
     }
 
+    private List<String> agentScopes() {
+        if (!writeEnabled) {
+            return READ_SCOPES;
+        }
+        List<String> readScopes = new ArrayList<>(READ_SCOPES);
+        readScopes.addAll(WRITE_SCOPES);
+        return List.copyOf(readScopes);
+    }
+
     private void consumeEvent(
             ActiveStream updateStream,
             AgentStreamClient.StreamEvent readEvent) {
@@ -167,6 +182,41 @@ public class AiStreamService {
                 sendStatus.put("name", readName);
                 sendStatus.put("status", readStatus);
                 sendEvent(updateStream.emitter(), "tool_status", sendStatus);
+            }
+            return;
+        }
+        if ("action_proposed".equals(readEvent.name())) {
+            String readActionId = readEvent.data().path("actionId").asText("");
+            String readStatus = readEvent.data().path("status").asText("");
+            String readToolName = readEvent.data().path("toolName").asText("");
+            String readReason = readEvent.data().path("reason").asText("");
+            if (readActionId.matches("[0-9]{1,20}")
+                    && "PENDING".equals(readStatus)
+                    && readToolName.length() <= 64
+                    && readReason.length() <= 256) {
+                List<String> readFields = new ArrayList<>();
+                readEvent.data().path("changedFields").forEach(readField -> {
+                    if (readFields.size() < 32
+                            && readField.isTextual()
+                            && readField.asText().length() <= 64) {
+                        readFields.add(readField.asText());
+                    }
+                });
+                Map<String, Object> sendAction = new LinkedHashMap<>();
+                sendAction.put("runId", updateStream.run().assistantMessage().runId());
+                sendAction.put("callId", readEvent.data().path("callId").asText(""));
+                sendAction.put("toolName", readToolName);
+                sendAction.put("actionId", readActionId);
+                sendAction.put("status", readStatus);
+                sendAction.put("reason", readReason);
+                sendAction.put("resourceType", readEvent.data().path("resourceType").asText(""));
+                sendAction.put("changedFields", readFields);
+                if (!readEvent.data().path("baseVersion").isMissingNode()
+                        && !readEvent.data().path("baseVersion").isNull()) {
+                    sendAction.put("baseVersion",
+                            readEvent.data().path("baseVersion").asText());
+                }
+                sendEvent(updateStream.emitter(), "action_proposed", sendAction);
             }
             return;
         }

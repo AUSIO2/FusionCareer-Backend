@@ -107,8 +107,8 @@ FusionCareer-Backend/
 | GET | `/personal-space/actions` | 分页获取安全变更历史 |
 | GET | `/personal-space/actions/{actionId}` | 获取一条变更的安全详情 |
 | POST | `/personal-space/actions/{actionId}/revert` | 创建三方比较回退提案 |
-| POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行回退提案 |
-| POST | `/personal-space/actions/{actionId}/reject` | 拒绝回退提案 |
+| POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行写入或回退提案 |
+| POST | `/personal-space/actions/{actionId}/reject` | 拒绝写入或回退提案 |
 | GET | `/personal-space/assistant/session` | 获取当前用户唯一 AI Session 状态 |
 | GET | `/personal-space/assistant/messages` | 分页获取当前 epoch 消息 |
 | POST | `/personal-space/assistant/messages/stream` | 发送消息并获取 SSE 文本流 |
@@ -118,7 +118,7 @@ FusionCareer-Backend/
 
 Profile、Resume 和 Memory 的 canonical 写入会在同一事务中记录不可变 Action/Item。实际修改字段的 before/after 使用 AES-256-GCM 加密；任意 APPLIED 操作均可创建永久回退提案，确认时使用版本 CAS 和 before/after/current 三方比较，Revert 本身也可再次 Revert。生产部署必须配置 `USER_CHANGE_KEY`（可用 `openssl rand -base64 32` 生成）和 `USER_CHANGE_KEY_VERSION`。
 
-AI 当前开放 15 个固定只读 Tool：个人空间、账号、资料、简历、文件列表/详情/配额、Memory、投递列表/详情、岗位搜索/详情/问卷、变更历史列表/详情。Tool Schema 不包含 userId，Java 使用 5 分钟 HMAC AgentContext 重新校验用户、run、epoch 和 scope；生产部署需额外配置独立的 `AGENT_CONTEXT_SECRET`。
+AI 当前开放 15 个固定只读 Tool：个人空间、账号、资料、简历、文件列表/详情/配额、Memory、投递列表/详情、岗位搜索/详情/问卷、变更历史列表/详情。设置 `AI_CHAT_WRITE_ENABLED=true` 后额外开放 `propose_profile_patch`、`propose_resume_patch`、`propose_memory_patch`；它们只创建 `PENDING` Action，业务数据必须由登录用户通过确认接口应用。Tool Schema 不包含 userId，Java 使用 5 分钟 HMAC AgentContext 重新校验用户、run、epoch 和 scope；生产部署需额外配置独立的 `AGENT_CONTEXT_SECRET`。
 
 #### 个人资料 & 简历
 

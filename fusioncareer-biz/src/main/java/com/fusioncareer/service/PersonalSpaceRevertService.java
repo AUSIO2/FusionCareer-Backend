@@ -125,16 +125,13 @@ public class PersonalSpaceRevertService {
     }
 
     @Transactional
-    public UserChangeActionResponse confirmRevert(Long readUserId, Long readActionId) {
+    public UserChangeActionResponse confirmAction(Long readUserId, Long readActionId) {
         UserChangeActionEntity updateAction = loadAction(readUserId, readActionId, true);
-        if (updateAction.getActionType() != ChangeActionType.REVERT) {
-            throw buildConflict("该操作不是回退提案");
-        }
         if (updateAction.getStatus() == ChangeActionStatus.APPLIED) {
             return changeService.readAction(readUserId, readActionId);
         }
         if (updateAction.getStatus() != ChangeActionStatus.PENDING) {
-            throw buildConflict("该回退提案当前不可确认");
+            throw buildConflict("该操作当前不可确认");
         }
 
         UserChangeItemEntity updateItem = loadItem(readActionId, true);
@@ -145,7 +142,7 @@ public class PersonalSpaceRevertService {
                 readUserId, updateItem.getResourceType(), readFields);
         if (!Objects.equals(readCurrent.version(), updateItem.getExpectedVersion())
                 || !matchesState(readCurrent, readBefore, readFields)) {
-            throw buildConflict("资源在确认前已发生变化，请重新生成回退提案");
+            throw buildConflict("资源在确认前已发生变化，请重新生成提案");
         }
 
         Long updateVersion = applySnapshot(
@@ -153,7 +150,7 @@ public class PersonalSpaceRevertService {
                 readAfter.exists(), readAfter.fields());
         updateItem.setAppliedVersion(updateVersion);
         if (itemMapper.updateById(updateItem) != 1) {
-            throw buildConflict("回退项状态更新失败");
+            throw buildConflict("操作项状态更新失败");
         }
         LocalDateTime updateTime = LocalDateTime.now();
         updateAction.setStatus(ChangeActionStatus.APPLIED);
@@ -161,27 +158,24 @@ public class PersonalSpaceRevertService {
         updateAction.setAppliedAt(updateTime);
         updateAction.setUpdatedAt(updateTime);
         if (actionMapper.updateById(updateAction) != 1) {
-            throw buildConflict("回退操作状态更新失败");
+            throw buildConflict("操作状态更新失败");
         }
         return changeService.readAction(readUserId, readActionId);
     }
 
     @Transactional
-    public UserChangeActionResponse rejectRevert(Long readUserId, Long readActionId) {
+    public UserChangeActionResponse rejectAction(Long readUserId, Long readActionId) {
         UserChangeActionEntity updateAction = loadAction(readUserId, readActionId, true);
-        if (updateAction.getActionType() != ChangeActionType.REVERT) {
-            throw buildConflict("该操作不是回退提案");
-        }
         if (updateAction.getStatus() == ChangeActionStatus.REJECTED) {
             return changeService.readAction(readUserId, readActionId);
         }
         if (updateAction.getStatus() != ChangeActionStatus.PENDING) {
-            throw buildConflict("该回退提案当前不可拒绝");
+            throw buildConflict("该操作当前不可拒绝");
         }
         updateAction.setStatus(ChangeActionStatus.REJECTED);
         updateAction.setUpdatedAt(LocalDateTime.now());
         if (actionMapper.updateById(updateAction) != 1) {
-            throw buildConflict("回退操作状态更新失败");
+            throw buildConflict("操作状态更新失败");
         }
         return changeService.readAction(readUserId, readActionId);
     }
@@ -236,7 +230,7 @@ public class PersonalSpaceRevertService {
         }
         List<UserChangeItemEntity> readItems = itemMapper.selectList(readQuery);
         if (readItems.size() != 1) {
-            throw buildConflict("当前仅支持单资源操作回退");
+            throw buildConflict("当前仅支持单资源操作");
         }
         return readItems.get(0);
     }

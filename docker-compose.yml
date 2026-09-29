@@ -40,6 +40,7 @@ services:
       USER_CHANGE_KEY_VERSION: ${USER_CHANGE_KEY_VERSION:-1}
       USER_CHANGE_KEYS: ${USER_CHANGE_KEYS:-}
       AGENT_CONTEXT_SECRET: ${AGENT_CONTEXT_SECRET}
+      AI_CHAT_WRITE_ENABLED: ${AI_CHAT_WRITE_ENABLED:-false}
     ports:
       - "9100:9100"
     volumes:
@@ -58,6 +59,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL}
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      AI_CHAT_WRITE_ENABLED: ${AI_CHAT_WRITE_ENABLED:-false}
       AGENT_PORT: 8900
     ports:
       - "8900:8900"

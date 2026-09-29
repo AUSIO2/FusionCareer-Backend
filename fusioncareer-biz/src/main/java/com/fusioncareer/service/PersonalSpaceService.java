@@ -200,13 +200,13 @@ public class PersonalSpaceService {
     @Transactional
     public UserChangeActionResponse confirmAction(Long userId, Long actionId) {
         requireAccount(userId);
-        return manageReverts.confirmRevert(userId, actionId);
+        return manageReverts.confirmAction(userId, actionId);
     }
 
     @Transactional
     public UserChangeActionResponse rejectAction(Long userId, Long actionId) {
         requireAccount(userId);
-        return manageReverts.rejectRevert(userId, actionId);
+        return manageReverts.rejectAction(userId, actionId);
     }
 
     private UserResponse requireAccount(Long userId) {

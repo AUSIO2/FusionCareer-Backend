@@ -1,6 +1,6 @@
 # FusionCareer 个人空间实施计划
 
-> 状态：实施中；聚合查询、Profile/Resume SET-CLEAR PATCH、轻量 Memory、AES-GCM History、Profile/Resume/Memory Git-like Revert、单 AI Session/纯文本 SSE/HMAC 只读 Tool、资源 version、Document 回收站、统一岗位可见性与问卷校验已落地
+> 状态：实施中；聚合查询、Profile/Resume SET-CLEAR PATCH、轻量 Memory、AES-GCM History、Profile/Resume/Memory Git-like Revert、单 AI Session/纯文本 SSE/HMAC Tool、三类 AI 写提案、资源 version、Document 回收站、统一岗位可见性与问卷校验已落地
 >
 > 日期：2026-09-28
 >
@@ -70,7 +70,7 @@ POST /personal-space/assistant/session/clear
 DELETE /personal-space/assistant/session
 ```
 
-当前切片聚合真实现有数据；Profile、Resume 已支持带 expectedVersion 的字段级 SET/CLEAR PATCH，Memory 已实现 6 个白名单 key、4KB 上限与独立 CAS。三类 canonical 写入在同一事务中记录不可变 APPLIED Action/Item，before/after 仅保存实际修改字段并使用 AES-256-GCM 加密，公开历史接口不返回快照或密文。Profile、Resume、Memory 已支持无时间窗口的 PENDING → confirm/reject 回退、逐字段三方比较、版本 CAS 和 Revert-of-Revert。Assistant 已具备单用户唯一 Session、epoch、消息分页、requestId 幂等、运行租约、取消、清空、重置以及 Java→Python→浏览器 SSE；15 个只读 Tool 通过短期 HMAC AgentContext 校验用户、run、epoch 和 scope，并复用现有个人空间与岗位可见性。Document、Application 也已具备资源级 version，Document 删除已改为可恢复软删除。Agent 写提案 Tool、文件/问卷领域回退和跨资源 Action 仍在后续阶段。
+当前切片聚合真实现有数据；Profile、Resume 已支持带 expectedVersion 的字段级 SET/CLEAR PATCH，Memory 已实现 6 个白名单 key、4KB 上限与独立 CAS。三类 canonical 写入在同一事务中记录不可变 APPLIED Action/Item，before/after 仅保存实际修改字段并使用 AES-256-GCM 加密，公开历史接口不返回快照或密文。Profile、Resume、Memory 已支持无时间窗口的 PENDING → confirm/reject 回退、逐字段三方比较、版本 CAS 和 Revert-of-Revert。Assistant 已具备单用户唯一 Session、epoch、消息分页、requestId 幂等、运行租约、取消、清空、重置以及 Java→Python→浏览器 SSE；15 个只读 Tool 与 Profile/Resume/Memory 三个写提案 Tool 通过短期 HMAC AgentContext 校验用户、run、epoch 和 scope。写 Tool 只产生幂等 PENDING Action，登录用户确认后才以 CAS 应用，并可永久 Revert；可用 `AI_CHAT_WRITE_ENABLED` 双端关闭。Document、Application 也已具备资源级 version，Document 删除已改为可恢复软删除。文件/问卷领域回退、简历解析跨资源 Action 和前端确认卡仍在后续阶段。
 
 ## 1. 目标
 

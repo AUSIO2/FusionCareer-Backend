@@ -43,6 +43,10 @@ agent-context:
   secret: ${AGENT_CONTEXT_SECRET:}
   ttl-seconds: 300
 
+# 写 Tool 仅创建 PENDING 提案；生产灰度时显式开启。
+ai-chat:
+  write-enabled: ${AI_CHAT_WRITE_ENABLED:false}
+
 # ===== Sa-Token 配置 =====
 sa-token:
   # Token 名称（同时也是 Cookie 和 Header 中的 key）

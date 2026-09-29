@@ -22,8 +22,10 @@ public class InternalAgentToolController {
     @PostMapping("/{toolName}")
     public R<Object> executeTool(
             @RequestHeader("X-Agent-Context") String contextToken,
+            @RequestHeader(value = "X-Agent-Tool-Call-Id", required = false) String toolCallId,
             @PathVariable String toolName,
             @RequestBody(required = false) Map<String, Object> arguments) {
-        return R.success(runTools.executeTool(contextToken, toolName, arguments));
+        return R.success(runTools.executeTool(
+                contextToken, toolName, arguments, toolCallId));
     }
 }

@@ -21,6 +21,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      AI_CHAT_WRITE_ENABLED: ${AI_CHAT_WRITE_ENABLED:-false}
       AGENT_ADMIN_TOKEN: ${AGENT_ADMIN_TOKEN}
       AGENT_RUNTIME_DIR: /data/agent/runtime
       WECHAT_CONFIG_ROOT: /data/wechat

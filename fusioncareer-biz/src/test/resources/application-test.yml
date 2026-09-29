@@ -39,6 +39,9 @@ user-change:
 agent-context:
   secret: test-agent-context-secret-32-bytes-minimum
 
+ai-chat:
+  write-enabled: true
+
 logging:
   level:
     com.fusioncareer.exception.GlobalExceptionHandler: OFF

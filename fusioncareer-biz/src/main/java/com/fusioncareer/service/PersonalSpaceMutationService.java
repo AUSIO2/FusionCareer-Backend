@@ -24,6 +24,7 @@ import org.springframework.beans.PropertyAccessorFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.beans.BeanUtils;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
@@ -123,6 +124,51 @@ public class PersonalSpaceMutationService {
         return patchResume(updateUserId, readRequest, true);
     }
 
+    /**
+     * 校验并计算 Agent 资料提案，但不写入业务表。
+     */
+    @Transactional(readOnly = true)
+    public PreparedChange prepareProfileProposal(
+            Long readUserId,
+            Map<String, Object> readSet,
+            List<String> readClear) {
+        requireAccount(readUserId);
+        UserProfileEntity readProfile = profileService.getById(readUserId);
+        UserProfileEntity updateProfile = copyProfile(readProfile, readUserId);
+        PersonalSpacePatchRequest readRequest = buildProposalRequest(
+                readProfile == null ? 0L : readProfile.getVersion(), readSet, readClear);
+        PatchValues updatePatch = applyPatch(updateProfile, readRequest, PROFILE_FIELDS);
+        validateProfile(updateProfile);
+        return buildPreparedChange(
+                readUserId,
+                ChangeResourceType.PROFILE,
+                readProfile != null,
+                readProfile == null ? null : readProfile.getVersion(),
+                updatePatch);
+    }
+
+    /**
+     * 校验并计算 Agent 结构化简历提案，但不写入业务表。
+     */
+    @Transactional(readOnly = true)
+    public PreparedChange prepareResumeProposal(
+            Long readUserId,
+            Map<String, Object> readSet,
+            List<String> readClear) {
+        requireAccount(readUserId);
+        ResumeEntity readResume = resumeService.getById(readUserId);
+        ResumeEntity updateResume = copyResume(readResume, readUserId);
+        PersonalSpacePatchRequest readRequest = buildProposalRequest(
+                readResume == null ? 0L : readResume.getVersion(), readSet, readClear);
+        PatchValues updatePatch = applyPatch(updateResume, readRequest, RESUME_FIELDS);
+        return buildPreparedChange(
+                readUserId,
+                ChangeResourceType.RESUME,
+                readResume != null,
+                readResume == null ? null : readResume.getVersion(),
+                updatePatch);
+    }
+
     private ResumeResponse patchResume(
             Long updateUserId,
             PersonalSpacePatchRequest readRequest,
@@ -207,6 +253,56 @@ public class PersonalSpaceMutationService {
         updateRequest.setSet(updateSet);
         updateRequest.setClear(updateClear);
         return updateRequest;
+    }
+
+    private PersonalSpacePatchRequest buildProposalRequest(
+            Long readVersion,
+            Map<String, Object> readSet,
+            List<String> readClear) {
+        PersonalSpacePatchRequest createRequest = new PersonalSpacePatchRequest();
+        createRequest.setExpectedVersion(readVersion);
+        createRequest.setSet(readSet == null ? Map.of() : new LinkedHashMap<>(readSet));
+        createRequest.setClear(readClear == null ? List.of() : List.copyOf(readClear));
+        return createRequest;
+    }
+
+    private UserProfileEntity copyProfile(UserProfileEntity readProfile, Long readUserId) {
+        UserProfileEntity updateProfile = new UserProfileEntity();
+        if (readProfile != null) {
+            BeanUtils.copyProperties(readProfile, updateProfile);
+        }
+        updateProfile.setUserId(readUserId);
+        return updateProfile;
+    }
+
+    private ResumeEntity copyResume(ResumeEntity readResume, Long readUserId) {
+        ResumeEntity updateResume = new ResumeEntity();
+        if (readResume != null) {
+            BeanUtils.copyProperties(readResume, updateResume);
+        }
+        updateResume.setUserId(readUserId);
+        return updateResume;
+    }
+
+    private PreparedChange buildPreparedChange(
+            Long readUserId,
+            ChangeResourceType readResourceType,
+            boolean readExists,
+            Long readVersion,
+            PatchValues readPatch) {
+        if (readPatch.afterFields().isEmpty()) {
+            throw buildInvalid("提案没有产生实际变化");
+        }
+        return new PreparedChange(
+                readResourceType,
+                readUserId.toString(),
+                readExists ? ChangeOperation.PATCH : ChangeOperation.CREATE,
+                new ArrayList<>(readPatch.afterFields().keySet()),
+                readVersion,
+                readExists,
+                true,
+                readPatch.beforeFields(),
+                readPatch.afterFields());
     }
 
     private Long deleteProfile(Long updateUserId, Long readVersion) {
@@ -466,6 +562,18 @@ public class PersonalSpaceMutationService {
     }
 
     private record PatchValues(
+            Map<String, Object> beforeFields,
+            Map<String, Object> afterFields) {
+    }
+
+    public record PreparedChange(
+            ChangeResourceType resourceType,
+            String resourceKey,
+            ChangeOperation operation,
+            List<String> changedFields,
+            Long expectedVersion,
+            boolean beforeExists,
+            boolean afterExists,
             Map<String, Object> beforeFields,
             Map<String, Object> afterFields) {
     }

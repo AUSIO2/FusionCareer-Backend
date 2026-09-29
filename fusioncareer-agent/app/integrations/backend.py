@@ -112,12 +112,16 @@ class BackendClient:
         tool_name: str,
         arguments: dict[str, Any],
         agent_context: str,
+        tool_call_id: str | None = None,
     ) -> Any:
         client = await self._ensure_client()
+        read_headers = {"X-Agent-Context": agent_context}
+        if tool_call_id:
+            read_headers["X-Agent-Tool-Call-Id"] = tool_call_id
         resp = await client.post(
             f"/internal/agent/tools/{tool_name}",
             json=arguments,
-            headers={"X-Agent-Context": agent_context},
+            headers=read_headers,
         )
         resp.raise_for_status()
         return self._unwrap(resp)

@@ -29,5 +29,8 @@ internal-service:
 agent-context:
   secret: ${AGENT_CONTEXT_SECRET:dev-agent-context-secret-at-least-32-bytes}
 
+ai-chat:
+  write-enabled: ${AI_CHAT_WRITE_ENABLED:true}
+
 sa-token:
   is-log: false

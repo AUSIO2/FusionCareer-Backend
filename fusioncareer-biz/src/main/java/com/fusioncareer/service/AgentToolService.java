@@ -1,12 +1,16 @@
 package com.fusioncareer.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.dto.res.PersonalSpaceDocumentsResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
+import com.fusioncareer.enums.ChangeOperation;
+import com.fusioncareer.enums.ChangeResourceType;
 import com.fusioncareer.enums.EduLevel;
 import com.fusioncareer.enums.JobCategory;
 import com.fusioncareer.enums.JobPostSort;
@@ -22,13 +26,19 @@ import com.fusioncareer.exception.ServiceException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
- * 固定白名单的只读 Agent Tool 适配器。
+ * 固定白名单的 Agent Tool 适配器。写 Tool 只允许创建待用户确认的提案。
  */
 @Service
 @RequiredArgsConstructor
@@ -49,7 +59,10 @@ public class AgentToolService {
             Map.entry("get_job", "job:read"),
             Map.entry("get_job_questionnaire", "questionnaire:read"),
             Map.entry("list_my_changes", "history:read"),
-            Map.entry("get_my_change", "history:read")
+            Map.entry("get_my_change", "history:read"),
+            Map.entry("propose_profile_patch", "profile:propose"),
+            Map.entry("propose_resume_patch", "resume:propose"),
+            Map.entry("propose_memory_patch", "memory:propose")
     );
 
     private final AgentContextService contextService;
@@ -60,12 +73,22 @@ public class AgentToolService {
     private final JobPostService jobService;
     private final JobPostQuestionService questionService;
     private final UserChangeService changeService;
+    private final PersonalSpaceMutationService mutationService;
+    private final UserMemoryService memoryService;
     private final ObjectMapper objectMapper;
 
     public Object executeTool(
             String readContextToken,
             String readToolName,
             Map<String, Object> readArguments) {
+        return executeTool(readContextToken, readToolName, readArguments, null);
+    }
+
+    public Object executeTool(
+            String readContextToken,
+            String readToolName,
+            Map<String, Object> readArguments,
+            String readToolCallId) {
         String readScope = TOOL_SCOPES.get(readToolName);
         if (readScope == null) {
             throw ServiceException.of(ResultCode.NOT_FOUND, "Agent Tool 不存在");
@@ -104,6 +127,12 @@ public class AgentToolService {
             case "get_job_questionnaire" -> readQuestionnaire(readArgs);
             case "list_my_changes" -> listChanges(readContext.userId(), readArgs);
             case "get_my_change" -> readChange(readContext.userId(), readArgs);
+            case "propose_profile_patch" -> proposeProfile(
+                    readContext, readToolName, readToolCallId, readArgs);
+            case "propose_resume_patch" -> proposeResume(
+                    readContext, readToolName, readToolCallId, readArgs);
+            case "propose_memory_patch" -> proposeMemory(
+                    readContext, readToolName, readToolCallId, readArgs);
             default -> throw ServiceException.of(ResultCode.NOT_FOUND, "Agent Tool 不存在");
         };
     }
@@ -236,6 +265,216 @@ public class AgentToolService {
         return changeService.readAction(readUserId, readLong(readArgs, "actionId"));
     }
 
+    private Object proposeProfile(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs) {
+        PatchInput readPatch = readPatch(readArgs);
+        PersonalSpaceMutationService.PreparedChange readChange =
+                mutationService.prepareProfileProposal(
+                        readContext.userId(), readPatch.set(), readPatch.clear());
+        return saveProposal(
+                readContext,
+                readToolName,
+                readToolCallId,
+                readArgs,
+                readPatch.reason(),
+                new ProposalChange(
+                        readChange.resourceType(),
+                        readChange.resourceKey(),
+                        readChange.operation(),
+                        readChange.changedFields(),
+                        readChange.expectedVersion(),
+                        readChange.beforeExists(),
+                        readChange.afterExists(),
+                        readChange.beforeFields(),
+                        readChange.afterFields()));
+    }
+
+    private Object proposeResume(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs) {
+        PatchInput readPatch = readPatch(readArgs);
+        PersonalSpaceMutationService.PreparedChange readChange =
+                mutationService.prepareResumeProposal(
+                        readContext.userId(), readPatch.set(), readPatch.clear());
+        return saveProposal(
+                readContext,
+                readToolName,
+                readToolCallId,
+                readArgs,
+                readPatch.reason(),
+                new ProposalChange(
+                        readChange.resourceType(),
+                        readChange.resourceKey(),
+                        readChange.operation(),
+                        readChange.changedFields(),
+                        readChange.expectedVersion(),
+                        readChange.beforeExists(),
+                        readChange.afterExists(),
+                        readChange.beforeFields(),
+                        readChange.afterFields()));
+    }
+
+    private Object proposeMemory(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs) {
+        PatchInput readPatch = readPatch(readArgs);
+        UserMemoryService.PreparedChange readChange = memoryService.prepareProposal(
+                readContext.userId(), readPatch.set(), readPatch.clear());
+        return saveProposal(
+                readContext,
+                readToolName,
+                readToolCallId,
+                readArgs,
+                readPatch.reason(),
+                new ProposalChange(
+                        readChange.resourceType(),
+                        readChange.resourceKey(),
+                        readChange.operation(),
+                        readChange.changedFields(),
+                        readChange.expectedVersion(),
+                        readChange.beforeExists(),
+                        readChange.afterExists(),
+                        readChange.beforeFields(),
+                        readChange.afterFields()));
+    }
+
+    private Object saveProposal(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs,
+            String readReason,
+            ProposalChange readChange) {
+        String readCallId = requireToolCallId(readToolCallId);
+        String readArgsHash = hashCanonical(Map.of(
+                "toolName", readToolName,
+                "arguments", readArgs));
+        String readIdempotencyKey = readContext.runId() + ":"
+                + hashText(readCallId).substring(0, 32);
+        UserChangeService.AppliedChange createChange = new UserChangeService.AppliedChange(
+                readContext.userId(),
+                "AGENT_TOOL",
+                readChange.resourceType(),
+                readChange.resourceKey(),
+                readChange.operation(),
+                readChange.changedFields(),
+                readChange.expectedVersion(),
+                null,
+                readChange.beforeExists(),
+                readChange.afterExists(),
+                readChange.beforeFields(),
+                readChange.afterFields(),
+                readReason);
+        var readAction = changeService.recordPendingApply(
+                createChange,
+                readContext.epoch(),
+                readContext.runId(),
+                readContext.requestId(),
+                readToolName,
+                readIdempotencyKey,
+                readArgsHash);
+        Map<String, Object> readResult = new LinkedHashMap<>();
+        readResult.put("actionId", readAction.id());
+        readResult.put("status", readAction.status());
+        readResult.put("reason", readAction.reason());
+        readResult.put("resourceType", readChange.resourceType());
+        readResult.put("changedFields", readAction.items().isEmpty()
+                ? List.of() : readAction.items().get(0).changedFields());
+        readResult.put("baseVersion", readAction.items().isEmpty()
+                ? null : readAction.items().get(0).expectedVersion());
+        readResult.put("requiresConfirmation", true);
+        return readResult;
+    }
+
+    private PatchInput readPatch(Map<String, Object> readArgs) {
+        requireKeys(readArgs, Set.of("changes", "reason"));
+        Object readRawChanges = readArgs.get("changes");
+        if (!(readRawChanges instanceof List<?> readChanges)
+                || readChanges.isEmpty() || readChanges.size() > 32) {
+            throw buildInvalid("changes 必须包含 1 到 32 个字段修改");
+        }
+        String readReason = readRequiredText(readArgs, "reason", 256);
+        Map<String, Object> updateSet = new LinkedHashMap<>();
+        List<String> updateClear = new ArrayList<>();
+        Set<String> readSeenFields = new LinkedHashSet<>();
+        for (Object readRawChange : readChanges) {
+            if (!(readRawChange instanceof Map<?, ?> readChangeMap)) {
+                throw buildInvalid("changes 中的每一项必须是对象");
+            }
+            Map<String, Object> readChange = new LinkedHashMap<>();
+            readChangeMap.forEach((readKey, readValue) -> {
+                if (!(readKey instanceof String readName)) {
+                    throw buildInvalid("changes 字段名格式无效");
+                }
+                readChange.put(readName, readValue);
+            });
+            requireKeys(readChange, Set.of("field", "operation", "value"));
+            String readField = readRequiredText(readChange, "field", 64);
+            if (!readSeenFields.add(readField)) {
+                throw buildInvalid("changes 中存在重复字段: " + readField);
+            }
+            String readOperation = readRequiredText(readChange, "operation", 16);
+            if ("SET".equals(readOperation)) {
+                if (!readChange.containsKey("value")) {
+                    throw buildInvalid("SET 操作必须提供 value: " + readField);
+                }
+                updateSet.put(readField, readChange.get("value"));
+            } else if ("CLEAR".equals(readOperation)) {
+                if (readChange.containsKey("value")) {
+                    throw buildInvalid("CLEAR 操作不能提供 value: " + readField);
+                }
+                updateClear.add(readField);
+            } else {
+                throw buildInvalid("operation 只允许 SET 或 CLEAR");
+            }
+        }
+        return new PatchInput(updateSet, updateClear, readReason);
+    }
+
+    private String requireToolCallId(String readToolCallId) {
+        if (readToolCallId == null
+                || readToolCallId.isBlank()
+                || readToolCallId.length() > 128
+                || readToolCallId.indexOf('\r') >= 0
+                || readToolCallId.indexOf('\n') >= 0) {
+            throw buildInvalid("写 Tool 缺少有效的调用标识");
+        }
+        return readToolCallId;
+    }
+
+    private String hashCanonical(Object readValue) {
+        try {
+            byte[] readJson = objectMapper.writer()
+                    .with(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+                    .writeValueAsBytes(readValue);
+            return hashBytes(readJson);
+        } catch (JsonProcessingException readError) {
+            throw ServiceException.of(ResultCode.INTERNAL_SERVER_ERROR,
+                    "Agent Tool 参数无法规范化");
+        }
+    }
+
+    private String hashText(String readValue) {
+        return hashBytes(readValue.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String hashBytes(byte[] readValue) {
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(readValue));
+        } catch (NoSuchAlgorithmException readError) {
+            throw ServiceException.of(ResultCode.INTERNAL_SERVER_ERROR,
+                    "Agent Tool 幂等摘要不可用");
+        }
+    }
+
     private Map<String, Object> safeJob(JobPostResponse readJob) {
         Map<String, Object> readSafeJob = objectMapper.convertValue(
                 readJob, new TypeReference<>() { });
@@ -309,6 +548,17 @@ public class AgentToolService {
         return readText;
     }
 
+    private String readRequiredText(
+            Map<String, Object> readArgs,
+            String readKey,
+            int readMaxLength) {
+        String readValue = readText(readArgs, readKey, readMaxLength);
+        if (readValue == null || readValue.isBlank()) {
+            throw buildInvalid("缺少 Tool 参数: " + readKey);
+        }
+        return readValue.trim();
+    }
+
     private Boolean readBoolean(Map<String, Object> readArgs, String readKey) {
         Object readValue = readArgs.get(readKey);
         if (readValue == null) {
@@ -337,5 +587,23 @@ public class AgentToolService {
 
     private ServiceException buildInvalid(String readMessage) {
         return ServiceException.of(ResultCode.VALIDATE_FAILED, readMessage);
+    }
+
+    private record PatchInput(
+            Map<String, Object> set,
+            List<String> clear,
+            String reason) {
+    }
+
+    private record ProposalChange(
+            ChangeResourceType resourceType,
+            String resourceKey,
+            ChangeOperation operation,
+            List<String> changedFields,
+            Long expectedVersion,
+            boolean beforeExists,
+            boolean afterExists,
+            Map<String, Object> beforeFields,
+            Map<String, Object> afterFields) {
     }
 }
