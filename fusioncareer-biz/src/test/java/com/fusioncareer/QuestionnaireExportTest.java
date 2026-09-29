@@ -161,6 +161,13 @@ class QuestionnaireExportTest {
         createDraft.setSubmissionStatus(QuestionnaireSubmissionStatus.DRAFT);
         createDraft.setAnswers("[{\"questionId\":0,\"value\":\"draft-secret\"}]");
         readAnswerService.save(createDraft);
+
+        QuestionnaireAnswerEntity createWithdrawn = new QuestionnaireAnswerEntity();
+        createWithdrawn.setJobPostId(readJobId);
+        createWithdrawn.setUserId(createUser.getId() + 2);
+        createWithdrawn.setSubmissionStatus(QuestionnaireSubmissionStatus.WITHDRAWN);
+        createWithdrawn.setAnswers("[{\"questionId\":0,\"value\":\"withdrawn-secret\"}]");
+        readAnswerService.save(createWithdrawn);
     }
 
     @AfterEach
@@ -184,7 +191,7 @@ class QuestionnaireExportTest {
         assertThat(readText).contains("提交序号", "修改后的姓名", "export-student", "SUBMITTED",
                 "简历", "自我介绍", "测试回答");
         assertThat(readText).doesNotContain("answers", "export-user");
-        assertThat(readText).doesNotContain("draft-secret");
+        assertThat(readText).doesNotContain("draft-secret", "withdrawn-secret");
     }
 
     @Test

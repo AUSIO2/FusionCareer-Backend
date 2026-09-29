@@ -1,8 +1,11 @@
 package com.fusioncareer.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.QuestionnaireApplicationCount;
 import com.fusioncareer.dto.req.QuestionnaireReviewRequest;
@@ -14,6 +17,8 @@ import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
 import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
+import com.fusioncareer.enums.ChangeOperation;
+import com.fusioncareer.enums.ChangeResourceType;
 import com.fusioncareer.enums.QuestionType;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
 import com.fusioncareer.exception.QuestionnaireErrorCode;
@@ -25,6 +30,7 @@ import com.fusioncareer.service.JobPostService;
 import com.fusioncareer.service.QuestionnaireAnswerService;
 import com.fusioncareer.service.ResumeFileService;
 import com.fusioncareer.service.UserService;
+import com.fusioncareer.service.UserChangeService;
 import com.fusioncareer.util.QuestionnaireAnswerValidator;
 import com.fusioncareer.util.QuestionnaireDeadlineUtil;
 import cn.hutool.core.bean.BeanUtil;
@@ -34,13 +40,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -57,67 +66,220 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
     private final JobPostQuestionService jobPostQuestionService;
     private final QuestionnaireAnswerValidator answerValidator;
     private final ResumeFileService resumeFileService;
+    private final UserChangeService changeService;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     @Override
     public QuestionnaireAnswerResponse saveDraft(Long userId, QuestionnaireSubmitRequest request) {
-        requireOpenJob(request.getJobPostId());
-        List<JobPostQuestionResponse> readQuestions = jobPostQuestionService.listByJobPostId(request.getJobPostId());
-        Map<Long, Object> readAnswers = answerValidator.validateDraftAnswers(
-                request.getAnswers(), readQuestions);
-        validateFileAnswers(userId, readAnswers, readQuestions);
-        QuestionnaireAnswerEntity existing = findByUserAndJob(userId, request.getJobPostId());
-        assertCanEdit(existing);
-        if (existing != null && existing.getSubmissionStatus() == QuestionnaireSubmissionStatus.SUBMITTED) {
-            throw ServiceException.of(QuestionnaireErrorCode.INVALID_SUBMISSION_STATUS,
-                    "已提交的投递请使用正式提交接口修改");
-        }
-
-        if (existing != null) {
-            applySubmitRequest(existing, request);
-            clearReviewMetadata(existing);
-            existing.setSubmissionStatus(QuestionnaireSubmissionStatus.DRAFT);
-            existing.setUpdatedAt(LocalDateTime.now());
-            updateAnswer(existing);
-            return toResponse(existing);
-        }
-
-        QuestionnaireAnswerEntity entity = newQuestionnaireAnswer(userId, request);
-        entity.setSubmissionStatus(QuestionnaireSubmissionStatus.DRAFT);
-        entity.setVersion(0L);
-        save(entity);
-        return toResponse(entity);
+        return saveAnswer(userId, request, QuestionnaireSubmissionStatus.DRAFT, true);
     }
 
     @Transactional
     @Override
     public QuestionnaireAnswerResponse submit(Long userId, QuestionnaireSubmitRequest request) {
-        requireOpenJob(request.getJobPostId());
-        List<JobPostQuestionResponse> questions = jobPostQuestionService.listByJobPostId(request.getJobPostId());
-        Map<Long, Object> readAnswers = answerValidator.validateRequiredAnswers(request.getAnswers(), questions);
-        validateFileAnswers(userId, readAnswers, questions);
+        return saveAnswer(userId, request, QuestionnaireSubmissionStatus.SUBMITTED, true);
+    }
 
-        QuestionnaireAnswerEntity existing = findByUserAndJob(userId, request.getJobPostId());
-        if (existing != null && existing.getSubmissionStatus() == QuestionnaireSubmissionStatus.REVIEWED) {
+    @Transactional(readOnly = true)
+    @Override
+    public PreparedChange prepareProposal(
+            Long userId,
+            QuestionnaireSubmitRequest request,
+            QuestionnaireSubmissionStatus targetStatus) {
+        ValidatedAnswers readValidated = validateRequest(userId, request, targetStatus);
+        QuestionnaireAnswerEntity readAnswer = getOwnAnswerIncludingDeleted(
+                userId, request.getJobPostId());
+        PreparedChange readChange = prepareChange(
+                readAnswer, request.getJobPostId(), readValidated, targetStatus);
+        if (readChange.changedFields().isEmpty()) {
+            throw ServiceException.of(ResultCode.VALIDATE_FAILED, "提案没有产生实际变化");
+        }
+        return readChange;
+    }
+
+    private QuestionnaireAnswerResponse saveAnswer(
+            Long userId,
+            QuestionnaireSubmitRequest request,
+            QuestionnaireSubmissionStatus targetStatus,
+            boolean saveHistory) {
+        ValidatedAnswers readValidated = validateRequest(userId, request, targetStatus);
+        QuestionnaireAnswerEntity updateAnswer = getOwnAnswerIncludingDeleted(
+                userId, request.getJobPostId());
+        PreparedChange readChange = prepareChange(
+                updateAnswer, request.getJobPostId(), readValidated, targetStatus);
+        if (readChange.changedFields().isEmpty()) {
+            return toResponse(updateAnswer);
+        }
+
+        Long updateVersion;
+        if (updateAnswer == null) {
+            updateAnswer = new QuestionnaireAnswerEntity();
+            updateAnswer.setUserId(userId);
+            updateAnswer.setJobPostId(request.getJobPostId());
+            updateAnswer.setAnswers(readValidated.answersJson());
+            updateAnswer.setSubmissionStatus(targetStatus);
+            updateAnswer.setVersion(0L);
+            try {
+                if (!save(updateAnswer)) {
+                    throw buildConflict();
+                }
+            } catch (DuplicateKeyException readError) {
+                throw buildConflict();
+            }
+            updateVersion = 0L;
+        } else {
+            Long readVersion = updateAnswer.getVersion();
+            updateAnswer.setDeletedAt(null);
+            updateAnswer.setAnswers(readValidated.answersJson());
+            updateAnswer.setSubmissionStatus(targetStatus);
+            clearReviewMetadata(updateAnswer);
+            updateAnswer.setUpdatedAt(LocalDateTime.now());
+            updateEditableAnswer(updateAnswer, readVersion);
+            updateVersion = readVersion + 1;
+        }
+        if (saveHistory) {
+            recordChange(userId, request.getJobPostId(), targetStatus, readChange, updateVersion);
+        }
+        if (targetStatus == QuestionnaireSubmissionStatus.SUBMITTED) {
+            log.info("用户 {} 提交岗位 {} 的问卷", userId, request.getJobPostId());
+        }
+        return toResponse(updateAnswer);
+    }
+
+    private ValidatedAnswers validateRequest(
+            Long userId,
+            QuestionnaireSubmitRequest request,
+            QuestionnaireSubmissionStatus targetStatus) {
+        if (request == null || request.getJobPostId() == null) {
+            throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND);
+        }
+        if (targetStatus != QuestionnaireSubmissionStatus.DRAFT
+                && targetStatus != QuestionnaireSubmissionStatus.SUBMITTED) {
             throw ServiceException.of(QuestionnaireErrorCode.INVALID_SUBMISSION_STATUS);
         }
+        requireOpenJob(request.getJobPostId());
+        List<JobPostQuestionResponse> readQuestions =
+                jobPostQuestionService.listByJobPostId(request.getJobPostId());
+        Map<Long, Object> readAnswers = targetStatus == QuestionnaireSubmissionStatus.DRAFT
+                ? answerValidator.validateDraftAnswers(request.getAnswers(), readQuestions)
+                : answerValidator.validateRequiredAnswers(request.getAnswers(), readQuestions);
+        validateFileAnswers(userId, readAnswers, readQuestions);
+        return new ValidatedAnswers(writeAnswers(readAnswers));
+    }
 
-        if (existing != null) {
-            applySubmitRequest(existing, request);
-            clearReviewMetadata(existing);
-            existing.setSubmissionStatus(QuestionnaireSubmissionStatus.SUBMITTED);
-            existing.setUpdatedAt(LocalDateTime.now());
-            updateAnswer(existing);
-            log.info("用户 {} 提交岗位 {} 的问卷", userId, request.getJobPostId());
-            return toResponse(existing);
+    private PreparedChange prepareChange(
+            QuestionnaireAnswerEntity readAnswer,
+            Long readJobPostId,
+            ValidatedAnswers readValidated,
+            QuestionnaireSubmissionStatus targetStatus) {
+        boolean readExists = readAnswer != null && readAnswer.getDeletedAt() == null;
+        QuestionnaireAnswerEntity readActive = readExists ? readAnswer : null;
+        assertTransition(readActive, targetStatus);
+
+        Map<String, Object> readBeforeFields = new LinkedHashMap<>();
+        Map<String, Object> updateFields = new LinkedHashMap<>();
+        addChange(readBeforeFields, updateFields, "answers",
+                readActive == null ? null : readActive.getAnswers(), readValidated.answersJson());
+        addChange(readBeforeFields, updateFields, "submissionStatus",
+                readActive == null ? null : readActive.getSubmissionStatus(), targetStatus);
+        if (readActive != null) {
+            addChange(readBeforeFields, updateFields, "reviewedAt",
+                    readActive.getReviewedAt(), null);
+            addChange(readBeforeFields, updateFields, "reviewedBy",
+                    readActive.getReviewedBy(), null);
+            addChange(readBeforeFields, updateFields, "reviewPassed",
+                    readActive.getReviewPassed(), null);
+            addChange(readBeforeFields, updateFields, "reviewComments",
+                    readActive.getReviewComments(), null);
         }
+        if (updateFields.isEmpty()) {
+            return new PreparedChange(
+                    readJobPostId.toString(),
+                    ChangeOperation.PATCH,
+                    List.of(),
+                    readAnswer == null ? null : readAnswer.getVersion(),
+                    readExists,
+                    true,
+                    Map.of(),
+                    Map.of());
+        }
+        ChangeOperation readOperation = !readExists
+                ? ChangeOperation.CREATE
+                : updateFields.containsKey("submissionStatus")
+                ? ChangeOperation.STATE_TRANSITION
+                : ChangeOperation.PATCH;
+        return new PreparedChange(
+                readJobPostId.toString(),
+                readOperation,
+                new ArrayList<>(updateFields.keySet()),
+                readAnswer == null ? null : readAnswer.getVersion(),
+                readExists,
+                true,
+                readBeforeFields,
+                updateFields);
+    }
 
-        QuestionnaireAnswerEntity entity = newQuestionnaireAnswer(userId, request);
-        entity.setSubmissionStatus(QuestionnaireSubmissionStatus.SUBMITTED);
-        entity.setVersion(0L);
-        save(entity);
-        log.info("用户 {} 首次提交岗位 {} 的问卷", userId, request.getJobPostId());
-        return toResponse(entity);
+    private void addChange(
+            Map<String, Object> readBeforeFields,
+            Map<String, Object> updateFields,
+            String readField,
+            Object readBefore,
+            Object readAfter) {
+        if (!Objects.equals(readBefore, readAfter)) {
+            readBeforeFields.put(readField, readBefore);
+            updateFields.put(readField, readAfter);
+        }
+    }
+
+    private void assertTransition(
+            QuestionnaireAnswerEntity readAnswer,
+            QuestionnaireSubmissionStatus targetStatus) {
+        assertCanEdit(readAnswer);
+        if (readAnswer != null
+                && targetStatus == QuestionnaireSubmissionStatus.DRAFT
+                && readAnswer.getSubmissionStatus() == QuestionnaireSubmissionStatus.SUBMITTED) {
+            throw ServiceException.of(QuestionnaireErrorCode.INVALID_SUBMISSION_STATUS,
+                    "已提交的投递请使用正式提交接口修改");
+        }
+    }
+
+    private String writeAnswers(Map<Long, Object> readAnswers) {
+        List<Map<String, Object>> writeItems = new ArrayList<>();
+        readAnswers.forEach((readQuestionId, readValue) -> {
+            Map<String, Object> writeItem = new LinkedHashMap<>();
+            writeItem.put("questionId", readQuestionId);
+            writeItem.put("value", readValue);
+            writeItems.add(writeItem);
+        });
+        try {
+            return objectMapper.writeValueAsString(writeItems);
+        } catch (JsonProcessingException readError) {
+            throw ServiceException.of(ResultCode.INTERNAL_SERVER_ERROR, "问卷答案序列化失败");
+        }
+    }
+
+    private void recordChange(
+            Long userId,
+            Long jobPostId,
+            QuestionnaireSubmissionStatus targetStatus,
+            PreparedChange readChange,
+            Long appliedVersion) {
+        changeService.recordApplied(new UserChangeService.AppliedChange(
+                userId,
+                "QUESTIONNAIRE_UI",
+                ChangeResourceType.QUESTIONNAIRE_ANSWER,
+                jobPostId.toString(),
+                readChange.operation(),
+                readChange.changedFields(),
+                readChange.expectedVersion(),
+                appliedVersion,
+                readChange.beforeExists(),
+                readChange.afterExists(),
+                readChange.beforeFields(),
+                readChange.afterFields(),
+                targetStatus == QuestionnaireSubmissionStatus.DRAFT
+                        ? "保存问卷草稿" : "提交问卷作答"));
     }
 
     @Override
@@ -127,8 +289,9 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
                 new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
                         .eq(QuestionnaireAnswerEntity::getJobPostId, jobPostId)
                         .isNull(QuestionnaireAnswerEntity::getDeletedAt)
-                        .ne(QuestionnaireAnswerEntity::getSubmissionStatus,
-                                QuestionnaireSubmissionStatus.DRAFT)
+                        .in(QuestionnaireAnswerEntity::getSubmissionStatus,
+                                QuestionnaireSubmissionStatus.SUBMITTED,
+                                QuestionnaireSubmissionStatus.REVIEWED)
                         .orderByDesc(QuestionnaireAnswerEntity::getCreatedAt)
         );
 
@@ -142,6 +305,140 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
     public QuestionnaireAnswerResponse getByUserAndJobPost(Long userId, Long jobPostId) {
         QuestionnaireAnswerEntity entity = findByUserAndJob(userId, jobPostId);
         return toResponse(entity);
+    }
+
+    @Override
+    public QuestionnaireAnswerEntity getOwnAnswerIncludingDeleted(Long userId, Long jobPostId) {
+        return getOne(new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
+                .eq(QuestionnaireAnswerEntity::getUserId, userId)
+                .eq(QuestionnaireAnswerEntity::getJobPostId, jobPostId));
+    }
+
+    @Transactional
+    @Override
+    public Long restoreSnapshot(
+            Long userId,
+            Long jobPostId,
+            Long expectedVersion,
+            boolean updateExists,
+            Map<String, Object> updateFields) {
+        QuestionnaireAnswerEntity updateAnswer = getOwnAnswerIncludingDeleted(userId, jobPostId);
+        if (!updateExists) {
+            if (updateAnswer == null
+                    || updateAnswer.getDeletedAt() != null
+                    || expectedVersion == null
+                    || !expectedVersion.equals(updateAnswer.getVersion())) {
+                throw buildConflict();
+            }
+            UpdateWrapper<QuestionnaireAnswerEntity> update = new UpdateWrapper<>();
+            update.eq("id", updateAnswer.getId())
+                    .eq("user_id", userId)
+                    .eq("version", expectedVersion)
+                    .isNull("deleted_at")
+                    .set("deleted_at", LocalDateTime.now())
+                    .set("updated_at", LocalDateTime.now())
+                    .setSql("version = version + 1");
+            if (baseMapper.update(null, update) != 1) {
+                throw buildConflict();
+            }
+            return expectedVersion + 1;
+        }
+
+        validateSnapshotFields(updateFields);
+        if (updateAnswer == null) {
+            if (expectedVersion != null) {
+                throw buildConflict();
+            }
+            updateAnswer = new QuestionnaireAnswerEntity();
+            updateAnswer.setUserId(userId);
+            updateAnswer.setJobPostId(jobPostId);
+            applySnapshotFields(updateAnswer, updateFields);
+            requireRestorableAnswer(updateAnswer);
+            updateAnswer.setVersion(0L);
+            try {
+                if (!save(updateAnswer)) {
+                    throw buildConflict();
+                }
+            } catch (DuplicateKeyException readError) {
+                throw buildConflict();
+            }
+            return 0L;
+        }
+        if (expectedVersion == null || !expectedVersion.equals(updateAnswer.getVersion())) {
+            throw buildConflict();
+        }
+        Long readVersion = updateAnswer.getVersion();
+        applySnapshotFields(updateAnswer, updateFields);
+        requireRestorableAnswer(updateAnswer);
+        updateAnswer.setDeletedAt(null);
+        updateAnswer.setUpdatedAt(LocalDateTime.now());
+        updateSnapshotAnswer(updateAnswer, readVersion, updateFields);
+        return readVersion + 1;
+    }
+
+    private void validateSnapshotFields(Map<String, Object> updateFields) {
+        Set<String> readAllowed = Set.of(
+                "answers", "submissionStatus", "reviewedAt",
+                "reviewedBy", "reviewPassed", "reviewComments");
+        if (updateFields == null
+                || updateFields.isEmpty()
+                || updateFields.keySet().stream().anyMatch(readField -> !readAllowed.contains(readField))) {
+            throw buildConflict();
+        }
+    }
+
+    private void applySnapshotFields(
+            QuestionnaireAnswerEntity updateAnswer,
+            Map<String, Object> updateFields) {
+        if (updateFields.containsKey("answers")) {
+            Object readAnswers = updateFields.get("answers");
+            updateAnswer.setAnswers(readAnswers == null ? null : String.valueOf(readAnswers));
+        }
+        if (updateFields.containsKey("submissionStatus")) {
+            Object readStatus = updateFields.get("submissionStatus");
+            try {
+                updateAnswer.setSubmissionStatus(readStatus instanceof QuestionnaireSubmissionStatus readEnum
+                        ? readEnum : QuestionnaireSubmissionStatus.valueOf(String.valueOf(readStatus)));
+            } catch (IllegalArgumentException readError) {
+                throw buildConflict();
+            }
+        }
+        if (updateFields.containsKey("reviewedAt")) {
+            Object readValue = updateFields.get("reviewedAt");
+            try {
+                updateAnswer.setReviewedAt(readValue == null ? null
+                        : readValue instanceof LocalDateTime readTime
+                        ? readTime : LocalDateTime.parse(String.valueOf(readValue)));
+            } catch (RuntimeException readError) {
+                throw buildConflict();
+            }
+        }
+        if (updateFields.containsKey("reviewedBy")) {
+            Object readValue = updateFields.get("reviewedBy");
+            try {
+                updateAnswer.setReviewedBy(readValue == null ? null
+                        : Long.valueOf(String.valueOf(readValue)));
+            } catch (NumberFormatException readError) {
+                throw buildConflict();
+            }
+        }
+        if (updateFields.containsKey("reviewPassed")) {
+            Object readValue = updateFields.get("reviewPassed");
+            if (readValue != null && !(readValue instanceof Boolean)) {
+                throw buildConflict();
+            }
+            updateAnswer.setReviewPassed((Boolean) readValue);
+        }
+        if (updateFields.containsKey("reviewComments")) {
+            Object readValue = updateFields.get("reviewComments");
+            updateAnswer.setReviewComments(readValue == null ? null : String.valueOf(readValue));
+        }
+    }
+
+    private void requireRestorableAnswer(QuestionnaireAnswerEntity readAnswer) {
+        if (readAnswer.getAnswers() == null || readAnswer.getSubmissionStatus() == null) {
+            throw buildConflict();
+        }
     }
 
     @Override
@@ -193,6 +490,7 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
         createCounts.put("draft", readCount.getDraft());
         createCounts.put("pending", readCount.getPending());
         createCounts.put("done", readCount.getDone());
+        createCounts.put("withdrawn", readCount.getWithdrawn());
         return createCounts;
     }
 
@@ -272,8 +570,76 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
 
     private void updateAnswer(QuestionnaireAnswerEntity updateAnswer) {
         if (!updateById(updateAnswer)) {
-            throw ServiceException.of(ResultCode.CONFLICT, "投递记录已发生变化，请刷新后重试");
+            throw buildConflict();
         }
+    }
+
+    private void updateEditableAnswer(
+            QuestionnaireAnswerEntity updateAnswer,
+            Long expectedVersion) {
+        UpdateWrapper<QuestionnaireAnswerEntity> update = baseAnswerUpdate(
+                updateAnswer, expectedVersion)
+                .set("answers", updateAnswer.getAnswers())
+                .set("submission_status", updateAnswer.getSubmissionStatus().getCode())
+                .set("reviewed_at", null)
+                .set("reviewed_by", null)
+                .set("review_passed", null)
+                .set("review_comments", null)
+                .set("deleted_at", null);
+        applyAnswerUpdate(updateAnswer, expectedVersion, update);
+    }
+
+    private void updateSnapshotAnswer(
+            QuestionnaireAnswerEntity updateAnswer,
+            Long expectedVersion,
+            Map<String, Object> updateFields) {
+        UpdateWrapper<QuestionnaireAnswerEntity> update = baseAnswerUpdate(
+                updateAnswer, expectedVersion).set("deleted_at", null);
+        if (updateFields.containsKey("answers")) {
+            update.set("answers", updateAnswer.getAnswers());
+        }
+        if (updateFields.containsKey("submissionStatus")) {
+            update.set("submission_status", updateAnswer.getSubmissionStatus().getCode());
+        }
+        if (updateFields.containsKey("reviewedAt")) {
+            update.set("reviewed_at", updateAnswer.getReviewedAt());
+        }
+        if (updateFields.containsKey("reviewedBy")) {
+            update.set("reviewed_by", updateAnswer.getReviewedBy());
+        }
+        if (updateFields.containsKey("reviewPassed")) {
+            update.set("review_passed", updateAnswer.getReviewPassed());
+        }
+        if (updateFields.containsKey("reviewComments")) {
+            update.set("review_comments", updateAnswer.getReviewComments());
+        }
+        applyAnswerUpdate(updateAnswer, expectedVersion, update);
+    }
+
+    private UpdateWrapper<QuestionnaireAnswerEntity> baseAnswerUpdate(
+            QuestionnaireAnswerEntity updateAnswer,
+            Long expectedVersion) {
+        UpdateWrapper<QuestionnaireAnswerEntity> update = new UpdateWrapper<>();
+        return update.eq("id", updateAnswer.getId())
+                .eq("user_id", updateAnswer.getUserId())
+                .eq("version", expectedVersion)
+                .set("updated_at", LocalDateTime.now())
+                .setSql("version = version + 1");
+    }
+
+    private void applyAnswerUpdate(
+            QuestionnaireAnswerEntity updateAnswer,
+            Long expectedVersion,
+            UpdateWrapper<QuestionnaireAnswerEntity> update) {
+        if (baseMapper.update(null, update) != 1) {
+            throw buildConflict();
+        }
+        updateAnswer.setVersion(expectedVersion + 1);
+        updateAnswer.setDeletedAt(null);
+    }
+
+    private ServiceException buildConflict() {
+        return ServiceException.of(ResultCode.CONFLICT, "投递记录已发生变化，请刷新后重试");
     }
 
     private void validateFileAnswers(
@@ -291,16 +657,6 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
             }
             resumeFileService.getOwnFile(userId, answerValidator.readFileId(readValue));
         }
-    }
-
-    private void applySubmitRequest(QuestionnaireAnswerEntity entity, QuestionnaireSubmitRequest request) {
-        BeanUtil.copyProperties(request, entity);
-    }
-
-    private QuestionnaireAnswerEntity newQuestionnaireAnswer(Long userId, QuestionnaireSubmitRequest request) {
-        QuestionnaireAnswerEntity entity = BeanUtil.copyProperties(request, QuestionnaireAnswerEntity.class);
-        entity.setUserId(userId);
-        return entity;
     }
 
     /** 岗位 → 列表项：忽略与作答记录冲突的字段 */
@@ -373,6 +729,9 @@ public class QuestionnaireAnswerServiceImpl extends ServiceImpl<QuestionnaireAns
 
     private QuestionnaireSubmissionStatus resolveStatus(QuestionnaireSubmissionStatus status) {
         return status != null ? status : QuestionnaireSubmissionStatus.SUBMITTED;
+    }
+
+    private record ValidatedAnswers(String answersJson) {
     }
 
     private void enrichUser(QuestionnaireAnswerResponse readResponse, Long readUserId) {

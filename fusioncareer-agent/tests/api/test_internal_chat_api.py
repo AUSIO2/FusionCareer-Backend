@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routers import chat as chat_router
+from app.chat.tools import WRITE_TOOLS
 from app.config import settings
 from app.main import app
 
@@ -105,6 +106,13 @@ def readHeaders() -> dict[str, str]:
         "X-Internal-Token": "internal-test",
         "X-Agent-Context": "agent-context-test-value",
     }
+
+
+def testWriteToolRegistryIncludesReversibleFileDelete():
+    readNames = {readTool["function"]["name"] for readTool in WRITE_TOOLS}
+    assert "propose_file_delete" in readNames
+    assert "propose_questionnaire_draft" in readNames
+    assert "propose_questionnaire_submit" in readNames
 
 
 def testProtectStream(client: TestClient):

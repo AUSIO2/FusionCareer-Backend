@@ -44,6 +44,9 @@ public interface ResumeFileService extends IService<ResumeFileEntity> {
      */
     ResumeFileEntity getOwnFile(Long userId, Long fileId);
 
+    /** 获取自己的文件元数据，包括回收站中的文件。 */
+    ResumeFileEntity getOwnFileIncludingDeleted(Long userId, Long fileId);
+
     /**
      * 获取文件的 Resource（用于流式下载）
      *
@@ -62,6 +65,13 @@ public interface ResumeFileService extends IService<ResumeFileEntity> {
 
     /** 从回收站恢复文件。 */
     void restore(Long userId, Long fileId);
+
+    /**
+     * 由确认/Revert 流程按版本切换软删除状态，不额外写入一条历史。
+     *
+     * @return 应用后的资源版本
+     */
+    Long restoreSnapshot(Long userId, Long fileId, Long expectedVersion, boolean deleted);
 
     /**
      * 永久删除文件，仅供明确的数据清除流程和测试清理使用。

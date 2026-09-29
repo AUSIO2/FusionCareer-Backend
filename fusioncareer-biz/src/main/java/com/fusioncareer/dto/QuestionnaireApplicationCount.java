@@ -11,4 +11,5 @@ public class QuestionnaireApplicationCount {
     private long draft;
     private long pending;
     private long done;
+    private long withdrawn;
 }

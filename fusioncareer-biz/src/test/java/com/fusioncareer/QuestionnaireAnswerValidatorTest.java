@@ -64,6 +64,14 @@ class QuestionnaireAnswerValidatorTest {
         assertThat(validateAnswers.readFileId(readAnswers.get(1L))).isEqualTo(42L);
     }
 
+    @Test
+    void rejectFileObjectWithUnknownFields() {
+        assertThatThrownBy(() -> validateAnswers.validateDraftAnswers(
+                "[{\"questionId\":1,\"value\":{\"fileId\":\"42\",\"userId\":\"7\"}}]",
+                List.of(question(1L, QuestionType.FILE_UPLOAD, List.of()))))
+                .hasMessageContaining("文件答案无效");
+    }
+
     private JobPostQuestionResponse question(Long readId, QuestionType readType, List<String> readOptions) {
         JobPostQuestionResponse createQuestion = new JobPostQuestionResponse();
         createQuestion.setId(readId);

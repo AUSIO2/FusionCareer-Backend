@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.dto.res.UserChangeActionResponse;
 import com.fusioncareer.entity.ResumeEntity;
+import com.fusioncareer.entity.ResumeFileEntity;
+import com.fusioncareer.entity.QuestionnaireAnswerEntity;
 import com.fusioncareer.entity.UserChangeActionEntity;
 import com.fusioncareer.entity.UserChangeItemEntity;
 import com.fusioncareer.entity.UserMemoryEntity;
@@ -15,6 +17,7 @@ import com.fusioncareer.enums.ChangeActionStatus;
 import com.fusioncareer.enums.ChangeActionType;
 import com.fusioncareer.enums.ChangeOperation;
 import com.fusioncareer.enums.ChangeResourceType;
+import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
 import com.fusioncareer.exception.ResultCode;
 import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.UserChangeActionMapper;
@@ -48,6 +51,8 @@ public class PersonalSpaceRevertService {
     private final UserMemoryService memoryService;
     private final UserProfileService profileService;
     private final ResumeService resumeService;
+    private final ResumeFileService fileService;
+    private final QuestionnaireAnswerService answerService;
     private final UserMemoryMapper memoryMapper;
     private final ObjectMapper objectMapper;
 
@@ -70,7 +75,13 @@ public class PersonalSpaceRevertService {
         Snapshot readBefore = decryptSnapshot(readUserId, readActionId, readItem, "before");
         Snapshot readAfter = decryptSnapshot(readUserId, readActionId, readItem, "after");
         ResourceState readCurrent = loadState(
-                readUserId, readItem.getResourceType(), readFields);
+                readUserId, readItem.getResourceType(), readItem.getResourceKey(), readFields);
+
+        UserChangeActionResponse readWithdrawal = createReviewedWithdrawal(
+                readUserId, readAction, readItem, readAfter, readCurrent);
+        if (readWithdrawal != null) {
+            return readWithdrawal;
+        }
 
         Map<String, Object> readCurrentFields = new LinkedHashMap<>();
         Map<String, Object> updateFields = new LinkedHashMap<>();
@@ -106,7 +117,10 @@ public class PersonalSpaceRevertService {
         }
 
         ChangeOperation createOperation = resolveOperation(
-                readCurrent.exists(), readBefore.exists());
+                readItem.getResourceType(),
+                readCurrent.exists(),
+                readBefore.exists(),
+                readBefore.fields());
         UserChangeService.AppliedChange createRevert = new UserChangeService.AppliedChange(
                 readUserId,
                 "HISTORY_UI",
@@ -139,14 +153,15 @@ public class PersonalSpaceRevertService {
         Snapshot readBefore = decryptSnapshot(readUserId, readActionId, updateItem, "before");
         Snapshot readAfter = decryptSnapshot(readUserId, readActionId, updateItem, "after");
         ResourceState readCurrent = loadState(
-                readUserId, updateItem.getResourceType(), readFields);
+                readUserId, updateItem.getResourceType(), updateItem.getResourceKey(), readFields);
         if (!Objects.equals(readCurrent.version(), updateItem.getExpectedVersion())
                 || !matchesState(readCurrent, readBefore, readFields)) {
             throw buildConflict("资源在确认前已发生变化，请重新生成提案");
         }
 
         Long updateVersion = applySnapshot(
-                readUserId, updateItem.getResourceType(), readCurrent.version(),
+                readUserId, updateItem.getResourceType(), updateItem.getResourceKey(),
+                readCurrent.version(),
                 readAfter.exists(), readAfter.fields());
         updateItem.setAppliedVersion(updateVersion);
         if (itemMapper.updateById(updateItem) != 1) {
@@ -180,15 +195,89 @@ public class PersonalSpaceRevertService {
         return changeService.readAction(readUserId, readActionId);
     }
 
+    private UserChangeActionResponse createReviewedWithdrawal(
+            Long readUserId,
+            UserChangeActionEntity readAction,
+            UserChangeItemEntity readItem,
+            Snapshot readAfter,
+            ResourceState readCurrent) {
+        boolean readWasSubmit = isSubmissionStatus(
+                readAfter.fields().get("submissionStatus"),
+                QuestionnaireSubmissionStatus.SUBMITTED)
+                || "propose_questionnaire_submit".equals(readAction.getToolName())
+                || ("QUESTIONNAIRE_UI".equals(readAction.getOrigin())
+                && "提交问卷作答".equals(readAction.getReason()));
+        boolean readAnswersMatch = !readAfter.fields().containsKey("answers")
+                || sameValue(
+                        readCurrent.fields().get("answers"),
+                        readAfter.fields().get("answers"));
+        if (readItem.getResourceType() != ChangeResourceType.QUESTIONNAIRE_ANSWER
+                || !readCurrent.exists()
+                || !readWasSubmit
+                || !isSubmissionStatus(
+                        readCurrent.fields().get("submissionStatus"),
+                        QuestionnaireSubmissionStatus.REVIEWED)
+                || !readAnswersMatch) {
+            return null;
+        }
+        Map<String, Object> readBeforeFields = Map.of(
+                "submissionStatus", QuestionnaireSubmissionStatus.REVIEWED);
+        Map<String, Object> updateFields = Map.of(
+                "submissionStatus", QuestionnaireSubmissionStatus.WITHDRAWN);
+        UserChangeService.AppliedChange createWithdrawal = new UserChangeService.AppliedChange(
+                readUserId,
+                "HISTORY_UI",
+                ChangeResourceType.QUESTIONNAIRE_ANSWER,
+                readItem.getResourceKey(),
+                ChangeOperation.STATE_TRANSITION,
+                List.of("submissionStatus"),
+                readCurrent.version(),
+                null,
+                true,
+                true,
+                readBeforeFields,
+                updateFields,
+                "撤回已审核投递 " + readItem.getResourceKey());
+        return changeService.recordPendingRevert(readAction.getId(), createWithdrawal);
+    }
+
+    private boolean isSubmissionStatus(
+            Object readValue,
+            QuestionnaireSubmissionStatus readStatus) {
+        return readValue == readStatus
+                || readStatus.name().equals(String.valueOf(readValue));
+    }
+
     private Long applySnapshot(
             Long updateUserId,
             ChangeResourceType readResourceType,
+            String readResourceKey,
             Long readVersion,
             boolean updateExists,
             Map<String, Object> updateFields) {
         if (readResourceType == ChangeResourceType.MEMORY) {
             return memoryService.restoreSnapshot(
                     updateUserId, readVersion, updateExists, updateFields);
+        }
+        if (readResourceType == ChangeResourceType.RESUME_FILE) {
+            if (!updateExists
+                    || updateFields.size() != 1
+                    || !(updateFields.get("deleted") instanceof Boolean updateDeleted)) {
+                throw buildConflict("文件变更快照格式错误");
+            }
+            return fileService.restoreSnapshot(
+                    updateUserId,
+                    parseResourceId(readResourceKey),
+                    readVersion,
+                    updateDeleted);
+        }
+        if (readResourceType == ChangeResourceType.QUESTIONNAIRE_ANSWER) {
+            return answerService.restoreSnapshot(
+                    updateUserId,
+                    parseResourceId(readResourceKey),
+                    readVersion,
+                    updateExists,
+                    updateFields);
         }
         return mutationService.restoreSnapshot(
                 updateUserId, readResourceType, readVersion, updateExists, updateFields);
@@ -261,6 +350,7 @@ public class PersonalSpaceRevertService {
     private ResourceState loadState(
             Long readUserId,
             ChangeResourceType readResourceType,
+            String readResourceKey,
             List<String> readFields) {
         if (readResourceType == ChangeResourceType.PROFILE) {
             UserProfileEntity readProfile = profileService.getById(readUserId);
@@ -273,7 +363,41 @@ public class PersonalSpaceRevertService {
         if (readResourceType == ChangeResourceType.MEMORY) {
             return readMemory(readUserId, readFields);
         }
+        if (readResourceType == ChangeResourceType.RESUME_FILE) {
+            if (!readFields.equals(List.of("deleted"))) {
+                throw buildConflict("文件变更字段格式错误");
+            }
+            ResumeFileEntity readFile = fileService.getOwnFileIncludingDeleted(
+                    readUserId, parseResourceId(readResourceKey));
+            return new ResourceState(
+                    true,
+                    readFile.getVersion(),
+                    Map.of("deleted", readFile.getDeletedAt() != null));
+        }
+        if (readResourceType == ChangeResourceType.QUESTIONNAIRE_ANSWER) {
+            QuestionnaireAnswerEntity readAnswer = answerService.getOwnAnswerIncludingDeleted(
+                    readUserId, parseResourceId(readResourceKey));
+            if (readAnswer == null) {
+                Map<String, Object> readValues = new LinkedHashMap<>();
+                readFields.forEach(readField -> readValues.put(readField, null));
+                return new ResourceState(false, null, readValues);
+            }
+            if (readAnswer.getDeletedAt() != null) {
+                Map<String, Object> readValues = new LinkedHashMap<>();
+                readFields.forEach(readField -> readValues.put(readField, null));
+                return new ResourceState(false, readAnswer.getVersion(), readValues);
+            }
+            return readBean(readAnswer, readAnswer.getVersion(), readFields);
+        }
         throw buildConflict("该资源类型暂不支持自动回退");
+    }
+
+    private Long parseResourceId(String readResourceKey) {
+        try {
+            return Long.valueOf(readResourceKey);
+        } catch (NumberFormatException readError) {
+            throw buildConflict("资源键格式错误");
+        }
     }
 
     private ResourceState readBean(Object readResource, Long readVersion, List<String> readFields) {
@@ -342,12 +466,24 @@ public class PersonalSpaceRevertService {
         }
     }
 
-    private ChangeOperation resolveOperation(boolean readExists, boolean updateExists) {
+    private ChangeOperation resolveOperation(
+            ChangeResourceType readResourceType,
+            boolean readExists,
+            boolean updateExists,
+            Map<String, Object> updateFields) {
+        if (readResourceType == ChangeResourceType.RESUME_FILE) {
+            return Boolean.TRUE.equals(updateFields.get("deleted"))
+                    ? ChangeOperation.SOFT_DELETE : ChangeOperation.RESTORE;
+        }
         if (!readExists && updateExists) {
             return ChangeOperation.CREATE;
         }
         if (readExists && !updateExists) {
             return ChangeOperation.DELETE;
+        }
+        if (readResourceType == ChangeResourceType.QUESTIONNAIRE_ANSWER
+                && updateFields.containsKey("submissionStatus")) {
+            return ChangeOperation.STATE_TRANSITION;
         }
         return ChangeOperation.PATCH;
     }

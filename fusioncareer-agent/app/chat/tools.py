@@ -1,4 +1,4 @@
-"""Fixed read-only Tool registry for the career assistant."""
+"""Fixed read and reversible-proposal Tool registry for the career assistant."""
 
 import json
 from dataclasses import dataclass
@@ -241,6 +241,38 @@ def proposalTool(readName: str, readDescription: str, readFields: list[str]) -> 
     }
 
 
+def questionnaireTool(readName: str, readDescription: str) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": readName,
+            "description": readDescription,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "jobPostId": {"type": "string", "pattern": "^[0-9]+$"},
+                    "answers": {
+                        "type": "array",
+                        "maxItems": 100,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "questionId": {"type": "string", "pattern": "^[0-9]+$"},
+                                "value": {},
+                            },
+                            "required": ["questionId", "value"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "reason": {"type": "string", "minLength": 1, "maxLength": 256},
+                },
+                "required": ["jobPostId", "answers", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 WRITE_TOOLS: list[dict[str, Any]] = [
     proposalTool(
         "propose_profile_patch",
@@ -259,6 +291,35 @@ WRITE_TOOLS: list[dict[str, Any]] = [
         "仅当用户当前消息明确要求记住、修改或忘记长期偏好时，创建待用户确认的记忆提案。"
         "responseStyle/currentGoal 使用字符串，其余字段使用字符串数组。不会直接修改记忆。",
         MEMORY_FIELDS,
+    ),
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_file_delete",
+            "description": (
+                "仅当用户当前消息明确要求删除自己的文件时，创建移入回收站的待确认提案。"
+                "不会删除 blob，也不会直接改变文件状态。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fileId": {"type": "string", "pattern": "^[0-9]+$"},
+                    "reason": {"type": "string", "minLength": 1, "maxLength": 256},
+                },
+                "required": ["fileId", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    questionnaireTool(
+        "propose_questionnaire_draft",
+        "仅当用户当前消息明确要求保存指定岗位的问卷草稿时，创建待确认提案。"
+        "先用 get_job_questionnaire 获取题目；允许只提供部分答案。不会直接保存。",
+    ),
+    questionnaireTool(
+        "propose_questionnaire_submit",
+        "仅当用户当前消息明确要求正式提交指定岗位问卷时，创建待确认提案。"
+        "先用 get_job_questionnaire 获取题目；所有必填题必须完整。不会直接提交。",
     ),
 ]
 

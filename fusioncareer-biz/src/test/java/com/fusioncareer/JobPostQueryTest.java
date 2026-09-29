@@ -211,6 +211,7 @@ class JobPostQueryTest {
         createAnswer(readJob.getId(), 101L, QuestionnaireSubmissionStatus.DRAFT);
         createAnswer(readJob.getId(), 102L, QuestionnaireSubmissionStatus.SUBMITTED);
         createAnswer(readJob.getId(), 103L, QuestionnaireSubmissionStatus.REVIEWED);
+        createAnswer(readJob.getId(), 104L, QuestionnaireSubmissionStatus.WITHDRAWN);
         JobPostQueryRequest readQuery = new JobPostQueryRequest();
         readQuery.setKeyword("alpha");
 

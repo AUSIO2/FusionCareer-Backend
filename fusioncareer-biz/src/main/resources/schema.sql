@@ -352,7 +352,7 @@ CREATE TABLE IF NOT EXISTS `fc_questionnaire_answer`
     `job_post_id`   BIGINT        NOT NULL COMMENT '所属岗位ID',
     `user_id`       BIGINT        NOT NULL COMMENT '投递学生用户ID',
     `answers`            JSON          NOT NULL COMMENT '作答内容JSON',
-    `submission_status`  TINYINT       NOT NULL DEFAULT 1 COMMENT '0-草稿 1-已提交待审核 2-已审阅',
+    `submission_status`  TINYINT       NOT NULL DEFAULT 1 COMMENT '0-草稿 1-已提交待审核 2-已审阅 3-已撤回',
     `reviewed_at`        DATETIME               DEFAULT NULL COMMENT '管理员审阅时间',
     `reviewed_by`        BIGINT                 DEFAULT NULL COMMENT '审阅管理员 user_id',
     `review_passed`      TINYINT(1)             DEFAULT NULL COMMENT '审阅是否通过：1-通过 0-未通过',

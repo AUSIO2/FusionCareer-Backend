@@ -14,6 +14,7 @@ import com.fusioncareer.entity.UserChangeItemEntity;
 import com.fusioncareer.entity.UserEntity;
 import com.fusioncareer.enums.ChangeResourceType;
 import com.fusioncareer.enums.ChangeActionStatus;
+import com.fusioncareer.enums.ChangeOperation;
 import com.fusioncareer.enums.JobCategory;
 import com.fusioncareer.enums.JobPostStatus;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
@@ -714,6 +715,14 @@ class PersonalSpaceTest {
         readMvc.perform(delete("/personal-space/documents/{fileId}", createFile.getId())
                         .header("Fusion-Token", createToken))
                 .andExpect(status().isOk());
+        var readDeleteAction = readChanges.readActions(
+                createUser.getId(), null, 1).actions().get(0);
+        assertThat(readDeleteAction.status()).isEqualTo(ChangeActionStatus.APPLIED);
+        assertThat(readDeleteAction.items()).singleElement().satisfies(readItem -> {
+            assertThat(readItem.resourceType()).isEqualTo(ChangeResourceType.RESUME_FILE);
+            assertThat(readItem.operation()).isEqualTo(ChangeOperation.SOFT_DELETE);
+            assertThat(readItem.changedFields()).containsExactly("deleted");
+        });
         readMvc.perform(get("/personal-space/documents").header("Fusion-Token", createToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.files").isEmpty())
@@ -732,6 +741,9 @@ class PersonalSpaceTest {
         readMvc.perform(post("/personal-space/documents/{fileId}/restore", createFile.getId())
                         .header("Fusion-Token", createToken))
                 .andExpect(status().isOk());
+        assertThat(readChanges.readActions(createUser.getId(), null, 1)
+                .actions().get(0).items().get(0).operation())
+                .isEqualTo(ChangeOperation.RESTORE);
         readMvc.perform(get("/personal-space/documents").header("Fusion-Token", createToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.files[0].version").value("2"))
@@ -781,6 +793,12 @@ class PersonalSpaceTest {
         createDraft.setAnswers("[{\"questionId\":\"0\",\"value\":\"" + createFile.getId() + "\"}]");
         assertThat(readAnswers.saveDraft(createUser.getId(), createDraft).getSubmissionStatus())
                 .isEqualTo(QuestionnaireSubmissionStatus.DRAFT);
+        assertThat(readChanges.readActions(createUser.getId(), null, 1).actions().get(0).items())
+                .singleElement().satisfies(readItem -> {
+                    assertThat(readItem.resourceType())
+                            .isEqualTo(ChangeResourceType.QUESTIONNAIRE_ANSWER);
+                    assertThat(readItem.operation()).isEqualTo(ChangeOperation.CREATE);
+                });
 
         UserEntity createOther = new UserEntity();
         createOther.setUsername("other-file-user");

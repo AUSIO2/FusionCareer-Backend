@@ -6,12 +6,15 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fusioncareer.config.UploadProperties;
 import com.fusioncareer.dto.res.ResumeFileResponse;
 import com.fusioncareer.entity.ResumeFileEntity;
+import com.fusioncareer.enums.ChangeOperation;
+import com.fusioncareer.enums.ChangeResourceType;
 import com.fusioncareer.exception.ResumeErrorCode;
 import com.fusioncareer.exception.ResultCode;
 import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.mapper.ResumeFileMapper;
 import com.fusioncareer.service.FileStorageService;
 import com.fusioncareer.service.ResumeFileService;
+import com.fusioncareer.service.UserChangeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
@@ -21,6 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 简历文件上传 Service 实现
@@ -38,6 +42,7 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
 
     private final UploadProperties uploadProperties;
     private final FileStorageService fileStorageService;
+    private final UserChangeService changeService;
 
     // ── 接口实现 ──────────────────────────────────────────────────────────────
 
@@ -100,31 +105,55 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
     @Transactional
     @Override
     public void delete(Long userId, Long fileId) {
-        ResumeFileEntity updateFile = getOwnFile(userId, fileId);
-        LocalDateTime readNow = LocalDateTime.now();
-        updateFile.setDeletedAt(readNow);
-        updateFile.setUpdatedAt(readNow);
-        updateFile(updateFile);
+        ResumeFileEntity readFile = getOwnFile(userId, fileId);
+        Long updateVersion = updateDeletedState(
+                userId, fileId, readFile.getVersion(), true);
+        recordStateChange(
+                userId,
+                fileId,
+                ChangeOperation.SOFT_DELETE,
+                readFile.getVersion(),
+                updateVersion,
+                false,
+                true,
+                "将文件移入回收站");
         log.info("用户 {} 将简历文件移入回收站: id={}", userId, fileId);
     }
 
     @Transactional
     @Override
     public void restore(Long userId, Long fileId) {
-        ResumeFileEntity updateFile = getUserFile(userId, fileId, true);
-        boolean readUpdated = lambdaUpdate()
-                .eq(ResumeFileEntity::getId, fileId)
-                .eq(ResumeFileEntity::getUserId, userId)
-                .eq(ResumeFileEntity::getVersion, updateFile.getVersion())
-                .isNotNull(ResumeFileEntity::getDeletedAt)
-                .set(ResumeFileEntity::getDeletedAt, null)
-                .set(ResumeFileEntity::getUpdatedAt, LocalDateTime.now())
-                .setSql("version = version + 1")
-                .update();
-        if (!readUpdated) {
+        ResumeFileEntity readFile = getUserFile(userId, fileId, true);
+        Long updateVersion = updateDeletedState(
+                userId, fileId, readFile.getVersion(), false);
+        recordStateChange(
+                userId,
+                fileId,
+                ChangeOperation.RESTORE,
+                readFile.getVersion(),
+                updateVersion,
+                true,
+                false,
+                "从回收站恢复文件");
+        log.info("用户 {} 恢复简历文件: id={}", userId, fileId);
+    }
+
+    @Transactional
+    @Override
+    public Long restoreSnapshot(
+            Long userId,
+            Long fileId,
+            Long expectedVersion,
+            boolean deleted) {
+        ResumeFileEntity readFile = getOwnFileIncludingDeleted(userId, fileId);
+        if (expectedVersion == null || !expectedVersion.equals(readFile.getVersion())) {
             throw ServiceException.of(ResultCode.CONFLICT, "文件已发生变化，请刷新后重试");
         }
-        log.info("用户 {} 恢复简历文件: id={}", userId, fileId);
+        boolean readDeleted = readFile.getDeletedAt() != null;
+        if (readDeleted == deleted) {
+            throw ServiceException.of(ResultCode.CONFLICT, "文件状态没有发生变化");
+        }
+        return updateDeletedState(userId, fileId, expectedVersion, deleted);
     }
 
     @Transactional
@@ -153,6 +182,11 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
         return getUserFile(userId, fileId, false);
     }
 
+    @Override
+    public ResumeFileEntity getOwnFileIncludingDeleted(Long userId, Long fileId) {
+        return getUserFile(userId, fileId, null);
+    }
+
     private ResumeFileEntity getUserFile(Long userId, Long fileId, Boolean requireDeleted) {
         LambdaQueryWrapper<ResumeFileEntity> readQuery = new LambdaQueryWrapper<ResumeFileEntity>()
                 .eq(ResumeFileEntity::getId, fileId)
@@ -169,10 +203,55 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
         return entity;
     }
 
-    private void updateFile(ResumeFileEntity updateFile) {
-        if (!updateById(updateFile)) {
+    private Long updateDeletedState(
+            Long userId,
+            Long fileId,
+            Long expectedVersion,
+            boolean deleted) {
+        var updateFile = lambdaUpdate()
+                .eq(ResumeFileEntity::getId, fileId)
+                .eq(ResumeFileEntity::getUserId, userId)
+                .eq(ResumeFileEntity::getVersion, expectedVersion);
+        if (deleted) {
+            updateFile.isNull(ResumeFileEntity::getDeletedAt)
+                    .set(ResumeFileEntity::getDeletedAt, LocalDateTime.now());
+        } else {
+            updateFile.isNotNull(ResumeFileEntity::getDeletedAt)
+                    .set(ResumeFileEntity::getDeletedAt, null);
+        }
+        boolean hasUpdated = updateFile
+                .set(ResumeFileEntity::getUpdatedAt, LocalDateTime.now())
+                .setSql("version = version + 1")
+                .update();
+        if (!hasUpdated) {
             throw ServiceException.of(ResultCode.CONFLICT, "文件已发生变化，请刷新后重试");
         }
+        return expectedVersion + 1;
+    }
+
+    private void recordStateChange(
+            Long userId,
+            Long fileId,
+            ChangeOperation operation,
+            Long expectedVersion,
+            Long appliedVersion,
+            boolean beforeDeleted,
+            boolean afterDeleted,
+            String reason) {
+        changeService.recordApplied(new UserChangeService.AppliedChange(
+                userId,
+                "FILE_UI",
+                ChangeResourceType.RESUME_FILE,
+                fileId.toString(),
+                operation,
+                List.of("deleted"),
+                expectedVersion,
+                appliedVersion,
+                true,
+                true,
+                Map.of("deleted", beforeDeleted),
+                Map.of("deleted", afterDeleted),
+                reason));
     }
 
     @Override

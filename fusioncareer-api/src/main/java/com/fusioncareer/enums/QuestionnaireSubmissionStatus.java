@@ -13,7 +13,8 @@ public enum QuestionnaireSubmissionStatus {
 
     DRAFT(0, "草稿"),
     SUBMITTED(1, "审核中"),
-    REVIEWED(2, "已投递");
+    REVIEWED(2, "已投递"),
+    WITHDRAWN(3, "已撤回");
 
     @EnumValue
     private final int code;

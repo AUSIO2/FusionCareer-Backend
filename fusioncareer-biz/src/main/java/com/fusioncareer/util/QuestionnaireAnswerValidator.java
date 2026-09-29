@@ -150,8 +150,13 @@ public class QuestionnaireAnswerValidator {
     }
 
     public Long readFileId(Object readValue) {
-        Object readFileId = readValue instanceof Map<?, ?> readFile
-                ? readFile.get("fileId") : readValue;
+        Object readFileId = readValue;
+        if (readValue instanceof Map<?, ?> readFile) {
+            if (readFile.size() != 1 || !readFile.containsKey("fileId")) {
+                throw invalidAnswer("文件答案无效");
+            }
+            readFileId = readFile.get("fileId");
+        }
         try {
             return Long.valueOf(String.valueOf(readFileId));
         } catch (RuntimeException readError) {

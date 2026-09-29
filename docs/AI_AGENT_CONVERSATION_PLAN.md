@@ -1,6 +1,6 @@
 # FusionCareer AI Agent 单会话、轻量记忆与可逆工具实施计划
 
-> 状态：实施中；PersonalSpace 前置能力、单 Session、纯文本 SSE、HMAC AgentContext、15 个只读 Tool，以及 Profile/Resume/Memory 三个可确认写提案 Tool 已落地
+> 状态：实施中；PersonalSpace 前置能力、单 Session、纯文本 SSE、HMAC AgentContext、15 个只读 Tool，以及 Profile/Resume/Memory/File/Questionnaire 六个可确认写提案 Tool 已落地
 >
 > 日期：2026-09-28
 >
@@ -129,7 +129,7 @@ sourceType, internalApply, keyword, page, size
 TEXT, TEXTAREA, RADIO, CHECKBOX, FILE_UPLOAD
 ```
 
-当前问卷校验只检查 JSON 可解析和必填非空，未完整校验未知 questionId、题型、选项、文本长度和附件归属。Agent 接入前必须在共享 `QuestionnaireAnswerValidator` 修正，使普通页面和 Agent 使用同一规则。
+共享 `QuestionnaireAnswerValidator` 已统一校验未知 questionId、重复题目、题型、选项、文本长度、必填项和附件归属；普通页面与 Agent Tool 复用同一入口。
 
 现有 Python `insert_user_profile` 和 `insert_resume` Skill 已列出全部 16/9 个字段，可复用字段清单；它们允许输入直接携带 userId，只适合受信 Workflow，不能直接暴露为对话 Tool。对话 Tool 必须改用本计划的 AgentContext 身份边界。
 
@@ -1712,7 +1712,7 @@ CHAT_PROVIDER_STREAM_TOOLS=true
 
 ### 阶段 6：可逆写 Tool
 
-当前进度：Profile、Resume、Memory 的强类型提案、Tool Call 幂等、`action_proposed` SSE、登录用户 confirm/reject 与永久 Revert 已落地，并由 `AI_CHAT_WRITE_ENABLED` 双端开关控制。文件、问卷、简历解析跨资源提案和前端确认卡仍待实现。
+当前进度：Profile、Resume、Memory、文件软删除、问卷草稿与问卷提交的强类型提案、Tool Call 幂等、`action_proposed` SSE、登录用户 confirm/reject 与永久 Revert 已落地，并由 `AI_CHAT_WRITE_ENABLED` 双端开关控制。已审核投递撤回使用 WITHDRAWN 且保留审核信息。简历解析跨资源提案和前端确认卡仍待实现。
 
 实现：
 

@@ -37,7 +37,8 @@ class BeanMappingTest {
                 "id", 7L, "username", "2026001", "realName", "姓名", "studentId", "2026001"), UserResponse.class));
         QuestionnaireAnswerResponse readResponse = BeanUtil.toBean(
                 Map.of("id", 42L, "userId", 7L), QuestionnaireAnswerResponse.class);
-        ReflectionTestUtils.invokeMethod(new QuestionnaireAnswerServiceImpl(readUsers, null, null, null, null),
+        ReflectionTestUtils.invokeMethod(new QuestionnaireAnswerServiceImpl(
+                        readUsers, null, null, null, null, null, null),
                 "enrichUser", readResponse, 7L);
         assertThat(readResponse.getId()).isEqualTo(42L);
         assertThat(readResponse.getUserId()).isEqualTo(7L);

@@ -38,7 +38,8 @@ public interface QuestionnaireAnswerMapper extends BaseMapper<QuestionnaireAnswe
             "SELECT COUNT(*) AS total,",
             "COALESCE(SUM(CASE WHEN submission_status = 0 THEN 1 ELSE 0 END), 0) AS draft,",
             "COALESCE(SUM(CASE WHEN submission_status IS NULL OR submission_status = 1 THEN 1 ELSE 0 END), 0) AS pending,",
-            "COALESCE(SUM(CASE WHEN submission_status = 2 THEN 1 ELSE 0 END), 0) AS done",
+            "COALESCE(SUM(CASE WHEN submission_status = 2 THEN 1 ELSE 0 END), 0) AS done,",
+            "COALESCE(SUM(CASE WHEN submission_status = 3 THEN 1 ELSE 0 END), 0) AS withdrawn",
             "FROM fc_questionnaire_answer",
             "WHERE user_id = #{readUserId}",
             "AND deleted_at IS NULL"

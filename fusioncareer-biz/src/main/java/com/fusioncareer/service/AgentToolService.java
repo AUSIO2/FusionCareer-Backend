@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
+import com.fusioncareer.dto.req.QuestionnaireSubmitRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.dto.res.PersonalSpaceDocumentsResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
@@ -62,7 +63,10 @@ public class AgentToolService {
             Map.entry("get_my_change", "history:read"),
             Map.entry("propose_profile_patch", "profile:propose"),
             Map.entry("propose_resume_patch", "resume:propose"),
-            Map.entry("propose_memory_patch", "memory:propose")
+            Map.entry("propose_memory_patch", "memory:propose"),
+            Map.entry("propose_file_delete", "file:propose"),
+            Map.entry("propose_questionnaire_draft", "questionnaire:propose"),
+            Map.entry("propose_questionnaire_submit", "questionnaire:propose")
     );
 
     private final AgentContextService contextService;
@@ -133,6 +137,14 @@ public class AgentToolService {
                     readContext, readToolName, readToolCallId, readArgs);
             case "propose_memory_patch" -> proposeMemory(
                     readContext, readToolName, readToolCallId, readArgs);
+            case "propose_file_delete" -> proposeFileDelete(
+                    readContext, readToolName, readToolCallId, readArgs);
+            case "propose_questionnaire_draft" -> proposeQuestionnaire(
+                    readContext, readToolName, readToolCallId, readArgs,
+                    QuestionnaireSubmissionStatus.DRAFT);
+            case "propose_questionnaire_submit" -> proposeQuestionnaire(
+                    readContext, readToolName, readToolCallId, readArgs,
+                    QuestionnaireSubmissionStatus.SUBMITTED);
             default -> throw ServiceException.of(ResultCode.NOT_FOUND, "Agent Tool 不存在");
         };
     }
@@ -343,6 +355,102 @@ public class AgentToolService {
                         readChange.afterExists(),
                         readChange.beforeFields(),
                         readChange.afterFields()));
+    }
+
+    private Object proposeFileDelete(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs) {
+        requireKeys(readArgs, Set.of("fileId", "reason"));
+        Long readFileId = readLong(readArgs, "fileId");
+        String readReason = readRequiredText(readArgs, "reason", 256);
+        var readFile = fileService.getOwnFile(readContext.userId(), readFileId);
+        return saveProposal(
+                readContext,
+                readToolName,
+                readToolCallId,
+                readArgs,
+                readReason,
+                new ProposalChange(
+                        ChangeResourceType.RESUME_FILE,
+                        readFileId.toString(),
+                        ChangeOperation.SOFT_DELETE,
+                        List.of("deleted"),
+                        readFile.getVersion(),
+                        true,
+                        true,
+                        Map.of("deleted", false),
+                        Map.of("deleted", true)));
+    }
+
+    private Object proposeQuestionnaire(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs,
+            QuestionnaireSubmissionStatus readTargetStatus) {
+        requireKeys(readArgs, Set.of("jobPostId", "answers", "reason"));
+        Long readJobPostId = readLong(readArgs, "jobPostId");
+        String readReason = readRequiredText(readArgs, "reason", 256);
+        QuestionnaireSubmitRequest createRequest = new QuestionnaireSubmitRequest();
+        createRequest.setJobPostId(readJobPostId);
+        createRequest.setAnswers(writeToolAnswers(readArgs.get("answers")));
+        QuestionnaireAnswerService.PreparedChange readChange = answerService.prepareProposal(
+                readContext.userId(), createRequest, readTargetStatus);
+        return saveProposal(
+                readContext,
+                readToolName,
+                readToolCallId,
+                readArgs,
+                readReason,
+                new ProposalChange(
+                        ChangeResourceType.QUESTIONNAIRE_ANSWER,
+                        readChange.resourceKey(),
+                        readChange.operation(),
+                        readChange.changedFields(),
+                        readChange.expectedVersion(),
+                        readChange.beforeExists(),
+                        readChange.afterExists(),
+                        readChange.beforeFields(),
+                        readChange.afterFields()));
+    }
+
+    private String writeToolAnswers(Object readRawAnswers) {
+        if (!(readRawAnswers instanceof List<?> readAnswers) || readAnswers.size() > 100) {
+            throw buildInvalid("answers 必须是最多 100 项的数组");
+        }
+        List<Map<String, Object>> writeAnswers = new ArrayList<>();
+        Set<Long> readQuestionIds = new LinkedHashSet<>();
+        for (Object readRawAnswer : readAnswers) {
+            if (!(readRawAnswer instanceof Map<?, ?> readAnswerMap)) {
+                throw buildInvalid("answers 中的每一项必须是对象");
+            }
+            Map<String, Object> readAnswer = new LinkedHashMap<>();
+            readAnswerMap.forEach((readKey, readValue) -> {
+                if (!(readKey instanceof String readName)) {
+                    throw buildInvalid("answers 字段名格式无效");
+                }
+                readAnswer.put(readName, readValue);
+            });
+            requireKeys(readAnswer, Set.of("questionId", "value"));
+            Long readQuestionId = readLong(readAnswer, "questionId");
+            if (!readQuestionIds.add(readQuestionId)) {
+                throw buildInvalid("answers 中存在重复题目: " + readQuestionId);
+            }
+            if (!readAnswer.containsKey("value")) {
+                throw buildInvalid("答案缺少 value: " + readQuestionId);
+            }
+            Map<String, Object> writeAnswer = new LinkedHashMap<>();
+            writeAnswer.put("questionId", readQuestionId);
+            writeAnswer.put("value", readAnswer.get("value"));
+            writeAnswers.add(writeAnswer);
+        }
+        try {
+            return objectMapper.writeValueAsString(writeAnswers);
+        } catch (JsonProcessingException readError) {
+            throw buildInvalid("answers 无法序列化");
+        }
     }
 
     private Object saveProposal(

@@ -39,7 +39,8 @@ public class AiStreamService {
             "file:read", "memory:read", "application:read", "job:search",
             "job:read", "questionnaire:read", "history:read");
     private static final List<String> WRITE_SCOPES = List.of(
-            "profile:propose", "resume:propose", "memory:propose");
+            "profile:propose", "resume:propose", "memory:propose", "file:propose",
+            "questionnaire:propose");
 
     @Value("${ai-chat.write-enabled:false}")
     private boolean writeEnabled;

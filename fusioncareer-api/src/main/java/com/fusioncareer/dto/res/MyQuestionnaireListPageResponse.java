@@ -14,6 +14,6 @@ public class MyQuestionnaireListPageResponse {
 
     private PageResult<MyQuestionnaireListItemResponse> page = new PageResult<>();
 
-    /** all / draft / pending / done */
+    /** all / draft / pending / done / withdrawn */
     private Map<String, Long> tabCounts = new LinkedHashMap<>();
 }

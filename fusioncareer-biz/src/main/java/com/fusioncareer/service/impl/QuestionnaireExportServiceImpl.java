@@ -126,7 +126,10 @@ public class QuestionnaireExportServiceImpl implements QuestionnaireExportServic
         LambdaQueryWrapper<QuestionnaireAnswerEntity> buildQuery =
                 new LambdaQueryWrapper<QuestionnaireAnswerEntity>()
                         .eq(QuestionnaireAnswerEntity::getJobPostId, readJobId)
-                        .ne(QuestionnaireAnswerEntity::getSubmissionStatus, QuestionnaireSubmissionStatus.DRAFT)
+                        .isNull(QuestionnaireAnswerEntity::getDeletedAt)
+                        .in(QuestionnaireAnswerEntity::getSubmissionStatus,
+                                QuestionnaireSubmissionStatus.SUBMITTED,
+                                QuestionnaireSubmissionStatus.REVIEWED)
                         .orderByAsc(QuestionnaireAnswerEntity::getCreatedAt);
         if (readAnswerIds != null && !readAnswerIds.isEmpty()) {
             buildQuery.in(QuestionnaireAnswerEntity::getId, readAnswerIds);
