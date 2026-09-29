@@ -1716,6 +1716,8 @@ CHAT_PROVIDER_STREAM_TOOLS=true
 
 运行时硬限制已落地：最多 3 次模型调用、4 次 Tool、1 个成功写提案、8KB Tool 结果、查询/写入/解析分级超时、120 秒总预算和进程内有界并发；业务错误转换为稳定安全码，Tool 失败通过 `tool_status=FAILED` 上报。
 
+长会话摘要已落地：上下文限制为最近 12 条/20K 字符，达到 10 个完整轮次或字符阈值后异步调用无 Tool 摘要接口，并按 `epoch + summaryThroughMessageId` CAS 写回；摘要失败不阻塞当前回答。
+
 实现：
 
 - 复用已完成的 `PersonalSpaceMutationService`；

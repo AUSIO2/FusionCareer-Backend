@@ -45,6 +45,12 @@ public class AiChatService {
 
     private static final int MAX_MESSAGE_LENGTH = 8_000;
     private static final int MAX_FILE_COUNT = 5;
+    private static final int MAX_CONTEXT_MESSAGES = 12;
+    private static final int MAX_CONTEXT_CHARS = 20_000;
+    private static final int SUMMARY_TRIGGER_MESSAGES = 20;
+    private static final int SUMMARY_KEEP_MESSAGES = 6;
+    private static final int MAX_SUMMARY_MESSAGES = 40;
+    private static final int MAX_SUMMARY_LENGTH = 2_000;
     private static final Duration RUN_LEASE = Duration.ofMinutes(2);
     private static final Pattern REQUEST_ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
@@ -103,16 +109,30 @@ public class AiChatService {
         if (readSession == null || !Objects.equals(readSession.getEpoch(), readEpoch)) {
             return new ChatContext("", List.of());
         }
-        List<AiMessageEntity> readMessages = messageMapper.selectList(
+        LambdaQueryWrapper<AiMessageEntity> readQuery =
                 new LambdaQueryWrapper<AiMessageEntity>()
                         .eq(AiMessageEntity::getUserId, readUserId)
                         .eq(AiMessageEntity::getEpoch, readEpoch)
                         .eq(AiMessageEntity::getStatus, AiMessageStatus.COMPLETED)
                         .lt(AiMessageEntity::getId, readBeforeId)
                         .orderByDesc(AiMessageEntity::getId)
-                        .last("LIMIT 12"));
-        Collections.reverse(readMessages);
-        List<ContextMessage> readHistory = readMessages.stream()
+                        .last("LIMIT " + MAX_CONTEXT_MESSAGES);
+        if (readSession.getSummaryThroughMessageId() != null) {
+            readQuery.gt(AiMessageEntity::getId, readSession.getSummaryThroughMessageId());
+        }
+        List<AiMessageEntity> readMessages = messageMapper.selectList(readQuery);
+        List<AiMessageEntity> readSelected = new ArrayList<>();
+        int readChars = 0;
+        for (AiMessageEntity readMessage : readMessages) {
+            int readLength = readMessage.getContent() == null ? 0 : readMessage.getContent().length();
+            if (!readSelected.isEmpty() && readChars + readLength > MAX_CONTEXT_CHARS) {
+                break;
+            }
+            readSelected.add(readMessage);
+            readChars += readLength;
+        }
+        Collections.reverse(readSelected);
+        List<ContextMessage> readHistory = readSelected.stream()
                 .map(readMessage -> new ContextMessage(
                         readMessage.getRole() == AiMessageRole.USER ? "user" : "assistant",
                         readMessage.getContent()))
@@ -120,6 +140,74 @@ public class AiChatService {
         return new ChatContext(
                 readSession.getSummary() == null ? "" : readSession.getSummary(),
                 readHistory);
+    }
+
+    @Transactional(readOnly = true)
+    public SummaryWork prepareSummary(Long readUserId, Long readEpoch) {
+        AiSessionEntity readSession = sessionMapper.selectById(readUserId);
+        if (readSession == null || !Objects.equals(readSession.getEpoch(), readEpoch)) {
+            return null;
+        }
+        LambdaQueryWrapper<AiMessageEntity> readQuery =
+                new LambdaQueryWrapper<AiMessageEntity>()
+                        .eq(AiMessageEntity::getUserId, readUserId)
+                        .eq(AiMessageEntity::getEpoch, readEpoch)
+                        .eq(AiMessageEntity::getStatus, AiMessageStatus.COMPLETED)
+                        .in(AiMessageEntity::getRole, AiMessageRole.USER, AiMessageRole.ASSISTANT)
+                        .orderByAsc(AiMessageEntity::getId)
+                        .last("LIMIT " + MAX_SUMMARY_MESSAGES);
+        if (readSession.getSummaryThroughMessageId() != null) {
+            readQuery.gt(AiMessageEntity::getId, readSession.getSummaryThroughMessageId());
+        }
+        List<AiMessageEntity> readMessages = messageMapper.selectList(readQuery).stream()
+                .filter(readMessage -> StringUtils.hasText(readMessage.getContent()))
+                .toList();
+        int readChars = readMessages.stream()
+                .mapToInt(readMessage -> readMessage.getContent().length())
+                .sum();
+        if (readMessages.size() < SUMMARY_TRIGGER_MESSAGES
+                && readChars <= MAX_CONTEXT_CHARS) {
+            return null;
+        }
+        int readKeep = Math.min(SUMMARY_KEEP_MESSAGES, Math.max(2, readMessages.size() / 3));
+        int readCutoff = Math.max(1, readMessages.size() - readKeep);
+        List<AiMessageEntity> readSummaryMessages = readMessages.subList(0, readCutoff);
+        AiMessageEntity readThrough = readSummaryMessages.get(readSummaryMessages.size() - 1);
+        List<ContextMessage> readContext = readSummaryMessages.stream()
+                .map(readMessage -> new ContextMessage(
+                        readMessage.getRole() == AiMessageRole.USER ? "user" : "assistant",
+                        readMessage.getContent()))
+                .toList();
+        return new SummaryWork(
+                readUserId,
+                readEpoch,
+                readSession.getSummaryThroughMessageId(),
+                readThrough.getId(),
+                readSession.getSummary() == null ? "" : readSession.getSummary(),
+                readContext);
+    }
+
+    @Transactional
+    public boolean updateSummary(SummaryWork readWork, String updateSummary) {
+        if (readWork == null || !StringUtils.hasText(updateSummary)) {
+            return false;
+        }
+        String readSummary = updateSummary.trim();
+        if (readSummary.length() > MAX_SUMMARY_LENGTH) {
+            readSummary = readSummary.substring(0, MAX_SUMMARY_LENGTH);
+        }
+        UpdateWrapper<AiSessionEntity> update = new UpdateWrapper<>();
+        update.eq("user_id", readWork.userId())
+                .eq("epoch", readWork.epoch())
+                .set("summary", readSummary)
+                .set("summary_through_message_id", readWork.throughMessageId())
+                .set("updated_at", LocalDateTime.now());
+        if (readWork.expectedThroughMessageId() == null) {
+            update.isNull("summary_through_message_id");
+        } else {
+            update.eq("summary_through_message_id", readWork.expectedThroughMessageId());
+        }
+        return sessionMapper.update(null, update) == 1;
     }
 
     @Transactional
@@ -548,5 +636,14 @@ public class AiChatService {
     }
 
     public record ContextMessage(String role, String content) {
+    }
+
+    public record SummaryWork(
+            Long userId,
+            Long epoch,
+            Long expectedThroughMessageId,
+            Long throughMessageId,
+            String previousSummary,
+            List<ContextMessage> messages) {
     }
 }

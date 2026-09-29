@@ -12,6 +12,11 @@ from app.main import app
 
 
 class FakeChatClient:
+    async def chat(self, user_message, **readOptions):
+        assert "messages" in user_message
+        assert readOptions["max_tokens"] == 700
+        return "用户正在寻找媒体实习"
+
     async def plan_tools(self, messages, tools, **readOptions):
         assert tools
         readContent = messages[-1].get("content")
@@ -257,3 +262,21 @@ def testConcurrencyLimit(client: TestClient, monkeypatch: pytest.MonkeyPatch):
 
     assert "event: error" in readResponse.text
     assert '"reason":"AI_RATE_LIMITED"' in readResponse.text
+
+
+def testSummarizeWithoutAgentContext(client: TestClient):
+    readResponse = client.post(
+        "/api/internal/chat/summarize",
+        headers={"X-Internal-Token": "internal-test"},
+        json={
+            "previousSummary": "",
+            "messages": [{"role": "user", "content": "我在找媒体实习"}],
+            "throughMessageId": "42",
+        },
+    )
+
+    assert readResponse.status_code == 200
+    assert readResponse.json() == {
+        "summary": "用户正在寻找媒体实习",
+        "throughMessageId": "42",
+    }

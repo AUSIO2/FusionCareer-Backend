@@ -70,7 +70,7 @@ POST /personal-space/assistant/session/clear
 DELETE /personal-space/assistant/session
 ```
 
-当前切片聚合真实现有数据；Profile、Resume 已支持字段级 SET/CLEAR PATCH，Memory 已实现 6 个白名单 key、4KB 上限与独立 CAS。canonical 写入在同一事务中记录不可变 APPLIED Action/Item，before/after 仅保存实际修改字段并使用 AES-256-GCM 加密。Profile、Resume、Memory、文件上传/软删除状态与问卷作答支持永久 Revert；显式上传形成 APPLIED CREATE Action，回退时保留 blob。简历解析使用一个 Action 的 Profile + Resume 两个 Item 原子确认和回退。Assistant 已具备单用户唯一 Session、SSE、HMAC AgentContext、15 个只读 Tool、7 个写提案 Tool及登录态脱敏确认卡 API。写 Tool 只产生幂等 PENDING Action，登录用户确认后才以 CAS 应用；可用 `AI_CHAT_WRITE_ENABLED` 双端关闭。前端页面接入仍在后续阶段。
+当前切片聚合真实现有数据；Profile、Resume 已支持字段级 SET/CLEAR PATCH，Memory 已实现 6 个白名单 key、4KB 上限与独立 CAS。canonical 写入在同一事务中记录不可变 APPLIED Action/Item，before/after 仅保存实际修改字段并使用 AES-256-GCM 加密。Profile、Resume、Memory、文件上传/软删除状态与问卷作答支持永久 Revert；显式上传形成 APPLIED CREATE Action，回退时保留 blob。简历解析使用一个 Action 的 Profile + Resume 两个 Item 原子确认和回退。Assistant 已具备单用户唯一 Session、SSE、有界上下文与异步摘要、HMAC AgentContext、15 个只读 Tool、7 个写提案 Tool及登录态脱敏确认卡 API。写 Tool 只产生幂等 PENDING Action，登录用户确认后才以 CAS 应用；可用 `AI_CHAT_WRITE_ENABLED` 双端关闭。前端页面接入仍在后续阶段。
 
 ## 1. 目标
 

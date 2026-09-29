@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.client.AgentStreamClient;
+import com.fusioncareer.client.AgentSummaryClient;
 import com.fusioncareer.dto.req.AiMessageRequest;
 import com.fusioncareer.dto.res.AiMessageResponse;
 import com.fusioncareer.dto.res.AiSessionResponse;
@@ -47,6 +48,7 @@ public class AiStreamService {
 
     private final AiChatService manageChat;
     private final AgentStreamClient streamClient;
+    private final AgentSummaryClient summaryClient;
     private final ResumeFileService readFiles;
     private final UserMemoryService readMemory;
     private final AgentContextService contextService;
@@ -282,6 +284,7 @@ public class AiStreamService {
                     readPromptTokens,
                     readCompletionTokens);
             if (hasCompleted) {
+                scheduleSummary(updateStream.userId(), updateStream.run().session().epoch());
                 Map<String, Object> sendDone = new LinkedHashMap<>();
                 sendDone.put("runId", updateStream.run().assistantMessage().runId());
                 sendDone.put("messageId", updateStream.run().assistantMessage().id());
@@ -359,6 +362,28 @@ public class AiStreamService {
         sendStart.put("userMessageId", readStream.run().userMessage().id());
         sendStart.put("assistantMessageId", readStream.run().assistantMessage().id());
         sendEvent(readStream.emitter(), "start", sendStart);
+    }
+
+    private void scheduleSummary(Long readUserId, Long readEpoch) {
+        AiChatService.SummaryWork readWork = manageChat.prepareSummary(readUserId, readEpoch);
+        if (readWork == null) {
+            return;
+        }
+        List<AgentSummaryClient.SummaryMessage> readMessages = readWork.messages().stream()
+                .map(readMessage -> new AgentSummaryClient.SummaryMessage(
+                        readMessage.role(), readMessage.content()))
+                .toList();
+        AgentSummaryClient.SummaryRequest readRequest = new AgentSummaryClient.SummaryRequest(
+                readWork.previousSummary(),
+                readMessages,
+                readWork.throughMessageId().toString());
+        summaryClient.summarize(readRequest).thenAccept(readResponse -> {
+            if (readResponse != null
+                    && readWork.throughMessageId().toString()
+                    .equals(readResponse.throughMessageId())) {
+                manageChat.updateSummary(readWork, readResponse.summary());
+            }
+        }).exceptionally(readError -> null);
     }
 
     private void sendSafeError(

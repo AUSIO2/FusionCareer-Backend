@@ -201,6 +201,42 @@ class AiChatTest {
     }
 
     @Test
+    void summarizeLongConversationWithCursorCas() {
+        AiChatService.RunStart createRun = manageChat.startRun(
+                createUser.getId(), new AiMessageRequest("summary-first", "第一条", List.of()));
+        manageChat.completeRun(
+                createUser.getId(), 1L, createRun.assistantMessage().runId(),
+                "第一条回答", "fake-model", "stop", null, null);
+        for (int readIndex = 0; readIndex < 18; readIndex++) {
+            AiMessageEntity createMessage = new AiMessageEntity();
+            createMessage.setUserId(createUser.getId());
+            createMessage.setEpoch(1L);
+            createMessage.setRunId("summary-run-" + readIndex);
+            createMessage.setRequestId("summary-request-" + readIndex);
+            createMessage.setRole(readIndex % 2 == 0
+                    ? com.fusioncareer.enums.AiMessageRole.USER
+                    : com.fusioncareer.enums.AiMessageRole.ASSISTANT);
+            createMessage.setStatus(AiMessageStatus.COMPLETED);
+            createMessage.setContent("摘要消息 " + readIndex);
+            createMessage.setAttachmentIds("[]");
+            readMessages.insert(createMessage);
+        }
+
+        AiChatService.SummaryWork readWork = manageChat.prepareSummary(createUser.getId(), 1L);
+        assertThat(readWork).isNotNull();
+        assertThat(readWork.messages()).hasSize(14);
+        assertThat(manageChat.updateSummary(readWork, "用户正在寻找媒体实习")).isTrue();
+        assertThat(manageChat.updateSummary(readWork, "不应覆盖")).isFalse();
+        assertThat(readSessions.selectById(createUser.getId()).getSummary())
+                .isEqualTo("用户正在寻找媒体实习");
+
+        AiChatService.ChatContext readContext = manageChat.readContext(
+                createUser.getId(), 1L, Long.MAX_VALUE);
+        assertThat(readContext.summary()).isEqualTo("用户正在寻找媒体实习");
+        assertThat(readContext.history()).hasSize(6);
+    }
+
+    @Test
     void resetKeepsMemory() throws Exception {
         AiChatService.RunStart createRun = manageChat.startRun(
                 createUser.getId(), new AiMessageRequest("request-reset", "重置", List.of()));

@@ -164,6 +164,8 @@ Profile、Resume 和 Memory 的 canonical 写入会与 `APPLIED` Action/Item 在
 
 AI Session 以 `userId` 为主键，同一用户最多一条记录，并在第一次发送消息时惰性创建。清空对话通过 `epoch + 1` 隔离旧消息和迟到的模型结果；重置会删除 Session 与聊天消息，但两者都保留 PersonalSpace Memory 和已应用变更历史。消息流通过 Java 登录态接口转发 Python AsyncOpenAI，依次产生 `start`、`delta`、`ping` 和一个 `done/error/cancelled` 终态；Java 必须先完成最终消息落库和租约释放，再发送 `done`。相同 `clientRequestId` 的已完成请求只重放 snapshot，不再次调用模型。
 
+模型上下文最多携带摘要后的最近 12 条、20K 字符消息。累计 20 条完整消息或超过字符预算时，Java 在回复落库后异步调用 `/api/internal/chat/summarize`；摘要端点没有 Tool 权限，写回使用 `epoch + summaryThroughMessageId` CAS，失败不影响当前 SSE。
+
 当前只读 Tool 包含：`get_my_space`、`get_my_account`、`get_my_profile`、`get_my_resume`、`list_my_files`、`get_my_file`、`get_my_file_quota`、`get_my_memory`、`list_my_applications`、`get_my_application`、`search_jobs`、`get_job`、`get_job_questionnaire`、`list_my_changes`、`get_my_change`。模型不可传入 userId；Python 只原样转发 Java 签发的 AgentContext，Java 在每次 Tool 调用时重新校验签名、过期时间、run、epoch、租约和 scope。
 
 `AI_CHAT_WRITE_ENABLED=true` 时开放 `propose_profile_patch`、`propose_resume_patch`、`propose_memory_patch`、`propose_file_delete`、`propose_questionnaire_draft`、`propose_questionnaire_submit` 和 `parse_resume_file`。前三者使用 `changes: [{field, operation, value?}]`；文件删除只接受当前用户未删除的 `fileId`；问卷 Tool 使用结构化 `{questionId,value}` 数组；简历解析只接受当前用户活动文件，并生成 Profile + Resume 多 Item Action。Java 从 AgentContext 确定用户和当前版本，并以 `runId + toolCallId` 派生幂等键。Tool 只保存加密的 `PENDING` Action；Python 会产生 `action_proposed` SSE 事件。确认和拒绝只能由登录用户调用 `/personal-space/actions/{id}/confirm|reject`，确认时再次执行版本 CAS，成功后该 Action 可随时 Revert。
