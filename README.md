@@ -112,6 +112,7 @@ FusionCareer-Backend/
 | POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行写入或回退提案 |
 | POST | `/personal-space/actions/{actionId}/reject` | 拒绝写入或回退提案 |
 | GET | `/personal-space/assistant/session` | 获取当前用户唯一 AI Session 状态 |
+| GET | `/personal-space/assistant/capabilities` | 获取灰度开关、Tool 清单与输入上限 |
 | GET | `/personal-space/assistant/messages` | 分页获取当前 epoch 消息 |
 | POST | `/personal-space/assistant/messages/stream` | 发送消息并获取 SSE 文本流 |
 | POST | `/personal-space/assistant/run/cancel` | 取消当前 AI 运行 |

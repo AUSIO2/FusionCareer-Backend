@@ -85,6 +85,22 @@ public class AgentToolService {
     private final ResumeParseService resumeParseService;
     private final ObjectMapper objectMapper;
 
+    public List<String> readToolNames() {
+        return TOOL_SCOPES.entrySet().stream()
+                .filter(readEntry -> !readEntry.getValue().endsWith(":propose"))
+                .map(Map.Entry::getKey)
+                .sorted()
+                .toList();
+    }
+
+    public List<String> writeToolNames() {
+        return TOOL_SCOPES.entrySet().stream()
+                .filter(readEntry -> readEntry.getValue().endsWith(":propose"))
+                .map(Map.Entry::getKey)
+                .sorted()
+                .toList();
+    }
+
     public Object executeTool(
             String readContextToken,
             String readToolName,

@@ -6,6 +6,9 @@ import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.AiMessageRequest;
 import com.fusioncareer.dto.res.AiMessagePageResponse;
 import com.fusioncareer.dto.res.AiSessionResponse;
+import com.fusioncareer.dto.res.AiAssistantCapabilitiesResponse;
+import com.fusioncareer.config.AgentContextProperties;
+import com.fusioncareer.service.AgentToolService;
 import com.fusioncareer.service.AiChatService;
 import com.fusioncareer.service.AiStreamService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.util.StringUtils;
 
 @SaCheckLogin
 @RestController
@@ -32,6 +37,22 @@ public class PersonalSpaceAssistantController {
 
     private final AiChatService manageChat;
     private final AiStreamService manageStream;
+    private final AgentToolService readTools;
+    private final AgentContextProperties contextProperties;
+
+    @Value("${ai-chat.write-enabled:false}")
+    private boolean writeEnabled;
+
+    @GetMapping("/capabilities")
+    @Operation(summary = "获取当前部署的 AI Assistant 能力")
+    public R<AiAssistantCapabilitiesResponse> readCapabilities() {
+        return R.success(new AiAssistantCapabilitiesResponse(
+                StringUtils.hasText(contextProperties.getSecret()),
+                writeEnabled,
+                readTools.readToolNames(),
+                writeEnabled ? readTools.writeToolNames() : java.util.List.of(),
+                new AiAssistantCapabilitiesResponse.Limits(8000, 5, 12, 20000)));
+    }
 
     @GetMapping("/session")
     @Operation(summary = "获取当前用户唯一 AI Session 状态")

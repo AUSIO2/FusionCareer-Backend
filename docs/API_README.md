@@ -166,6 +166,8 @@ Profile、Resume 和 Memory 的 canonical 写入会与 `APPLIED` Action/Item 在
 
 AI Session 以 `userId` 为主键，同一用户最多一条记录，并在第一次发送消息时惰性创建。清空对话通过 `epoch + 1` 隔离旧消息和迟到的模型结果；重置会删除 Session 与聊天消息，但两者都保留 PersonalSpace Memory 和已应用变更历史。消息流通过 Java 登录态接口转发 Python AsyncOpenAI，依次产生 `start`、`delta`、`ping` 和一个 `done/error/cancelled` 终态；Java 必须先完成最终消息落库和租约释放，再发送 `done`。相同 `clientRequestId` 的已完成请求只重放 snapshot，不再次调用模型。
 
+`GET /personal-space/assistant/capabilities` 是前端的权威能力来源，返回 AgentContext 是否已配置、写 Tool 灰度状态、当前只读/写入 Tool 名称以及消息、附件、历史和上下文上限。前端不得自行硬编码 `AI_CHAT_WRITE_ENABLED`。
+
 模型上下文最多携带摘要后的最近 12 条、20K 字符消息。累计 20 条完整消息或超过字符预算时，Java 在回复落库后异步调用 `/api/internal/chat/summarize`；摘要端点没有 Tool 权限，写回使用 `epoch + summaryThroughMessageId` CAS，失败不影响当前 SSE。
 
 后台任务每分钟回收 `lease_until` 已过期的运行：助手消息转为 `FAILED`、错误码为 `LEASE_EXPIRED`，对应未确认提案转为 `REJECTED/RUN_NOT_COMPLETED`，Session 重新允许发起新请求。

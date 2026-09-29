@@ -1722,6 +1722,8 @@ CHAT_PROVIDER_STREAM_TOOLS=true
 
 Revert 冲突解决已落地：默认三方比较遇到同字段后续修改仍返回 409；用户可显式选择冲突字段或资源存在性，生成 current→before 的新 PENDING Revert，确认后再 CAS 应用。历史回退能力不再因冲突永久中断。
 
+Assistant 能力发现接口已落地：登录用户可读取当前部署的 AgentContext 配置状态、读写 Tool 清单、写入灰度开关和客户端输入上限，前端无需硬编码环境能力。
+
 实现：
 
 - 复用已完成的 `PersonalSpaceMutationService`；
