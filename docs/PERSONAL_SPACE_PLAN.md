@@ -1,6 +1,6 @@
 # FusionCareer 个人空间实施计划
 
-> 状态：实施中；聚合查询、版本化 Mutation、轻量 Memory、AES-GCM History、单资源及 Profile + Resume 多资源 Git-like Revert、单 AI Session/纯文本 SSE/HMAC Tool、7 类 AI 写提案、Document 回收站、统一岗位可见性与问卷校验已落地
+> 状态：实施中；聚合查询、版本化 Mutation、轻量 Memory、AES-GCM History、单资源及 Profile + Resume 多资源 Git-like Revert、单 AI Session/纯文本 SSE/HMAC Tool、8 类 AI 写提案、Document 回收站、统一岗位可见性与问卷校验已落地
 >
 > 日期：2026-09-28
 >

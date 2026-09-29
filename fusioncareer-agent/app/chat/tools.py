@@ -334,6 +334,25 @@ WRITE_TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_file_restore",
+            "description": (
+                "仅当用户当前消息明确要求恢复自己的回收站文件时，创建待确认恢复提案。"
+                "不会直接改变文件状态。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fileId": {"type": "string", "pattern": "^[0-9]+$"},
+                    "reason": {"type": "string", "minLength": 1, "maxLength": 256},
+                },
+                "required": ["fileId", "reason"],
+                "additionalProperties": False,
+            },
+        },
+    },
     questionnaireTool(
         "propose_questionnaire_draft",
         "仅当用户当前消息明确要求保存指定岗位的问卷草稿时，创建待确认提案。"

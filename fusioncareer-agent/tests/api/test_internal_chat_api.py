@@ -134,6 +134,7 @@ def readHeaders() -> dict[str, str]:
 def testWriteToolRegistryIncludesReversibleFileDelete():
     readNames = {readTool["function"]["name"] for readTool in WRITE_TOOLS}
     assert "propose_file_delete" in readNames
+    assert "propose_file_restore" in readNames
     assert "propose_questionnaire_draft" in readNames
     assert "propose_questionnaire_submit" in readNames
     assert "parse_resume_file" in readNames

@@ -1,6 +1,6 @@
 # FusionCareer AI Agent 单会话、轻量记忆与可逆工具实施计划
 
-> 状态：实施中；PersonalSpace 前置能力、单 Session、纯文本 SSE、HMAC AgentContext、15 个只读 Tool，以及 7 个可确认写提案 Tool（含 Profile + Resume 跨资源简历解析）已落地
+> 状态：实施中；PersonalSpace 前置能力、单 Session、纯文本 SSE、HMAC AgentContext、15 个只读 Tool，以及 8 个可确认写提案 Tool（含文件恢复与 Profile + Resume 跨资源简历解析）已落地
 >
 > 日期：2026-09-28
 >

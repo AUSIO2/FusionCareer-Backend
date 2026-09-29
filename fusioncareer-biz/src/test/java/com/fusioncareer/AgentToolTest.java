@@ -419,6 +419,26 @@ class AgentToolTest {
             manageSpace.confirmAction(createUser.getId(), readReapply.id());
             assertThat(readFiles.getOwnFileIncludingDeleted(
                     createUser.getId(), createFile.getId()).getDeletedAt()).isNotNull();
+
+            Map<String, Object> readRestoreProposal = (Map<String, Object>) runTools.executeTool(
+                    createContext,
+                    "propose_file_restore",
+                    Map.of(
+                            "fileId", createFile.getId().toString(),
+                            "reason", "恢复误删的简历文件"),
+                    "call-file-restore-1");
+            Long readRestoreActionId = Long.valueOf(
+                    String.valueOf(readRestoreProposal.get("actionId")));
+            assertThat(readFiles.getOwnFileIncludingDeleted(
+                    createUser.getId(), createFile.getId()).getDeletedAt()).isNotNull();
+            manageSpace.confirmAction(createUser.getId(), readRestoreActionId);
+            assertThat(readFiles.getOwnFile(createUser.getId(), createFile.getId()).getDeletedAt())
+                    .isNull();
+            UserChangeActionResponse readUndoRestore = manageSpace.createRevert(
+                    createUser.getId(), readRestoreActionId);
+            manageSpace.confirmAction(createUser.getId(), readUndoRestore.id());
+            assertThat(readFiles.getOwnFileIncludingDeleted(
+                    createUser.getId(), createFile.getId()).getDeletedAt()).isNotNull();
         } finally {
             readFiles.purge(createUser.getId(), createFile.getId());
         }

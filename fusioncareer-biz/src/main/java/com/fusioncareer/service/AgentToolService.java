@@ -66,6 +66,7 @@ public class AgentToolService {
             Map.entry("propose_resume_patch", "resume:propose"),
             Map.entry("propose_memory_patch", "memory:propose"),
             Map.entry("propose_file_delete", "file:propose"),
+            Map.entry("propose_file_restore", "file:propose"),
             Map.entry("propose_questionnaire_draft", "questionnaire:propose"),
             Map.entry("propose_questionnaire_submit", "questionnaire:propose"),
             Map.entry("parse_resume_file", "resume:propose")
@@ -141,6 +142,8 @@ public class AgentToolService {
             case "propose_memory_patch" -> proposeMemory(
                     readContext, readToolName, readToolCallId, readArgs);
             case "propose_file_delete" -> proposeFileDelete(
+                    readContext, readToolName, readToolCallId, readArgs);
+            case "propose_file_restore" -> proposeFileRestore(
                     readContext, readToolName, readToolCallId, readArgs);
             case "propose_questionnaire_draft" -> proposeQuestionnaire(
                     readContext, readToolName, readToolCallId, readArgs,
@@ -387,6 +390,37 @@ public class AgentToolService {
                         false,
                         Map.of("deleted", false),
                         java.util.Collections.singletonMap("deleted", null)));
+    }
+
+    private Object proposeFileRestore(
+            AgentContextService.AgentContext readContext,
+            String readToolName,
+            String readToolCallId,
+            Map<String, Object> readArgs) {
+        requireKeys(readArgs, Set.of("fileId", "reason"));
+        Long readFileId = readLong(readArgs, "fileId");
+        String readReason = readRequiredText(readArgs, "reason", 256);
+        var readFile = fileService.getOwnFileIncludingDeleted(
+                readContext.userId(), readFileId);
+        if (readFile.getDeletedAt() == null) {
+            throw buildInvalid("文件当前不在回收站");
+        }
+        return saveProposal(
+                readContext,
+                readToolName,
+                readToolCallId,
+                readArgs,
+                readReason,
+                new ProposalChange(
+                        ChangeResourceType.RESUME_FILE,
+                        readFileId.toString(),
+                        ChangeOperation.RESTORE,
+                        List.of("deleted"),
+                        readFile.getVersion(),
+                        false,
+                        true,
+                        java.util.Collections.singletonMap("deleted", null),
+                        Map.of("deleted", false)));
     }
 
     private Object proposeQuestionnaire(
