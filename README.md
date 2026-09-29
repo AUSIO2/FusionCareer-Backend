@@ -108,6 +108,7 @@ FusionCareer-Backend/
 | GET | `/personal-space/actions/{actionId}` | 获取一条变更的安全详情 |
 | GET | `/personal-space/actions/{actionId}/confirmation` | 获取脱敏 before/after 确认卡 |
 | POST | `/personal-space/actions/{actionId}/revert` | 创建三方比较回退提案 |
+| POST | `/personal-space/actions/{actionId}/revert/resolve` | 显式选择冲突字段并创建回退提案 |
 | POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行写入或回退提案 |
 | POST | `/personal-space/actions/{actionId}/reject` | 拒绝写入或回退提案 |
 | GET | `/personal-space/assistant/session` | 获取当前用户唯一 AI Session 状态 |
@@ -126,6 +127,8 @@ Agent 运行时默认最多调用 4 个 Tool、查询 Tool 3 秒超时、整轮 
 单 Session 上下文固定最多 12 条、20K 字符。累计 10 个完整轮次或超过字符预算后，Java 异步调用无 Tool 摘要接口，并用 `epoch + summaryThroughMessageId` CAS 写回；摘要失败不阻塞当前回复，也不会把 Tool 结果写入长期摘要。
 
 Java 每分钟扫描过期运行租约：使用条件更新释放匹配的 `activeRunId`，将未完成助手消息标记为 `FAILED/LEASE_EXPIRED`，并拒绝该运行产生的未确认 Action。多实例同时扫描时只有一个实例能成功回收。
+
+普通 Revert 遇到后来修改过的同字段时返回冲突，绝不静默覆盖。用户可通过 `/revert/resolve` 明确选择要恢复的冲突字段或资源状态；系统再生成一张 current→before 的 PENDING 确认卡，因此历史操作不会因时间或后续编辑而永久失去回退能力。
 
 #### 个人资料 & 简历
 

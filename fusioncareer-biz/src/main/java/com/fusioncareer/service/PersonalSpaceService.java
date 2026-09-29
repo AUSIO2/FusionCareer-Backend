@@ -13,6 +13,7 @@ import com.fusioncareer.dto.res.UserMemoryResponse;
 import com.fusioncareer.dto.res.UserChangeActionPageResponse;
 import com.fusioncareer.dto.res.UserChangeActionResponse;
 import com.fusioncareer.dto.res.UserChangeConfirmationResponse;
+import com.fusioncareer.dto.req.UserChangeRevertResolveRequest;
 import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.dto.res.AiSessionResponse;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
@@ -201,6 +202,15 @@ public class PersonalSpaceService {
     public UserChangeActionResponse createRevert(Long userId, Long actionId) {
         requireAccount(userId);
         return manageReverts.createRevert(userId, actionId);
+    }
+
+    @Transactional
+    public UserChangeActionResponse createResolvedRevert(
+            Long userId,
+            Long actionId,
+            UserChangeRevertResolveRequest request) {
+        requireAccount(userId);
+        return manageReverts.createResolvedRevert(userId, actionId, request);
     }
 
     @Transactional

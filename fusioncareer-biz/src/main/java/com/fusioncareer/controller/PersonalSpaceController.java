@@ -5,6 +5,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.PersonalSpacePatchRequest;
 import com.fusioncareer.dto.req.UserMemoryUpdateRequest;
+import com.fusioncareer.dto.req.UserChangeRevertResolveRequest;
 import com.fusioncareer.dto.res.MyQuestionnaireListPageResponse;
 import com.fusioncareer.dto.res.PersonalSpaceDocumentsResponse;
 import com.fusioncareer.dto.res.PersonalSpaceResponse;
@@ -171,6 +172,15 @@ public class PersonalSpaceController {
     public R<UserChangeActionResponse> createRevert(@PathVariable Long actionId) {
         return R.success(manageSpace.createRevert(
                 StpUtil.getLoginIdAsLong(), actionId));
+    }
+
+    @PostMapping("/actions/{actionId}/revert/resolve")
+    @Operation(summary = "按用户选择的冲突字段创建回退提案")
+    public R<UserChangeActionResponse> createResolvedRevert(
+            @PathVariable Long actionId,
+            @Valid @RequestBody UserChangeRevertResolveRequest request) {
+        return R.success(manageSpace.createResolvedRevert(
+                StpUtil.getLoginIdAsLong(), actionId, request));
     }
 
     @PostMapping("/actions/{actionId}/confirm")

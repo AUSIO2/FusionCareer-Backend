@@ -720,6 +720,32 @@ class PersonalSpaceTest {
                         .header("Fusion-Token", createToken))
                 .andExpect(status().isConflict());
         assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("广告学");
+
+        readMvc.perform(post("/personal-space/actions/{actionId}/revert/resolve", readOriginal.getId())
+                        .header("Fusion-Token", createToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "selections": [{
+                                    "resourceType": "PROFILE",
+                                    "resourceKey": "%s",
+                                    "fields": ["major"],
+                                    "forceResourceState": false
+                                  }]
+                                }
+                                """.formatted(createUser.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("PENDING"));
+        UserChangeActionEntity readResolved = loadLatestAction();
+        readMvc.perform(get("/personal-space/actions/{actionId}/confirmation", readResolved.getId())
+                        .header("Fusion-Token", createToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.changes[0].beforeDisplay").value("广告学"))
+                .andExpect(jsonPath("$.data.changes[0].afterDisplay").value("未填写"));
+        readMvc.perform(post("/personal-space/actions/{actionId}/confirm", readResolved.getId())
+                        .header("Fusion-Token", createToken))
+                .andExpect(status().isOk());
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isNull();
     }
 
     private UserChangeActionEntity loadLatestAction() {

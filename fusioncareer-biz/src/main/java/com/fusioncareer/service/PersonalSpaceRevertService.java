@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fusioncareer.dto.res.UserChangeActionResponse;
+import com.fusioncareer.dto.req.UserChangeRevertResolveRequest;
 import com.fusioncareer.entity.ResumeEntity;
 import com.fusioncareer.entity.ResumeFileEntity;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
@@ -35,6 +36,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
  * Profile、Resume 与 Memory 的 Git-like 三方回退。
@@ -94,10 +97,89 @@ public class PersonalSpaceRevertService {
         return changeService.recordPendingRevert(readActionId, createChanges);
     }
 
+    @Transactional
+    public UserChangeActionResponse createResolvedRevert(
+            Long readUserId,
+            Long readActionId,
+            UserChangeRevertResolveRequest readRequest) {
+        UserChangeActionEntity readPending = actionMapper.selectOne(
+                new LambdaQueryWrapper<UserChangeActionEntity>()
+                        .eq(UserChangeActionEntity::getUserId, readUserId)
+                        .eq(UserChangeActionEntity::getRevertsActionId, readActionId)
+                        .eq(UserChangeActionEntity::getStatus, ChangeActionStatus.PENDING)
+                        .orderByDesc(UserChangeActionEntity::getId)
+                        .last("LIMIT 1"));
+        if (readPending != null) {
+            return changeService.readAction(readUserId, readPending.getId());
+        }
+        loadApplied(readUserId, readActionId);
+        List<UserChangeItemEntity> readItems = loadItems(readActionId, false);
+        Map<String, ResolutionSelection> readSelections = new LinkedHashMap<>();
+        for (UserChangeRevertResolveRequest.Selection readSelection : readRequest.selections()) {
+            String readKey = resourceSelectionKey(
+                    readSelection.resourceType(), readSelection.resourceKey());
+            ResolutionSelection createSelection = new ResolutionSelection(
+                    new HashSet<>(readSelection.fields() == null
+                            ? List.of() : readSelection.fields()),
+                    readSelection.forceResourceState());
+            if (readSelections.put(readKey, createSelection) != null) {
+                throw buildConflict("同一资源不能重复选择");
+            }
+        }
+
+        List<UserChangeService.AppliedChange> createChanges = new ArrayList<>();
+        Set<String> readMatchedSelections = new HashSet<>();
+        for (UserChangeItemEntity readItem : readItems) {
+            String readKey = resourceSelectionKey(
+                    readItem.getResourceType(), readItem.getResourceKey());
+            ResolutionSelection readSelection = readSelections.get(readKey);
+            if (readSelection != null) {
+                readMatchedSelections.add(readKey);
+                List<String> readChangedFields = parseFields(readItem.getChangedFields());
+                if (!readChangedFields.containsAll(readSelection.fields())) {
+                    throw buildConflict("选择中包含不属于原操作的字段");
+                }
+            }
+            UserChangeService.AppliedChange createChange = prepareRevertChange(
+                    readUserId, readActionId, readItem,
+                    readSelection == null ? ResolutionSelection.EMPTY : readSelection,
+                    true,
+                    "解决冲突并回退操作 " + readActionId);
+            if (createChange != null) {
+                createChanges.add(createChange);
+            }
+        }
+        if (readMatchedSelections.size() != readSelections.size()) {
+            throw buildConflict("选择中包含不属于原操作的资源");
+        }
+        if (createChanges.isEmpty()) {
+            throw buildConflict("没有选中需要恢复的冲突字段");
+        }
+        return changeService.recordPendingRevert(readActionId, createChanges);
+    }
+
+    private String resourceSelectionKey(
+            ChangeResourceType readResourceType,
+            String readResourceKey) {
+        return readResourceType + "|" + readResourceKey;
+    }
+
     private UserChangeService.AppliedChange prepareRevertChange(
             Long readUserId,
             Long readActionId,
             UserChangeItemEntity readItem) {
+        return prepareRevertChange(
+                readUserId, readActionId, readItem,
+                ResolutionSelection.EMPTY, false, "回退操作 " + readActionId);
+    }
+
+    private UserChangeService.AppliedChange prepareRevertChange(
+            Long readUserId,
+            Long readActionId,
+            UserChangeItemEntity readItem,
+            ResolutionSelection readSelection,
+            boolean resolveConflicts,
+            String readReason) {
         List<String> readFields = parseFields(readItem.getChangedFields());
         Snapshot readBefore = decryptSnapshot(readUserId, readActionId, readItem, "before");
         Snapshot readAfter = decryptSnapshot(readUserId, readActionId, readItem, "after");
@@ -107,31 +189,56 @@ public class PersonalSpaceRevertService {
         Map<String, Object> updateFields = new LinkedHashMap<>();
         if (readBefore.exists() != readAfter.exists()) {
             if (matchesState(readCurrent, readBefore, readFields)) {
+                if (resolveConflicts) {
+                    return null;
+                }
                 throw buildConflict("该操作已经回退，无需重复处理");
             }
             if (!matchesState(readCurrent, readAfter, readFields)) {
-                throw buildConflict("资源后来已发生变化，不能自动回退");
+                if (!resolveConflicts || !readSelection.forceResourceState()) {
+                    throw buildConflict("资源后来已发生变化，不能自动回退");
+                }
             }
             for (String readField : readFields) {
                 readCurrentFields.put(readField, readCurrent.fields().get(readField));
                 updateFields.put(readField, readBefore.fields().get(readField));
             }
         } else {
+            boolean readForceResource = readCurrent.exists() != readAfter.exists()
+                    && resolveConflicts && readSelection.forceResourceState();
             if (readCurrent.exists() != readAfter.exists()) {
-                throw buildConflict("资源状态已经变化，不能自动回退");
+                if (!resolveConflicts || !readSelection.forceResourceState()) {
+                    throw buildConflict("资源状态已经变化，不能自动回退");
+                }
             }
-            for (String readField : readFields) {
-                Object readValue = readCurrent.fields().get(readField);
-                Object readAfterValue = readAfter.fields().get(readField);
-                Object readBeforeValue = readBefore.fields().get(readField);
-                if (sameValue(readValue, readAfterValue)) {
-                    readCurrentFields.put(readField, readValue);
-                    updateFields.put(readField, readBeforeValue);
-                } else if (!sameValue(readValue, readBeforeValue)) {
-                    throw buildConflict("字段 " + readField + " 后来已被修改，不能自动回退");
+            if (readForceResource) {
+                for (String readField : readFields) {
+                    readCurrentFields.put(readField, readCurrent.fields().get(readField));
+                    updateFields.put(readField, readBefore.fields().get(readField));
+                }
+            } else {
+                for (String readField : readFields) {
+                    Object readValue = readCurrent.fields().get(readField);
+                    Object readAfterValue = readAfter.fields().get(readField);
+                    Object readBeforeValue = readBefore.fields().get(readField);
+                    if (sameValue(readValue, readAfterValue)) {
+                        readCurrentFields.put(readField, readValue);
+                        updateFields.put(readField, readBeforeValue);
+                    } else if (!sameValue(readValue, readBeforeValue)) {
+                        if (!resolveConflicts) {
+                            throw buildConflict("字段 " + readField + " 后来已被修改，不能自动回退");
+                        }
+                        if (readSelection.fields().contains(readField)) {
+                            readCurrentFields.put(readField, readValue);
+                            updateFields.put(readField, readBeforeValue);
+                        }
+                    }
                 }
             }
             if (updateFields.isEmpty()) {
+                if (resolveConflicts) {
+                    return null;
+                }
                 throw buildConflict("该操作已经回退，无需重复处理");
             }
         }
@@ -154,7 +261,7 @@ public class PersonalSpaceRevertService {
                 readBefore.exists(),
                 readCurrentFields,
                 updateFields,
-                "回退操作 " + readActionId);
+                readReason);
     }
 
     @Transactional
@@ -537,5 +644,13 @@ public class PersonalSpaceRevertService {
             UserChangeItemEntity item,
             ResourceState current,
             Snapshot after) {
+    }
+
+    private record ResolutionSelection(
+            Set<String> fields,
+            boolean forceResourceState) {
+
+        private static final ResolutionSelection EMPTY =
+                new ResolutionSelection(Set.of(), false);
     }
 }
