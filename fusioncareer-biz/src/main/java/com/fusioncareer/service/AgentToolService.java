@@ -384,9 +384,9 @@ public class AgentToolService {
                         List.of("deleted"),
                         readFile.getVersion(),
                         true,
-                        true,
+                        false,
                         Map.of("deleted", false),
-                        Map.of("deleted", true)));
+                        java.util.Collections.singletonMap("deleted", null)));
     }
 
     private Object proposeQuestionnaire(

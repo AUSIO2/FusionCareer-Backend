@@ -290,16 +290,19 @@ public class PersonalSpaceRevertService {
                     updateUserId, readVersion, updateExists, updateFields);
         }
         if (readResourceType == ChangeResourceType.RESUME_FILE) {
-            if (!updateExists
-                    || updateFields.size() != 1
-                    || !(updateFields.get("deleted") instanceof Boolean updateDeleted)) {
+            if (updateFields.size() != 1 || !updateFields.containsKey("deleted")) {
+                throw buildConflict("文件变更快照格式错误");
+            }
+            Object readDeleted = updateFields.get("deleted");
+            if ((updateExists && !Boolean.FALSE.equals(readDeleted))
+                    || (!updateExists && readDeleted != null)) {
                 throw buildConflict("文件变更快照格式错误");
             }
             return fileService.restoreSnapshot(
                     updateUserId,
                     parseResourceId(readResourceKey),
                     readVersion,
-                    updateDeleted);
+                    !updateExists);
         }
         if (readResourceType == ChangeResourceType.QUESTIONNAIRE_ANSWER) {
             return answerService.restoreSnapshot(
@@ -399,10 +402,13 @@ public class PersonalSpaceRevertService {
             }
             ResumeFileEntity readFile = fileService.getOwnFileIncludingDeleted(
                     readUserId, parseResourceId(readResourceKey));
+            boolean readExists = readFile.getDeletedAt() == null;
+            Map<String, Object> readValues = new LinkedHashMap<>();
+            readValues.put("deleted", readExists ? false : null);
             return new ResourceState(
-                    true,
+                    readExists,
                     readFile.getVersion(),
-                    Map.of("deleted", readFile.getDeletedAt() != null));
+                    readValues);
         }
         if (readResourceType == ChangeResourceType.QUESTIONNAIRE_ANSWER) {
             QuestionnaireAnswerEntity readAnswer = answerService.getOwnAnswerIncludingDeleted(
@@ -502,8 +508,7 @@ public class PersonalSpaceRevertService {
             boolean updateExists,
             Map<String, Object> updateFields) {
         if (readResourceType == ChangeResourceType.RESUME_FILE) {
-            return Boolean.TRUE.equals(updateFields.get("deleted"))
-                    ? ChangeOperation.SOFT_DELETE : ChangeOperation.RESTORE;
+            return updateExists ? ChangeOperation.RESTORE : ChangeOperation.SOFT_DELETE;
         }
         if (!readExists && updateExists) {
             return ChangeOperation.CREATE;

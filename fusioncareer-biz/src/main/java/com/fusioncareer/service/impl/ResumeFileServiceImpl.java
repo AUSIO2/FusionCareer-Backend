@@ -76,6 +76,7 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
         entity.setCreatedAt(createNow);
         entity.setUpdatedAt(createNow);
         save(entity);
+        recordFileCreation(userId, entity);
 
         log.info("用户 {} 上传简历文件: {}, size={}KB", userId, file.getOriginalFilename(), file.getSize() / 1024);
         return toResponse(entity);
@@ -114,8 +115,10 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
                 ChangeOperation.SOFT_DELETE,
                 readFile.getVersion(),
                 updateVersion,
-                false,
                 true,
+                false,
+                false,
+                null,
                 "将文件移入回收站");
         log.info("用户 {} 将简历文件移入回收站: id={}", userId, fileId);
     }
@@ -132,7 +135,9 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
                 ChangeOperation.RESTORE,
                 readFile.getVersion(),
                 updateVersion,
+                false,
                 true,
+                null,
                 false,
                 "从回收站恢复文件");
         log.info("用户 {} 恢复简历文件: id={}", userId, fileId);
@@ -235,9 +240,15 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
             ChangeOperation operation,
             Long expectedVersion,
             Long appliedVersion,
-            boolean beforeDeleted,
-            boolean afterDeleted,
+            boolean beforeExists,
+            boolean afterExists,
+            Boolean beforeDeleted,
+            Boolean afterDeleted,
             String reason) {
+        Map<String, Object> readBefore = new java.util.LinkedHashMap<>();
+        readBefore.put("deleted", beforeDeleted);
+        Map<String, Object> readAfter = new java.util.LinkedHashMap<>();
+        readAfter.put("deleted", afterDeleted);
         changeService.recordApplied(new UserChangeService.AppliedChange(
                 userId,
                 "FILE_UI",
@@ -247,11 +258,25 @@ public class ResumeFileServiceImpl extends ServiceImpl<ResumeFileMapper, ResumeF
                 List.of("deleted"),
                 expectedVersion,
                 appliedVersion,
-                true,
-                true,
-                Map.of("deleted", beforeDeleted),
-                Map.of("deleted", afterDeleted),
+                beforeExists,
+                afterExists,
+                readBefore,
+                readAfter,
                 reason));
+    }
+
+    private void recordFileCreation(Long userId, ResumeFileEntity readFile) {
+        recordStateChange(
+                userId,
+                readFile.getId(),
+                ChangeOperation.CREATE,
+                null,
+                readFile.getVersion(),
+                false,
+                true,
+                null,
+                false,
+                "上传文件 " + readFile.getOriginalName());
     }
 
     @Override

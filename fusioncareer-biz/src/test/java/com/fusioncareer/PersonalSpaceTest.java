@@ -479,14 +479,17 @@ class PersonalSpaceTest {
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<UserChangeActionEntity>()
                         .eq(UserChangeActionEntity::getUserId, createUser.getId())
                         .orderByDesc(UserChangeActionEntity::getId));
-        assertThat(loadActions).hasSize(2);
+        assertThat(loadActions).hasSize(3);
         List<UserChangeItemEntity> loadItems = readChangeItems.selectList(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<UserChangeItemEntity>()
                         .in(UserChangeItemEntity::getActionId,
                                 loadActions.stream().map(UserChangeActionEntity::getId).toList()));
-        assertThat(loadItems).hasSize(2)
+        assertThat(loadItems).hasSize(3)
                 .extracting(UserChangeItemEntity::getResourceType)
-                .containsExactlyInAnyOrder(ChangeResourceType.PROFILE, ChangeResourceType.MEMORY);
+                .containsExactlyInAnyOrder(
+                        ChangeResourceType.PROFILE,
+                        ChangeResourceType.MEMORY,
+                        ChangeResourceType.RESUME_FILE);
 
         UserChangeItemEntity readProfileChange = loadItems.stream()
                 .filter(readItem -> readItem.getResourceType() == ChangeResourceType.PROFILE)
@@ -724,7 +727,37 @@ class PersonalSpaceTest {
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<UserChangeActionEntity>()
                         .eq(UserChangeActionEntity::getUserId, createUser.getId())
                         .orderByDesc(UserChangeActionEntity::getId)
-                        .last("LIMIT 1"));
+                .last("LIMIT 1"));
+    }
+
+    @Test
+    void revertUploadedDocumentCreation() throws Exception {
+        UserChangeItemEntity readCreateItem = readChangeItems.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<UserChangeItemEntity>()
+                        .eq(UserChangeItemEntity::getResourceType, ChangeResourceType.RESUME_FILE)
+                        .eq(UserChangeItemEntity::getResourceKey, createFile.getId().toString())
+                        .eq(UserChangeItemEntity::getOperation, ChangeOperation.CREATE));
+        assertThat(readCreateItem).isNotNull();
+
+        readMvc.perform(post("/personal-space/actions/{actionId}/revert",
+                        readCreateItem.getActionId()).header("Fusion-Token", createToken))
+                .andExpect(status().isOk());
+        UserChangeActionEntity readDelete = loadLatestAction();
+        readMvc.perform(post("/personal-space/actions/{actionId}/confirm", readDelete.getId())
+                        .header("Fusion-Token", createToken))
+                .andExpect(status().isOk());
+        assertThat(readFiles.getOwnFileIncludingDeleted(
+                createUser.getId(), createFile.getId()).getDeletedAt()).isNotNull();
+
+        readMvc.perform(post("/personal-space/actions/{actionId}/revert", readDelete.getId())
+                        .header("Fusion-Token", createToken))
+                .andExpect(status().isOk());
+        UserChangeActionEntity readRestore = loadLatestAction();
+        readMvc.perform(post("/personal-space/actions/{actionId}/confirm", readRestore.getId())
+                        .header("Fusion-Token", createToken))
+                .andExpect(status().isOk());
+        assertThat(readFiles.getOwnFile(createUser.getId(), createFile.getId()).getDeletedAt())
+                .isNull();
     }
 
     @Test
