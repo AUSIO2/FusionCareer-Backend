@@ -507,6 +507,19 @@ class PersonalSpaceTest {
                 readAad).toString())
                 .contains("新闻传播学");
 
+        readMvc.perform(get("/personal-space/actions/{actionId}/confirmation",
+                        readProfileChange.getActionId())
+                        .header("Fusion-Token", createToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.requiresConfirmation").value(false))
+                .andExpect(jsonPath("$.data.changes[?(@.field == 'major')].afterDisplay")
+                        .value(org.hamcrest.Matchers.hasItem("新闻传播学")))
+                .andExpect(jsonPath("$.data.changes[?(@.field == 'phone')].beforeMasked")
+                        .value(org.hamcrest.Matchers.hasItem(true)))
+                .andExpect(jsonPath("$.data.changes[?(@.field == 'phone')].beforeDisplay")
+                        .value(org.hamcrest.Matchers.hasItem("••••0000")))
+                .andExpect(jsonPath("$.data.changes[0].beforeCiphertext").doesNotExist());
+
         readMvc.perform(get("/personal-space/actions")
                         .header("Fusion-Token", createToken)
                         .param("size", "1"))
@@ -529,6 +542,10 @@ class PersonalSpaceTest {
         String createOtherToken = StpUtil.getStpLogic().createLoginSession(createOther.getId());
         try {
             readMvc.perform(get("/personal-space/actions/{actionId}", readActionId)
+                            .header("Fusion-Token", createOtherToken))
+                    .andExpect(status().isNotFound());
+            readMvc.perform(get("/personal-space/actions/{actionId}/confirmation",
+                            readProfileChange.getActionId())
                             .header("Fusion-Token", createOtherToken))
                     .andExpect(status().isNotFound());
         } finally {

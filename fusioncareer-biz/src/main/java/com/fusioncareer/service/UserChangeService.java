@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fusioncareer.dto.res.UserChangeConfirmationResponse;
 import com.fusioncareer.dto.res.UserChangeActionPageResponse;
 import com.fusioncareer.dto.res.UserChangeActionResponse;
 import com.fusioncareer.entity.UserChangeActionEntity;
@@ -21,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -28,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -38,6 +42,49 @@ import java.util.stream.Collectors;
 public class UserChangeService {
 
     private static final short SCHEMA_VERSION = 1;
+    private static final int DISPLAY_LIMIT = 240;
+    private static final Set<String> SENSITIVE_PROFILE_FIELDS = Set.of(
+            "birthDate", "politicalStatus", "phone", "email", "wechat");
+    private static final Map<String, String> FIELD_LABELS = Map.ofEntries(
+            Map.entry("realName", "姓名"),
+            Map.entry("gender", "性别"),
+            Map.entry("birthDate", "出生日期"),
+            Map.entry("politicalStatus", "政治面貌"),
+            Map.entry("phone", "手机号"),
+            Map.entry("email", "邮箱"),
+            Map.entry("wechat", "微信"),
+            Map.entry("hometown", "生源地"),
+            Map.entry("grade", "年级"),
+            Map.entry("major", "专业"),
+            Map.entry("eduLevel", "学历"),
+            Map.entry("supervisor", "导师"),
+            Map.entry("intentionOrder", "求职优先级"),
+            Map.entry("intentionCity", "意向城市"),
+            Map.entry("intentionDream", "职业目标"),
+            Map.entry("mindset", "求职心态"),
+            Map.entry("personalIntro", "个人简介"),
+            Map.entry("basicInfo", "基本信息"),
+            Map.entry("education", "教育经历"),
+            Map.entry("internship", "实习经历"),
+            Map.entry("campus", "校园经历"),
+            Map.entry("awards", "获奖经历"),
+            Map.entry("skills", "技能"),
+            Map.entry("portfolio", "作品集"),
+            Map.entry("remark", "备注"),
+            Map.entry("deleted", "文件状态"),
+            Map.entry("answers", "问卷答案"),
+            Map.entry("submissionStatus", "投递状态"),
+            Map.entry("reviewedAt", "审核时间"),
+            Map.entry("reviewedBy", "审核人"),
+            Map.entry("reviewPassed", "审核结果"),
+            Map.entry("reviewComments", "审核意见"),
+            Map.entry("responseStyle", "回答风格"),
+            Map.entry("currentGoal", "当前目标"),
+            Map.entry("targetCities", "目标城市"),
+            Map.entry("targetIndustries", "目标行业"),
+            Map.entry("preferredWorkModes", "工作方式偏好"),
+            Map.entry("temporaryConstraints", "临时约束")
+    );
 
     private final UserChangeActionMapper actionMapper;
     private final UserChangeItemMapper itemMapper;
@@ -302,6 +349,164 @@ public class UserChangeService {
         return buildResponse(readAction, readItems);
     }
 
+    @Transactional(readOnly = true)
+    public UserChangeConfirmationResponse readConfirmation(
+            Long readUserId,
+            Long readActionId) {
+        UserChangeActionEntity readAction = actionMapper.selectOne(
+                new LambdaQueryWrapper<UserChangeActionEntity>()
+                        .eq(UserChangeActionEntity::getId, readActionId)
+                        .eq(UserChangeActionEntity::getUserId, readUserId));
+        if (readAction == null) {
+            throw ServiceException.of(ResultCode.NOT_FOUND, "变更记录不存在");
+        }
+        List<UserChangeItemEntity> readItems = itemMapper.selectList(
+                new LambdaQueryWrapper<UserChangeItemEntity>()
+                        .eq(UserChangeItemEntity::getActionId, readActionId)
+                        .orderByAsc(UserChangeItemEntity::getItemOrder));
+        List<UserChangeConfirmationResponse.Change> readChanges = new ArrayList<>();
+        for (UserChangeItemEntity readItem : readItems) {
+            DisplaySnapshot readBefore = decryptDisplaySnapshot(
+                    readUserId, readActionId, readItem, "before");
+            DisplaySnapshot readAfter = decryptDisplaySnapshot(
+                    readUserId, readActionId, readItem, "after");
+            for (String readField : parseFields(readItem.getChangedFields())) {
+                boolean readMasked = readItem.getResourceType() == ChangeResourceType.PROFILE
+                        && SENSITIVE_PROFILE_FIELDS.contains(readField)
+                        && readBefore.exists()
+                        && readBefore.fields().get(readField) != null;
+                readChanges.add(new UserChangeConfirmationResponse.Change(
+                        readItem.getResourceType(),
+                        readItem.getResourceKey(),
+                        readField,
+                        FIELD_LABELS.getOrDefault(readField, readField),
+                        displayValue(
+                                readField, readBefore.exists(),
+                                readBefore.fields().get(readField), readMasked),
+                        displayValue(
+                                readField, readAfter.exists(),
+                                readAfter.fields().get(readField), false),
+                        readMasked));
+            }
+        }
+        String readTitle = StringUtils.hasText(readAction.getReason())
+                ? readAction.getReason()
+                : readAction.getActionType() == ChangeActionType.REVERT
+                ? "回退个人空间变更" : "修改个人空间";
+        return new UserChangeConfirmationResponse(
+                readAction.getId(),
+                readAction.getActionType(),
+                readAction.getStatus(),
+                readTitle,
+                readAction.getReason(),
+                readAction.getStatus() == ChangeActionStatus.PENDING,
+                List.copyOf(readChanges));
+    }
+
+    private DisplaySnapshot decryptDisplaySnapshot(
+            Long readUserId,
+            Long readActionId,
+            UserChangeItemEntity readItem,
+            String readSide) {
+        byte[] readCiphertext = "before".equals(readSide)
+                ? readItem.getBeforeCiphertext() : readItem.getAfterCiphertext();
+        String readAad = buildAad(
+                readUserId, readActionId, readItem.getResourceType(),
+                readItem.getResourceKey(), readSide);
+        Map<String, Object> readSnapshot = snapshotCipher.decryptSnapshot(
+                readCiphertext, readItem.getKeyVersion(), readAad);
+        Object readFields = readSnapshot.get("fields");
+        if (!(readFields instanceof Map<?, ?> readFieldMap)) {
+            throw buildFailure();
+        }
+        Map<String, Object> readValues = new LinkedHashMap<>();
+        readFieldMap.forEach((readKey, readValue) ->
+                readValues.put(String.valueOf(readKey), readValue));
+        return new DisplaySnapshot(
+                Boolean.TRUE.equals(readSnapshot.get("exists")), readValues);
+    }
+
+    private String displayValue(
+            String readField,
+            boolean readExists,
+            Object readValue,
+            boolean readMask) {
+        if (!readExists) {
+            return "不存在";
+        }
+        if (readValue == null) {
+            return "未填写";
+        }
+        Object readDisplayValue = readValue;
+        if (readValue instanceof Map<?, ?> readMap && readMap.containsKey("value")) {
+            readDisplayValue = readMap.get("value");
+        }
+        String readDisplay;
+        if ("deleted".equals(readField) && readDisplayValue instanceof Boolean readDeleted) {
+            readDisplay = readDeleted ? "在回收站" : "可用";
+        } else if ("answers".equals(readField)) {
+            readDisplay = answerSummary(readDisplayValue);
+        } else if ("intentionCity".equals(readField)) {
+            readDisplay = citySummary(readDisplayValue);
+        } else if (readDisplayValue instanceof List<?> readList) {
+            readDisplay = readList.stream().map(String::valueOf)
+                    .collect(Collectors.joining("、"));
+        } else {
+            readDisplay = String.valueOf(readDisplayValue);
+        }
+        if (readMask) {
+            return maskValue(readField, readDisplay);
+        }
+        return truncateDisplay(readDisplay);
+    }
+
+    private String answerSummary(Object readValue) {
+        try {
+            JsonNode readAnswers = objectMapper.readTree(String.valueOf(readValue));
+            return readAnswers.isArray() ? readAnswers.size() + " 项回答" : "问卷答案已更新";
+        } catch (JsonProcessingException readError) {
+            return "问卷答案已更新";
+        }
+    }
+
+    private String citySummary(Object readValue) {
+        if (readValue instanceof List<?> readCities) {
+            return readCities.stream().map(String::valueOf)
+                    .collect(Collectors.joining("、"));
+        }
+        try {
+            JsonNode readCities = objectMapper.readTree(String.valueOf(readValue));
+            if (readCities.isArray()) {
+                List<String> readValues = new ArrayList<>();
+                readCities.forEach(readCity -> readValues.add(readCity.asText()));
+                return String.join("、", readValues);
+            }
+        } catch (JsonProcessingException ignored) {
+            // 兼容旧的单字符串城市。
+        }
+        return String.valueOf(readValue);
+    }
+
+    private String maskValue(String readField, String readValue) {
+        if ("phone".equals(readField) && readValue.length() >= 4) {
+            return "••••" + readValue.substring(readValue.length() - 4);
+        }
+        if ("email".equals(readField)) {
+            int readAt = readValue.indexOf('@');
+            if (readAt > 0) {
+                return readValue.substring(0, 1) + "•••" + readValue.substring(readAt);
+            }
+        }
+        return "••••";
+    }
+
+    private String truncateDisplay(String readValue) {
+        if (readValue.length() <= DISPLAY_LIMIT) {
+            return readValue;
+        }
+        return readValue.substring(0, DISPLAY_LIMIT) + "…";
+    }
+
     public String buildAad(
             Long readUserId,
             Long readActionId,
@@ -402,5 +607,10 @@ public class UserChangeService {
             Map<String, Object> beforeFields,
             Map<String, Object> afterFields,
             String reason) {
+    }
+
+    private record DisplaySnapshot(
+            boolean exists,
+            Map<String, Object> fields) {
     }
 }

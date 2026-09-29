@@ -156,6 +156,8 @@ PUT 请求体：
 
 Profile、Resume 和 Memory 的 canonical 写入会与 `APPLIED` Action/Item 在同一事务中提交。历史查询只返回操作来源、资源、字段名和版本，不返回 before/after 或密文。实际变更字段的快照使用 AES-256-GCM 加密，并以用户、Action、资源和快照方向作为认证附加数据；密文被修改或移动到其他资源后无法通过认证。
 
+`GET /personal-space/actions/{actionId}/confirmation` 返回当前登录用户专用的确认卡，只包含字段中文名和安全展示文本。手机号、邮箱等敏感旧值默认脱敏，问卷答案只显示回答数量，长简历正文会截断；接口永不返回原始快照、密文或存储路径。其他用户请求同一 actionId 返回 404。
+
 回退没有时间窗口。`revert` 会使用原 Action 的 before/after 与当前资源逐字段比较：当前值仍等于 after 时生成反向修改，已经等于 before 的字段视为无操作，其他值返回 HTTP 409。`confirm` 再次执行版本 CAS 后应用修改；原 Action 永远保持 `APPLIED`，新 Revert Action 也可再次 Revert。当前自动回退范围包含 Profile、Resume、Memory、文件软删除状态、问卷作答及 Profile + Resume 多资源 Action；多资源确认或 Revert 任一项冲突时整体回滚。已审核投递的撤回生成 `WITHDRAWN` 并保留审核元数据。
 
 AI Session 以 `userId` 为主键，同一用户最多一条记录，并在第一次发送消息时惰性创建。清空对话通过 `epoch + 1` 隔离旧消息和迟到的模型结果；重置会删除 Session 与聊天消息，但两者都保留 PersonalSpace Memory 和已应用变更历史。消息流通过 Java 登录态接口转发 Python AsyncOpenAI，依次产生 `start`、`delta`、`ping` 和一个 `done/error/cancelled` 终态；Java 必须先完成最终消息落库和租约释放，再发送 `done`。相同 `clientRequestId` 的已完成请求只重放 snapshot，不再次调用模型。

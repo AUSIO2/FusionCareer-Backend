@@ -111,6 +111,7 @@ class AgentToolTest {
         UserProfileRequest createProfile = new UserProfileRequest();
         createProfile.setRealName("工具用户");
         createProfile.setMajor("新闻学");
+        createProfile.setPhone("13800000000");
         readProfiles.saveOrUpdateProfile(createUser.getId(), createProfile);
         ResumeRequest createResume = new ResumeRequest();
         createResume.setSkills("Java");
@@ -256,6 +257,23 @@ class AgentToolTest {
         assertThat(readProposal)
                 .containsEntry("status", ChangeActionStatus.PENDING)
                 .containsEntry("requiresConfirmation", true);
+        var readConfirmation = manageSpace.readConfirmation(createUser.getId(), readActionId);
+        assertThat(readConfirmation.requiresConfirmation()).isTrue();
+        assertThat(readConfirmation.changes())
+                .filteredOn(readChange -> "major".equals(readChange.field()))
+                .singleElement().satisfies(readChange -> {
+                    assertThat(readChange.beforeDisplay()).isEqualTo("新闻学");
+                    assertThat(readChange.afterDisplay()).isEqualTo("人工智能");
+                    assertThat(readChange.beforeMasked()).isFalse();
+                });
+        assertThat(readConfirmation.changes())
+                .filteredOn(readChange -> "phone".equals(readChange.field()))
+                .singleElement().satisfies(readChange -> {
+                    assertThat(readChange.beforeDisplay()).endsWith("0000");
+                    assertThat(readChange.beforeDisplay()).doesNotContain("13800000000");
+                    assertThat(readChange.afterDisplay()).isEqualTo("13800138000");
+                    assertThat(readChange.beforeMasked()).isTrue();
+                });
         assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
 
         Map<String, Object> readRetry = (Map<String, Object>) runTools.executeTool(
@@ -283,7 +301,8 @@ class AgentToolTest {
                 createUser.getId(), readActionId);
         manageSpace.confirmAction(createUser.getId(), readRevert.id());
         assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
-        assertThat(readProfiles.getProfile(createUser.getId()).getPhone()).isNull();
+        assertThat(readProfiles.getProfile(createUser.getId()).getPhone())
+                .isEqualTo("13800000000");
 
         assertThatThrownBy(() -> runTools.executeTool(
                 createContext, "confirm_action", Map.of("actionId", readActionId), "call-confirm"))
@@ -578,6 +597,9 @@ class AgentToolTest {
         assertThat((List<Map<String, Object>>) readProposal.get("resources"))
                 .extracting(readResource -> readResource.get("resourceType"))
                 .containsExactly(ChangeResourceType.PROFILE, ChangeResourceType.RESUME);
+        assertThat(manageSpace.readConfirmation(createUser.getId(), readActionId).changes())
+                .extracting("resourceType")
+                .contains(ChangeResourceType.PROFILE, ChangeResourceType.RESUME);
         assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
         assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Java");
 

@@ -13,6 +13,7 @@ import com.fusioncareer.dto.res.UserProfileResponse;
 import com.fusioncareer.dto.res.UserMemoryResponse;
 import com.fusioncareer.dto.res.UserChangeActionPageResponse;
 import com.fusioncareer.dto.res.UserChangeActionResponse;
+import com.fusioncareer.dto.res.UserChangeConfirmationResponse;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
 import com.fusioncareer.service.PersonalSpaceMutationService;
 import com.fusioncareer.service.PersonalSpaceService;
@@ -155,6 +156,13 @@ public class PersonalSpaceController {
     @Operation(summary = "获取个人空间变更详情")
     public R<UserChangeActionResponse> readAction(@PathVariable Long actionId) {
         return R.success(manageSpace.readAction(
+                StpUtil.getLoginIdAsLong(), actionId));
+    }
+
+    @GetMapping("/actions/{actionId}/confirmation")
+    @Operation(summary = "获取一个变更的安全确认卡")
+    public R<UserChangeConfirmationResponse> readConfirmation(@PathVariable Long actionId) {
+        return R.success(manageSpace.readConfirmation(
                 StpUtil.getLoginIdAsLong(), actionId));
     }
 

@@ -1712,7 +1712,7 @@ CHAT_PROVIDER_STREAM_TOOLS=true
 
 ### 阶段 6：可逆写 Tool
 
-当前进度：Profile、Resume、Memory、文件软删除、问卷草稿/提交及简历解析的强类型提案、Tool Call 幂等、`action_proposed` SSE、登录用户 confirm/reject 与永久 Revert 已落地，并由 `AI_CHAT_WRITE_ENABLED` 双端开关控制。简历解析使用一个多 Item Action 原子修改 Profile + Resume；已审核投递撤回使用 WITHDRAWN 且保留审核信息。前端确认卡仍待实现。
+当前进度：Profile、Resume、Memory、文件软删除、问卷草稿/提交及简历解析的强类型提案、Tool Call 幂等、`action_proposed` SSE、登录用户 confirm/reject、脱敏确认卡 API 与永久 Revert 已落地，并由 `AI_CHAT_WRITE_ENABLED` 双端开关控制。简历解析使用一个多 Item Action 原子修改 Profile + Resume；已审核投递撤回使用 WITHDRAWN 且保留审核信息。前端页面接入确认卡仍待实现。
 
 实现：
 

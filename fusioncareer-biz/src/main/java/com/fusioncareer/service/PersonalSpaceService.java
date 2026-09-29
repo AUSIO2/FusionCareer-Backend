@@ -12,6 +12,7 @@ import com.fusioncareer.dto.res.UserProfileResponse;
 import com.fusioncareer.dto.res.UserMemoryResponse;
 import com.fusioncareer.dto.res.UserChangeActionPageResponse;
 import com.fusioncareer.dto.res.UserChangeActionResponse;
+import com.fusioncareer.dto.res.UserChangeConfirmationResponse;
 import com.fusioncareer.dto.res.UserResponse;
 import com.fusioncareer.dto.res.AiSessionResponse;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
@@ -189,6 +190,11 @@ public class PersonalSpaceService {
     public UserChangeActionResponse readAction(Long userId, Long actionId) {
         requireAccount(userId);
         return readChanges.readAction(userId, actionId);
+    }
+
+    public UserChangeConfirmationResponse readConfirmation(Long userId, Long actionId) {
+        requireAccount(userId);
+        return readChanges.readConfirmation(userId, actionId);
     }
 
     @Transactional

@@ -106,6 +106,7 @@ FusionCareer-Backend/
 | DELETE | `/personal-space/memory` | 清空长期记忆 |
 | GET | `/personal-space/actions` | 分页获取安全变更历史 |
 | GET | `/personal-space/actions/{actionId}` | 获取一条变更的安全详情 |
+| GET | `/personal-space/actions/{actionId}/confirmation` | 获取脱敏 before/after 确认卡 |
 | POST | `/personal-space/actions/{actionId}/revert` | 创建三方比较回退提案 |
 | POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行写入或回退提案 |
 | POST | `/personal-space/actions/{actionId}/reject` | 拒绝写入或回退提案 |
