@@ -28,12 +28,14 @@ import org.springframework.util.StringUtils;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.Collections;
 import java.util.regex.Pattern;
 
 /**
@@ -51,7 +53,6 @@ public class AiChatService {
     private static final int SUMMARY_KEEP_MESSAGES = 6;
     private static final int MAX_SUMMARY_MESSAGES = 40;
     private static final int MAX_SUMMARY_LENGTH = 2_000;
-    private static final Duration RUN_LEASE = Duration.ofMinutes(2);
     private static final Pattern REQUEST_ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
     private final AiSessionMapper sessionMapper;
@@ -60,6 +61,11 @@ public class AiChatService {
     private final ResumeFileService fileService;
     private final UserService userService;
     private final ObjectMapper objectMapper;
+    private final JobRecommendationService recommendations;
+    private final jakarta.validation.Validator validator;
+
+    @org.springframework.beans.factory.annotation.Value("${ai-chat.run-lease-seconds:240}")
+    private long runLeaseSeconds = 240;
 
     @Transactional(readOnly = true)
     public AiSessionResponse readSession(Long readUserId) {
@@ -216,6 +222,20 @@ public class AiChatService {
         String updateRequestId = validateRequestId(readRequest.clientRequestId());
         String updateContent = validateContent(readRequest.content());
         List<Long> updateFileIds = normalizeFiles(readRequest.fileIds());
+        if (!validator.validate(readRequest).isEmpty()) throw buildInvalid("消息参数格式无效");
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        if (readRequest.interaction() != null) metadata.put("interaction", readRequest.interaction());
+        if (readRequest.jobId() != null) {
+            try {
+                if (recommendations.hydrate(Map.of("jobIds", List.of(readRequest.jobId())))
+                        .get("jobs") instanceof List<?> cards
+                        && Boolean.FALSE.equals(((Map<?, ?>) cards.get(0)).get("available"))) {
+                    throw buildInvalid("当前岗位已不可见");
+                }
+            } catch (NumberFormatException error) { throw buildInvalid("岗位 ID 格式无效"); }
+            metadata.put("jobId", readRequest.jobId());
+        }
+        String inputMetadata = writeJson(metadata);
 
         sessionMapper.createSession(updateUserId);
         AiSessionEntity readSession = sessionMapper.selectById(updateUserId);
@@ -223,11 +243,11 @@ public class AiChatService {
         AiMessageEntity readUserMessage = findMessage(
                 updateUserId, readSession.getEpoch(), updateRequestId, AiMessageRole.USER);
         if (readUserMessage != null) {
-            return reuseRun(readSession, readUserMessage, updateContent, updateFileIds);
+            return reuseRun(readSession, readUserMessage, updateContent, updateFileIds, inputMetadata);
         }
         validateFiles(updateUserId, updateFileIds);
         String createRunId = UUID.randomUUID().toString();
-        LocalDateTime updateLease = LocalDateTime.now().plus(RUN_LEASE);
+        LocalDateTime updateLease = LocalDateTime.now().plusSeconds(runLeaseSeconds);
         if (sessionMapper.acquireRun(
                 updateUserId, readSession.getEpoch(), createRunId, updateLease) != 1) {
             throw buildConflict("已有一轮 AI 对话正在运行");
@@ -240,6 +260,7 @@ public class AiChatService {
         AiMessageEntity createAssistantMessage = createMessage(
                 updateUserId, readSession.getEpoch(), createRunId, updateRequestId,
                 AiMessageRole.ASSISTANT, AiMessageStatus.PENDING, "", "[]");
+        createUserMessage.setInputMetadata(inputMetadata);
         if (messageMapper.insert(createUserMessage) != 1
                 || messageMapper.insert(createAssistantMessage) != 1) {
             throw ServiceException.of(ResultCode.INTERNAL_SERVER_ERROR, "AI 消息创建失败");
@@ -254,7 +275,7 @@ public class AiChatService {
     @Transactional
     public boolean markStreaming(Long updateUserId, Long readEpoch, String readRunId) {
         if (sessionMapper.renewRun(
-                updateUserId, readEpoch, readRunId, LocalDateTime.now().plus(RUN_LEASE)) != 1) {
+                updateUserId, readEpoch, readRunId, LocalDateTime.now().plusSeconds(runLeaseSeconds)) != 1) {
             return false;
         }
         UpdateWrapper<AiMessageEntity> updateMessage = new UpdateWrapper<>();
@@ -405,9 +426,11 @@ public class AiChatService {
             AiSessionEntity readSession,
             AiMessageEntity readUserMessage,
             String readContent,
-            List<Long> readFileIds) {
+            List<Long> readFileIds,
+            String inputMetadata) {
         if (!Objects.equals(readUserMessage.getContent(), readContent)
-                || !Objects.equals(parseFiles(readUserMessage.getAttachmentIds()), readFileIds)) {
+                || !Objects.equals(parseFiles(readUserMessage.getAttachmentIds()), readFileIds)
+                || !Objects.equals(readJson(readUserMessage.getInputMetadata()), readJson(inputMetadata))) {
             throw buildConflict("clientRequestId 已被不同消息使用");
         }
         AiMessageEntity readAssistantMessage = findMessage(
@@ -621,7 +644,84 @@ public class AiChatService {
                 readMessage.getCompletionTokens(),
                 readMessage.getErrorCode(),
                 readMessage.getCreatedAt(),
-                readMessage.getUpdatedAt());
+                readMessage.getUpdatedAt(),
+                readJson(readMessage.getInputMetadata()),
+                readMessage.getStatus() == AiMessageStatus.COMPLETED
+                        ? recommendations.hydrate(readJson(readMessage.getPresentation())) : Map.of());
+    }
+
+    /** Guard all card writes with the same active epoch/run and message state as text. */
+    @Transactional
+    public Map<String, Object> savePresentation(Long userId, Long epoch, String runId, Map<String, Object> raw) {
+        AiSessionEntity session = sessionMapper.selectById(userId);
+        if (session == null || !Objects.equals(session.getEpoch(), epoch)
+                || !Objects.equals(session.getActiveRunId(), runId)) return null;
+        var message = messageMapper.selectOne(new LambdaQueryWrapper<AiMessageEntity>()
+                .eq(AiMessageEntity::getUserId, userId).eq(AiMessageEntity::getEpoch, epoch)
+                .eq(AiMessageEntity::getRunId, runId).eq(AiMessageEntity::getRole, AiMessageRole.ASSISTANT));
+        if (message == null) return null;
+        Map<String, Object> safe = new LinkedHashMap<>(readJson(message.getPresentation()));
+        safe.put("schemaVersion", 1);
+        if ("job_results".equals(raw.get("type"))) {
+            if (!(raw.get("jobIds") instanceof List<?> ids) || ids.size() > 10) throw buildInvalid("岗位卡格式无效");
+            List<String> jobIds = ids.stream().map(String::valueOf).distinct().toList();
+            for (String id : jobIds) {
+                try { if (Long.parseLong(id) <= 0) throw buildInvalid("岗位卡 ID 无效"); }
+                catch (NumberFormatException e) { throw buildInvalid("岗位卡 ID 无效"); }
+            }
+            safe.put("type", "job_results");
+            safe.put("jobIds", jobIds);
+            safe.put("method", "rules+llm".equals(raw.get("method")) ? "rules+llm" : "rules");
+            safe.put("degraded", Boolean.TRUE.equals(raw.get("degraded")));
+            safe.put("algorithmVersion", JobRecommendationService.ALGORITHM_VERSION);
+            safe.remove("reasons");
+            if (raw.get("reasons") instanceof Map<?, ?> rawReasons) {
+                Map<String, String> reasons = new LinkedHashMap<>();
+                for (String id : jobIds) {
+                    if (rawReasons.get(id) instanceof String value) {
+                        String reason = value.trim().replaceAll("\\s+", " ");
+                        if (!reason.isEmpty()) {
+                            reasons.put(id, reason.substring(0, Math.min(reason.length(), 240)));
+                        }
+                    }
+                }
+                if (!reasons.isEmpty()) safe.put("reasons", reasons);
+            }
+            if (raw.get("filters") instanceof Map<?, ?> filters) {
+                var validated = recommendations.validate(objectMapper.convertValue(filters, new TypeReference<>() { }));
+                safe.put("filters", objectMapper.convertValue(validated, new TypeReference<Map<String, Object>>() { }));
+            }
+        } else if (raw.get("actionId") != null) {
+            Long actionId;
+            try { actionId = Long.valueOf(raw.get("actionId").toString()); }
+            catch (NumberFormatException e) { throw buildInvalid("操作 ID 无效"); }
+            var action = actionMapper.selectOne(new LambdaQueryWrapper<UserChangeActionEntity>()
+                    .eq(UserChangeActionEntity::getId, actionId).eq(UserChangeActionEntity::getUserId, userId)
+                    .eq(UserChangeActionEntity::getEpoch, epoch).eq(UserChangeActionEntity::getRunId, runId));
+            if (action == null) throw buildInvalid("操作不属于当前运行");
+            List<String> actionIds = new ArrayList<>();
+            if (safe.get("actionIds") instanceof List<?> previous) previous.forEach(id -> actionIds.add(id.toString()));
+            if (!actionIds.contains(actionId.toString())) actionIds.add(actionId.toString());
+            safe.put("actionIds", actionIds);
+        } else throw buildInvalid("未知消息展示类型");
+        var hydrated = recommendations.hydrate(safe);
+        // Store IDs, never a stale snapshot of job visibility or arbitrary upstream fields.
+        var update = new UpdateWrapper<AiMessageEntity>().eq("id", message.getId())
+                .eq("user_id", userId).eq("epoch", epoch).eq("run_id", runId)
+                .in("status", AiMessageStatus.PENDING.getCode(), AiMessageStatus.STREAMING.getCode())
+                .set("presentation", writeJson(safe));
+        return messageMapper.update(null, update) == 1 ? hydrated : null;
+    }
+
+    private String writeJson(Object value) {
+        try { return objectMapper.writeValueAsString(value); }
+        catch (JsonProcessingException e) { throw buildInvalid("消息元数据格式无效"); }
+    }
+
+    private Map<String, Object> readJson(String value) {
+        if (!StringUtils.hasText(value)) return Map.of();
+        try { return objectMapper.readValue(value, new TypeReference<>() { }); }
+        catch (JsonProcessingException e) { throw buildInvalid("消息元数据格式无效"); }
     }
 
     private void requireAccount(Long readUserId) {

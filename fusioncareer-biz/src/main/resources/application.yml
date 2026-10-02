@@ -41,11 +41,15 @@ user-change:
 # ===== Agent 短期能力上下文 =====
 agent-context:
   secret: ${AGENT_CONTEXT_SECRET:}
-  ttl-seconds: 300
+  ttl-seconds: ${AGENT_CONTEXT_TTL_SECONDS:300}
 
 # 写 Tool 仅创建 PENDING 提案；生产灰度时显式开启。
 ai-chat:
   write-enabled: ${AI_CHAT_WRITE_ENABLED:false}
+  recommend-enabled: ${AI_CHAT_RECOMMEND_ENABLED:true}
+  stream-timeout-ms: ${AI_CHAT_STREAM_TIMEOUT_MS:200000}
+  upstream-timeout-seconds: ${AI_CHAT_UPSTREAM_TIMEOUT_SECONDS:180}
+  run-lease-seconds: ${AI_CHAT_RUN_LEASE_SECONDS:240}
 
 # ===== Sa-Token 配置 =====
 sa-token:
@@ -71,7 +75,7 @@ python-service:
   # 连接超时时间（毫秒）
   connect-timeout: 5000
   # 读取超时时间（毫秒），算法可能较慢，默认 60 秒
-  read-timeout: 60000
+  read-timeout: ${PYTHON_SERVICE_READ_TIMEOUT_MS:60000}
 
 # ===== 复旦 SSO 统一身份认证配置 =====
 # 【接入必读：向复旦信息化中心申请注册清单】

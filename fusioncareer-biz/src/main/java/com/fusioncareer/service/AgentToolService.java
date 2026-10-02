@@ -58,6 +58,7 @@ public class AgentToolService {
             Map.entry("list_my_applications", "application:read"),
             Map.entry("get_my_application", "application:read"),
             Map.entry("search_jobs", "job:search"),
+            Map.entry("recommendation_candidates", "job:recommend"),
             Map.entry("get_job", "job:read"),
             Map.entry("get_job_questionnaire", "questionnaire:read"),
             Map.entry("list_my_changes", "history:read"),
@@ -83,12 +84,16 @@ public class AgentToolService {
     private final PersonalSpaceMutationService mutationService;
     private final UserMemoryService memoryService;
     private final ResumeParseService resumeParseService;
+    private final JobRecommendationService recommendationService;
     private final ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Value("${ai-chat.recommend-enabled:true}")
+    private boolean recommendEnabled = true;
 
     public List<String> readToolNames() {
         return TOOL_SCOPES.entrySet().stream()
                 .filter(readEntry -> !readEntry.getValue().endsWith(":propose"))
-                .map(Map.Entry::getKey)
+                .filter(entry -> recommendEnabled || !"recommendation_candidates".equals(entry.getKey()))
+                .map(entry -> "recommendation_candidates".equals(entry.getKey()) ? "recommend_jobs" : entry.getKey())
                 .sorted()
                 .toList();
     }
@@ -147,6 +152,10 @@ public class AgentToolService {
             case "list_my_applications" -> listApplications(readContext.userId(), readArgs);
             case "get_my_application" -> readApplication(readContext.userId(), readArgs);
             case "search_jobs" -> searchJobs(readArgs);
+            case "recommendation_candidates" -> {
+                if (!recommendEnabled) throw ServiceException.of(ResultCode.VALIDATE_FAILED, "推荐功能暂未启用");
+                yield recommendationService.candidates(readContext.userId(), readArgs);
+            }
             case "get_job" -> readJob(readArgs);
             case "get_job_questionnaire" -> readQuestionnaire(readArgs);
             case "list_my_changes" -> listChanges(readContext.userId(), readArgs);

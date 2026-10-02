@@ -34,11 +34,12 @@ import java.util.concurrent.atomic.AtomicReference;
 @RequiredArgsConstructor
 public class AiStreamService {
 
-    private static final long STREAM_TIMEOUT_MS = 200_000L;
+    @Value("${ai-chat.stream-timeout-ms:200000}")
+    private long streamTimeoutMs = 200_000;
     private static final List<String> READ_SCOPES = List.of(
             "space:read", "account:read", "profile:read", "resume:read",
             "file:read", "memory:read", "application:read", "job:search",
-            "job:read", "questionnaire:read", "history:read");
+            "job:read", "job:recommend", "questionnaire:read", "history:read");
     private static final List<String> WRITE_SCOPES = List.of(
             "profile:propose", "resume:propose", "memory:propose", "file:propose",
             "questionnaire:propose");
@@ -58,7 +59,7 @@ public class AiStreamService {
 
     public SseEmitter streamMessage(Long updateUserId, AiMessageRequest readRequest) {
         AiChatService.RunStart createRun = manageChat.startRun(updateUserId, readRequest);
-        SseEmitter createEmitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        SseEmitter createEmitter = new SseEmitter(streamTimeoutMs);
         ActiveStream createStream = new ActiveStream(updateUserId, createRun, createEmitter);
         configureEmitter(createStream);
         sendStart(createStream);
@@ -144,7 +145,9 @@ public class AiStreamService {
                 readAttachments,
                 readMemoryValues,
                 readContext.summary(),
-                readHistory);
+                readHistory,
+                readRun.userMessage().inputMetadata().get("interaction"),
+                (String) readRun.userMessage().inputMetadata().get("jobId"));
     }
 
     private List<String> agentScopes() {
@@ -172,6 +175,16 @@ public class AiStreamService {
         }
         if ("ping".equals(readEvent.name())) {
             sendEvent(updateStream.emitter(), "ping", readEvent.data());
+            return;
+        }
+        if ("job_results".equals(readEvent.name())) {
+            Map<String, Object> presentation = manageChat.savePresentation(updateStream.userId(),
+                    updateStream.run().session().epoch(), updateStream.run().assistantMessage().runId(),
+                    objectMapper.convertValue(readEvent.data(), Map.class));
+            if (presentation != null) {
+                sendEvent(updateStream.emitter(), "job_results", Map.of("runId",
+                        updateStream.run().assistantMessage().runId(), "presentation", presentation));
+            }
             return;
         }
         if ("tool_status".equals(readEvent.name())) {
@@ -246,7 +259,10 @@ public class AiStreamService {
                     sendAction.put("baseVersion",
                             readEvent.data().path("baseVersion").asText());
                 }
-                sendEvent(updateStream.emitter(), "action_proposed", sendAction);
+                if (manageChat.savePresentation(updateStream.userId(), updateStream.run().session().epoch(),
+                        updateStream.run().assistantMessage().runId(), Map.of("actionId", readActionId)) != null) {
+                    sendEvent(updateStream.emitter(), "action_proposed", sendAction);
+                }
             }
             return;
         }
@@ -331,6 +347,8 @@ public class AiStreamService {
         AiMessageResponse readMessage = updateStream.run().assistantMessage();
         updateStream.terminal().set(true);
         if (readMessage.status() == AiMessageStatus.COMPLETED) {
+            if (!readMessage.presentation().isEmpty()) sendEvent(updateStream.emitter(), "job_results",
+                    Map.of("runId", readMessage.runId(), "presentation", readMessage.presentation()));
             Map<String, Object> sendDelta = new LinkedHashMap<>();
             sendDelta.put("runId", readMessage.runId());
             sendDelta.put("seq", 1);

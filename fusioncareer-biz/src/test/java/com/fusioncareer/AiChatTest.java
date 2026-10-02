@@ -99,7 +99,7 @@ class AiChatTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.configured").value(true))
                 .andExpect(jsonPath("$.data.writeEnabled").value(true))
-                .andExpect(jsonPath("$.data.readTools.length()").value(15))
+                .andExpect(jsonPath("$.data.readTools.length()").value(16))
                 .andExpect(jsonPath("$.data.writeTools.length()").value(8))
                 .andExpect(jsonPath("$.data.limits.maxMessageChars").value(8000));
         readMvc.perform(get("/personal-space/assistant/session")

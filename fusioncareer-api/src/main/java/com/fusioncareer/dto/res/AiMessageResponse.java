@@ -5,6 +5,7 @@ import com.fusioncareer.enums.AiMessageStatus;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public record AiMessageResponse(
         Long id,
@@ -21,5 +22,7 @@ public record AiMessageResponse(
         Integer completionTokens,
         String errorCode,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt) {
+        LocalDateTime updatedAt,
+        Map<String, Object> inputMetadata,
+        Map<String, Object> presentation) {
 }

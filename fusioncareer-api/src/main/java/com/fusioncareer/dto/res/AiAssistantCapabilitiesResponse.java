@@ -8,7 +8,8 @@ public record AiAssistantCapabilitiesResponse(
         boolean writeEnabled,
         List<String> readTools,
         List<String> writeTools,
-        Limits limits) {
+        Limits limits,
+        List<String> presentationTypes) {
 
     public record Limits(
             int maxMessageChars,

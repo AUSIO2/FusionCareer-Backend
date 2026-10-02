@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -20,6 +21,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -39,6 +41,9 @@ public class AgentStreamClient {
 
     @Value("${internal-service.token:}")
     private String internalToken;
+
+    @Value("${ai-chat.upstream-timeout-seconds:180}")
+    private long upstreamTimeoutSeconds = 180;
 
     private HttpClient streamClient;
 
@@ -64,15 +69,38 @@ public class AgentStreamClient {
                 ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         HttpRequest writeRequest = HttpRequest.newBuilder()
                 .uri(URI.create(readBaseUrl + "/api/internal/chat/stream"))
-                .timeout(Duration.ofMinutes(3))
+                .timeout(Duration.ofSeconds(upstreamTimeoutSeconds))
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream")
                 .header("X-Internal-Token", internalToken)
                 .header("X-Agent-Context", readAgentContext)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(writeBody))
                 .build();
-        return streamClient.sendAsync(writeRequest, HttpResponse.BodyHandlers.ofInputStream())
-                .thenAcceptAsync(readResponse -> readEvents(readResponse, consumeEvent));
+        CompletableFuture<Void> result = new CompletableFuture<>();
+        AtomicReference<InputStream> body = new AtomicReference<>();
+        var upstream = streamClient.sendAsync(writeRequest, HttpResponse.BodyHandlers.ofInputStream());
+        result.whenComplete((ignored, error) -> {
+            if (result.isCancelled()) {
+                upstream.cancel(true);
+                closeBody(body.get());
+            }
+        });
+        upstream.whenComplete((response, error) -> {
+            if (error != null) { result.completeExceptionally(error); return; }
+            body.set(response.body());
+            if (result.isCancelled()) { closeBody(response.body()); return; }
+            CompletableFuture.runAsync(() -> readEvents(response, consumeEvent))
+                    .whenComplete((ignored, readError) -> {
+                        closeBody(body.get());
+                        if (readError == null) result.complete(null);
+                        else result.completeExceptionally(readError);
+                    });
+        });
+        return result;
+    }
+
+    private void closeBody(InputStream body) {
+        if (body != null) try { body.close(); } catch (IOException ignored) { }
     }
 
     private void readEvents(
@@ -136,7 +164,15 @@ public class AgentStreamClient {
             List<Attachment> attachments,
             Map<String, Object> memory,
             String summary,
-            List<HistoryMessage> history) {
+            List<HistoryMessage> history,
+            Object interaction,
+            String jobId) {
+        public StreamRequest(String runId, Long epoch, String requestId, String userMessageId,
+                String assistantMessageId, String input, List<Attachment> attachments,
+                Map<String, Object> memory, String summary, List<HistoryMessage> history) {
+            this(runId, epoch, requestId, userMessageId, assistantMessageId, input,
+                    attachments, memory, summary, history, null, null);
+        }
     }
 
     public record Attachment(String fileId, String name, String mimeType) {

@@ -28,6 +28,8 @@ public class AiMessageEntity implements Serializable {
     private AiMessageStatus status;
     private String content;
     private String attachmentIds;
+    private String inputMetadata;
+    private String presentation;
     private String model;
     private String finishReason;
     private Integer promptTokens;

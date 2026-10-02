@@ -199,6 +199,8 @@ CREATE TABLE IF NOT EXISTS `fc_ai_message`
     `status`            TINYINT      NOT NULL COMMENT '0-PENDING 1-STREAMING 2-COMPLETED 3-FAILED 4-CANCELLED',
     `content`           MEDIUMTEXT   NOT NULL COMMENT '用户输入或最终助手文本',
     `attachment_ids`    JSON         NOT NULL COMMENT '用户显式附带的自有文件ID',
+    `input_metadata`    JSON                  DEFAULT NULL COMMENT '结构化用户输入',
+    `presentation`      JSON                  DEFAULT NULL COMMENT '版本化展示引用',
     `model`             VARCHAR(128)          DEFAULT NULL COMMENT '实际使用模型',
     `finish_reason`     VARCHAR(32)           DEFAULT NULL COMMENT '完成原因',
     `prompt_tokens`     INT                   DEFAULT NULL,
