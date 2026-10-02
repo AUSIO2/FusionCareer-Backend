@@ -25,9 +25,9 @@ async def createCompletion(readBody: dict) -> dict:
     readPrompt = str(readMessages[0].get("content") if readMessages else "")
     if "简历信息抽取" in readPrompt:
         createData = {
-            "profilePatch": {"realName": "张同学", "major": "新闻传播学"},
-            "resumePatch": {"skills": "Python"},
-            "warnings": [],
+            "real_name": "张同学",
+            "major": "新闻传播学",
+            "skills": "Python",
         }
     else:
         createData = {
