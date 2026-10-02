@@ -2,25 +2,28 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from app.algorithms.upstream import run_algorithm
 from app.api.deps.admin_auth import require_agent_admin
 from app.catalog.catalog import DataClassCatalog
 from app.catalog.errors import CatalogError
 from app.catalog.models import DataClassUpsertBody
 from app.catalog.ref_index import DataClassRefIndex
 from app.catalog.workflow_catalog import WorkflowCatalog, WorkflowCatalogError
+from app.config import settings
 from app.core.registry import SkillRegistry
 from app.core.skill_installer import SkillInstallError, delete_skill, install_skill
 from app.engine import WorkflowEngine
 from app.scheduler.models import ScheduleBody
 from app.scheduler.service import SchedulerService
-from app.config import settings
 from app.skills.business.crawlers.paths import CrawlPaths
 from app.skills.business.crawlers.store import CrawlStore
 from app.skills.business.crawlers.structure_articles import drainPendingArticles
@@ -32,6 +35,62 @@ router = APIRouter(
     tags=["admin"],
     dependencies=[Depends(require_agent_admin)],
 )
+
+
+def algorithm_workspace(name: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", name):
+        raise HTTPException(422, "Invalid workspace")
+    return Path(settings.agent_runtime_dir).resolve() / "algorithm" / name
+
+
+@router.get("/algorithm/{workspace}/artifact")
+async def download_algorithm_artifact(workspace: str, path: str):
+    root = algorithm_workspace(workspace)
+    artifact = (root / path).resolve()
+    is_output = artifact.is_relative_to(root / "data/output") and artifact.suffix in {".csv", ".json", ".xlsx"}
+    if not artifact.is_relative_to(root) or not (is_output or path == "weread-login.png"):
+        raise HTTPException(403, "Only exported artifacts and the login QR are downloadable")
+    if not artifact.is_file():
+        raise HTTPException(404, "Artifact not ready or expired")
+    return FileResponse(artifact, filename=artifact.name, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/algorithm/{workspace}/weread-login", status_code=202)
+async def start_weread_login(workspace: str, request: Request):
+    algorithm_workspace(workspace)
+    tasks = request.app.state.algorithm_admin_tasks
+    previous = tasks.get(workspace)
+    if previous and not previous["task"].done():
+        return {"status": "RUNNING", "workspace": workspace}
+    if sum(not v["task"].done() for v in tasks.values()) >= 2:
+        raise HTTPException(429, "Two login operations are already active")
+    state = {"status": "RUNNING"}
+    async def login():
+        try:
+            await run_algorithm("weread_login", {"workspace": workspace})
+            state["status"] = "COMPLETED"
+        except asyncio.CancelledError:
+            state["status"] = "CANCELLED"
+            raise
+        except Exception:  # noqa: BLE001 - admin status never exposes provider credentials
+            state["status"] = "FAILED"
+    state["task"] = asyncio.create_task(login())
+    tasks[workspace] = state
+    return {"status": "RUNNING", "workspace": workspace}
+
+
+@router.get("/algorithm/{workspace}/weread-login")
+async def read_weread_login(workspace: str, request: Request):
+    root = algorithm_workspace(workspace)
+    state = request.app.state.algorithm_admin_tasks.get(workspace, {})
+    return {"status": state.get("status", "IDLE"), "qrReady": (root / "weread-login.png").exists()}
+
+
+@router.post("/algorithm/prefilter/requeue")
+async def requeue_prefilter(version: str):
+    if not re.fullmatch(r"[0-9a-f]{16}", version):
+        raise HTTPException(422, "Invalid lexicon version")
+    return {"requeued": CrawlStore(_structure_paths().database_file).requeuePrefiltered(version)}
 
 
 class SkillUploadBody(BaseModel):
@@ -87,12 +146,12 @@ async def _run_structure_drain(app) -> None:
     except asyncio.CancelledError:
         state["status"] = "CANCELLED"
         raise
-    except Exception as readError:  # noqa: BLE001 - expose background failure via status API
+    except Exception as readError:
         state["status"] = "FAILED"
         state["error"] = f"{type(readError).__name__}: {str(readError)[:300]}"
         logger.exception("manual structure drain failed")
     finally:
-        state["finishedAt"] = datetime.now(timezone.utc).isoformat()
+        state["finishedAt"] = datetime.now(UTC).isoformat()
 
 
 def _start_structure_drain(request: Request) -> dict[str, Any]:
@@ -100,7 +159,7 @@ def _start_structure_drain(request: Request) -> dict[str, Any]:
     if readTask is None or readTask.done():
         request.app.state.structure_drain_state = {
             "status": "RUNNING",
-            "startedAt": datetime.now(timezone.utc).isoformat(),
+            "startedAt": datetime.now(UTC).isoformat(),
             "finishedAt": None,
             "result": None,
             "error": None,

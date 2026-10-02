@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from docx import Document
 from fastapi.testclient import TestClient
 
 from app.algorithms.upstream import OPERATIONS, run_algorithm
@@ -47,6 +48,19 @@ def service(tmp_path, monkeypatch):
             calls.append(body)
             if state["status"] != 200:
                 self.send_json({"error": "unavailable"}, state["status"])
+                return
+            if "就业顾问" in body["messages"][0]["content"]:
+                jobs = json.loads(body["messages"][-1]["content"])["jobs"]
+                result = {
+                    "order": [job["id"] for job in reversed(jobs)],
+                    "reasons": {str(job["id"]): "岗位方向与当前偏好一致。" for job in jobs},
+                }
+                self.send_json({
+                    "id": "test", "object": "chat.completion", "created": 1, "model": "test",
+                    "choices": [{"index": 0, "message": {
+                        "role": "assistant", "content": json.dumps(result, ensure_ascii=False),
+                    }, "finish_reason": "stop"}],
+                })
                 return
             resume = "简历" in body["messages"][0]["content"]
             result = {"real_name": "张同学", "gender": 2, "skills": "Python"} if resume else {
@@ -90,9 +104,26 @@ def service(tmp_path, monkeypatch):
 
 def test_vendored_source_matches_pinned_commit():
     manifest = json.loads((VENDOR / "PROVENANCE.json").read_text())
-    assert manifest["commit"] == "72ff6b2b44520f78090958f0c3a7e74959189646"
+    assert manifest["commit"] == "1f3d8a7a7d244487294a3793658e625d4d9086f1"
     for name, digest in manifest["sha256"].items():
         assert hashlib.sha256((VENDOR / name).read_bytes()).hexdigest() == digest, name
+
+
+def test_latest_recommendation_order_and_reason_are_adapted_without_audit_log(service):
+    result = asyncio.run(run_algorithm("job_recommend_rank", {
+        "use_llm": True,
+        "slots": {"workCities": ["上海"]},
+        "jobs": [
+            {"id": "101", "companyName": "甲公司", "positionName": "记者",
+             "status": "PUBLISHED", "workCity": "上海"},
+            {"id": "102", "companyName": "乙公司", "positionName": "编辑",
+             "status": "PUBLISHED", "workCity": "上海"},
+        ],
+    }))
+    assert result["method"] == "rules+llm"
+    assert [job["id"] for job in result["jobs"]] == ["102", "101"]
+    assert all(job["recommendReason"] == "岗位方向与当前偏好一致。" for job in result["jobs"])
+    assert not list(service[3].rglob("logs/recommend/*"))
 
 
 def test_java_job_api_runs_real_upstream_workflow(service, monkeypatch):
@@ -125,16 +156,22 @@ def test_java_job_api_runs_real_upstream_workflow(service, monkeypatch):
         assert app.state.workflow_catalog.get("job_structure")["nodes"]["input"]["inputs"]["json_obj"]["value"]["text"] == ""
 
 
-def test_java_resume_api_runs_download_parse_normalize(service, monkeypatch, tmp_path):
+@pytest.mark.parametrize("suffix", ["pdf", "docx"])
+def test_java_resume_api_runs_download_parse_normalize(service, monkeypatch, tmp_path, suffix):
     from tests.algorithms.test_resume_parser import writePdf
 
-    pdf = tmp_path / "sample.pdf"
-    writePdf(pdf)
+    resume = tmp_path / f"sample.{suffix}"
+    if suffix == "pdf":
+        writePdf(resume)
+    else:
+        document = Document()
+        document.add_paragraph("张同学 Python")
+        document.save(resume)
     ids = []
 
     async def download(self, user_id, file_id):
         ids.append((user_id, file_id))
-        return {"originalName": "sample.pdf"}, pdf.read_bytes()
+        return {"originalName": resume.name}, resume.read_bytes()
 
     monkeypatch.setattr("app.integrations.backend.BackendClient.read_resume_file", download)
     with TestClient(app) as client:
@@ -181,7 +218,7 @@ def test_resume_text_metrics_and_batch_csv(service):
     writePdf(root / "one.pdf")
     result = asyncio.run(run_algorithm("resume_batch", {"workspace": "resumes", "files": ["one.pdf"]}))
     with Path(result["file"]).open(encoding="utf-8-sig") as stream:
-        assert list(csv.DictReader(stream))[0]["skills"] == "Python"
+        assert next(iter(csv.DictReader(stream)))["skills"] == "Python"
 
 
 def test_upstream_failures_and_paths(service):
@@ -191,7 +228,7 @@ def test_upstream_failures_and_paths(service):
     service[2]["invalid"] = False
     service[2]["status"] = 402
     with pytest.raises(RuntimeError, match="insufficient balance"):
-        asyncio.run(run_algorithm("job_markdown", {"text": "# 招聘编辑\n招聘编辑"}))
+        asyncio.run(run_algorithm("job_markdown", {"text": "# 新闻记者招聘\n招聘新闻记者"}))
     with pytest.raises(ValueError, match="workspace"):
         asyncio.run(run_algorithm("job_batch", {"workspace": "../escape"}))
     with pytest.raises(ValueError, match="inside its workspace"):
@@ -233,17 +270,17 @@ def test_runtime_preset_is_used_and_failure_not_reported_as_success(service):
 
 
 def test_crawler_structuring_uses_same_workflow(service):
-    from tests.skills.crawlers.test_structure_articles import FakeBackend
     from app.skills.business.crawlers.paths import CrawlPaths
     from app.skills.business.crawlers.store import CrawlStore
     from app.skills.business.crawlers.structure_articles import structureArticles
+    from tests.skills.crawlers.test_structure_articles import FakeBackend
 
     paths = CrawlPaths(service[3] / "wechat")
     store = CrawlStore(paths.database_file)
     store.saveAccount("test", "Test", True)
     markdown = service[3] / "article.md"
-    markdown.write_text("# 招聘编辑\n投递邮箱：job@example.com")
-    store.saveArticle("test", {"title": "招聘编辑", "link": "https://example.test/1", "create_time": 1}, markdown, "hash")
+    markdown.write_text("# 新闻记者招聘\n投递邮箱：job@example.com")
+    store.saveArticle("test", {"title": "新闻记者招聘", "link": "https://example.test/1", "create_time": 1}, markdown, "hash")
     backend = FakeBackend()
     with TestClient(app):
         result = asyncio.run(structureArticles(paths, backend))
@@ -253,9 +290,10 @@ def test_crawler_structuring_uses_same_workflow(service):
 
 
 def test_wechat_modes_preserve_history_and_retry_failed_downloads(tmp_path, monkeypatch):
-    from app.algorithms import upstream_worker as worker
-    from types import SimpleNamespace
     import time
+    from types import SimpleNamespace
+
+    from app.algorithms import upstream_worker as worker
 
     state = {"articles": [{"title": "岗位一", "link": "https://mp.weixin.qq.com/s/one", "create_time": 1}], "fail": False}
 
@@ -312,8 +350,9 @@ def test_wechat_modes_preserve_history_and_retry_failed_downloads(tmp_path, monk
 
 
 def test_session_sync_calls_upstream_and_returns_no_credentials(tmp_path, monkeypatch):
-    from app.algorithms import upstream_worker as worker
     from types import SimpleNamespace
+
+    from app.algorithms import upstream_worker as worker
 
     module = SimpleNamespace()
 

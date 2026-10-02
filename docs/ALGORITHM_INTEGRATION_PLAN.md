@@ -755,6 +755,6 @@ CI 禁止访问真实微信、DeepSeek、生产 Java 或生产文件。
 4. 抓取岗位默认 OFFLINE，必须人工审核。
 5. 首期单 Agent 实例，不建分布式队列。
 6. 首期同步 LLM 请求；用真实延迟数据决定是否异步化。
-7. Java 现有上传格式 PDF/JPG/JPEG/PNG 是首期范围；DOCX 提取器可迁入，但不在前端开放直到文件白名单一致。
+7. Java 上传格式与解析引擎统一为 PDF/DOCX/JPG/JPEG/PNG；DOCX 使用 `python-docx` + `lxml` 提取。
 
 如上述任一假设改变，应在实现对应提交前修订本文档，不在代码中猜测。

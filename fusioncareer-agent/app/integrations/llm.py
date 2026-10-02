@@ -91,6 +91,15 @@ class LLMClient:
     def __init__(self):
         self._client: AsyncOpenAI | None = None
 
+    @staticmethod
+    def tool_chat_options(model: str) -> dict[str, Any]:
+        # DeepSeek V4 defaults to thinking mode, which requires replaying private
+        # reasoning for tool history. This text-only agent intentionally does not
+        # retain that reasoning, and recommendation buttons create synthetic calls.
+        if model.startswith(("deepseek-v4", "deepseek-flash", "deepseek-pro")):
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        return {}
+
     def _ensure_client(self) -> AsyncOpenAI:
         if self._client is None:
             self._client = AsyncOpenAI(
@@ -209,6 +218,7 @@ class LLMClient:
             max_tokens=max_tokens,
             stream=True,
             stream_options={"include_usage": True},
+            **self.tool_chat_options(readModel),
         )
         readFinishReason = "stop"
         readPromptTokens: int | None = None
@@ -257,6 +267,7 @@ class LLMClient:
             tool_choice="auto",
             temperature=0.1,
             max_tokens=2048,
+            **self.tool_chat_options(readModel),
         )
         readMessage = readResponse.choices[0].message
         readToolCalls = [

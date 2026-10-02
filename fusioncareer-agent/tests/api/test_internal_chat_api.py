@@ -230,6 +230,32 @@ def testToolTimeoutIsSafeFailure(
     assert "event: done" in readResponse.text
 
 
+def test_named_tool_timeout_can_override_the_short_read_default(client, monkeypatch):
+    monkeypatch.setattr(settings, "ai_chat_read_tool_timeout_seconds", 0.001)
+    monkeypatch.setattr(settings, "ai_chat_tool_timeouts", {"search_jobs": 0.5})
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(),
+                           json={**readBody(), "input": "慢查询"})
+    assert '"name":"search_jobs","status":"COMPLETED"' in response.text
+
+
+def test_structured_recommendation_uses_the_same_tool_and_emits_cards(client, monkeypatch):
+    from app.chat import recommendations
+    async def recommend(backend, context, args, call_id):
+        assert args["workCities"] == ["上海"]
+        assert context == "agent-context-test-value"
+        return {"jobs": [{"id": "2094674091431800833", "positionName": "记者"}],
+                "method": "rules", "degraded": False, "filters": args,
+                "candidateCount": 1, "algorithmVersion": "1f3d8a7"}
+    monkeypatch.setattr(recommendations, "recommend_jobs", recommend)
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json={
+        **readBody(), "interaction": {"schemaVersion": 1, "type": "job_recommendation",
+                                    "preferences": {"workCities": ["上海"]}},
+    })
+    assert "event: job_results" in response.text
+    assert '"jobIds":["2094674091431800833"]' in response.text
+    assert "event: done" in response.text
+
+
 def testBusinessErrorDoesNotLeakInternals(client: TestClient):
     updateBody = readBody()
     updateBody["input"] = "错误查询"

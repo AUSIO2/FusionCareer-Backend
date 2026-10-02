@@ -5,17 +5,18 @@ import copy
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from app.algorithms.resume_parser.extract import createOcr
+from app.algorithms.workflows import run_algorithm_workflow
 from app.api.deps.admin_auth import require_agent_admin
 from app.api.exceptions import register_exception_handlers
 from app.api.routers import admin as admin_router
-from app.api.routers import internal as internal_router
 from app.api.routers import chat as chat_router
+from app.api.routers import internal as internal_router
 from app.catalog.catalog import DataClassCatalog
 from app.catalog.ref_index import DataClassRefIndex
 from app.catalog.workflow_catalog import WorkflowCatalog
@@ -27,15 +28,13 @@ from app.engine.loop_runner import LoopControl, run_with_loop, validate_loop
 from app.integrations.backend import BackendClient
 from app.runtime.paths import RuntimePaths
 from app.scheduler.service import SchedulerService
-from app.algorithms.resume_parser.extract import createOcr
 from app.skills.business.algorithm import set_backend_client as set_algorithm_backend
-from app.algorithms.workflows import run_algorithm_workflow
 from app.skills.business.crawlers.structure_articles import set_algorithm_workflow
+from app.skills.business.crawlers.structure_articles import set_backend_client as set_crawl_backend
 from app.skills.business.insert_resume import set_backend_client as set_insert_resume_backend
 from app.skills.business.insert_user_profile import (
     set_backend_client as set_insert_user_profile_backend,
 )
-from app.skills.business.crawlers.structure_articles import set_backend_client as set_crawl_backend
 
 logging.basicConfig(
     level=logging.INFO,
@@ -113,6 +112,7 @@ async def lifespan(app: FastAPI):
     app.state.backend_client = backend_client
     app.state.chat_semaphore = asyncio.Semaphore(max(1, settings.ai_chat_max_concurrency))
     app.state.structure_drain_task = None
+    app.state.algorithm_admin_tasks = {}
     app.state.structure_drain_state = {
         "status": "IDLE",
         "startedAt": None,
@@ -130,6 +130,11 @@ async def lifespan(app: FastAPI):
     )
 
     yield
+
+    tasks = [v["task"] for v in app.state.algorithm_admin_tasks.values() if not v["task"].done()]
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
 
     readDrainTask = app.state.structure_drain_task
     if readDrainTask is not None and not readDrainTask.done():
@@ -274,10 +279,11 @@ async def list_workflows():
 
 
 @app.post("/api/workflows/{name}/run", dependencies=[Depends(require_agent_admin)])
-async def run_preset_workflow(name: str, req: RunPresetRequest = RunPresetRequest()):
+async def run_preset_workflow(name: str, req: RunPresetRequest | None = None):
     if not workflow_catalog.has(name):
         raise HTTPException(status_code=404, detail=f"工作流 '{name}' 不存在")
 
+    req = req or RunPresetRequest()
     base = workflow_catalog.get(name)
     workflow = _apply_overrides(base, req.overrides)
     loop = LoopControl(**req.loop) if req.loop else None

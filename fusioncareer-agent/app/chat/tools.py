@@ -365,6 +365,26 @@ WRITE_TOOLS: list[dict[str, Any]] = [
     ),
 ]
 
+READ_TOOLS.append({
+    "type": "function",
+    "function": {
+        "name": "recommend_jobs",
+        "description": "根据当前用户本人资料和明确偏好推荐有效岗位。普通精确检索使用 search_jobs；不要猜测招聘类型。",
+        "parameters": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "jobCategories": {"type": "array", "maxItems": 5, "items": {
+                    "type": "string", "enum": ["MEDIA", "ENTERPRISE", "GOVERNMENT", "ACADEMIC", "OTHER"]}},
+                "workCities": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 100}},
+                "keywords": {"type": "array", "maxItems": 20, "items": {"type": "string", "maxLength": 100}},
+                "recruitType": {"type": "string", "enum": ["BIG_INTERNSHIP", "SMALL_INTERNSHIP",
+                    "DAILY_INTERNSHIP", "CAMPUS_RECRUITMENT", "CAMPUS_SCREENING", "BOTH_INTERNSHIP", "OTHER"]},
+                "text": {"type": "string", "maxLength": 1000},
+            },
+        },
+    },
+})
+
 TOOLS = READ_TOOLS + WRITE_TOOLS
 TOOL_NAMES = {readTool["function"]["name"] for readTool in TOOLS}
 READ_TOOL_NAMES = {readTool["function"]["name"] for readTool in READ_TOOLS}
@@ -376,6 +396,7 @@ class ToolResult:
     content: str
     proposed_action: dict[str, Any] | None = None
     succeeded: bool = True
+    presentation: dict[str, Any] | None = None
 
 
 async def runTool(
@@ -401,6 +422,32 @@ async def runTool(
             json.dumps({"error": "INVALID_TOOL_ARGUMENTS"}, ensure_ascii=False),
             succeeded=False,
         )
+    if readName == "recommend_jobs":
+        from pydantic import ValidationError
+
+        from app.chat.recommendations import recommend_jobs
+        try:
+            result = await recommend_jobs(readBackend, readContext, readArgs, readCallId)
+            summary = {**result, "jobs": [{k: j.get(k) for k in (
+                "id", "positionName", "companyName", "workCity", "jobCategory", "recruitType",
+                "recommendReason",
+            )} for j in result["jobs"]]}
+            reasons = {str(j["id"]): j["recommendReason"] for j in result["jobs"]
+                       if isinstance(j.get("recommendReason"), str) and j["recommendReason"].strip()}
+            presentation = {"schemaVersion": 1, "type": "job_results",
+                            "jobIds": [str(j["id"]) for j in result["jobs"]],
+                            "reasons": reasons,
+                            "filters": result["filters"], "method": result["method"],
+                            "degraded": result["degraded"], "candidateCount": result["candidateCount"],
+                            "algorithmVersion": result["algorithmVersion"]}
+            return ToolResult(json.dumps({"untrustedData": summary}, ensure_ascii=False),
+                              presentation=presentation)
+        except ValidationError:
+            return toolError("VALIDATION_ERROR", "推荐筛选条件格式无效", False)
+        except BackendApiError as error:
+            return safeBackendError(error)
+        except Exception:  # noqa: BLE001 - recommendation failures are model-safe data
+            return toolError("TOOL_UNAVAILABLE", "推荐服务暂时不可用", True)
     readAttempts = 2 if readName in READ_TOOL_NAMES else 1
     for readAttempt in range(readAttempts):
         try:

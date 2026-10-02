@@ -6,7 +6,7 @@ import hashlib
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -33,6 +33,7 @@ class CrawlStore:
 
     def createSchema(self) -> None:
         with self.openDatabase() as updateDatabase:
+            updateDatabase.execute("BEGIN IMMEDIATE")
             updateDatabase.execute(
                 """
                 CREATE TABLE IF NOT EXISTS accounts (
@@ -45,6 +46,7 @@ class CrawlStore:
                 )
                 """
             )
+
             updateDatabase.execute(
                 """
                 CREATE TABLE IF NOT EXISTS articles (
@@ -74,6 +76,12 @@ class CrawlStore:
                 """
             )
 
+            columns = {row[1] for row in updateDatabase.execute("PRAGMA table_info(articles)")}
+            if "prefilter_reason" not in columns:
+                updateDatabase.execute("ALTER TABLE articles ADD COLUMN prefilter_reason TEXT NOT NULL DEFAULT ''")
+            if "prefilter_version" not in columns:
+                updateDatabase.execute("ALTER TABLE articles ADD COLUMN prefilter_version TEXT NOT NULL DEFAULT ''")
+
     def importAccounts(self, readFakeids: Path, readNames: Path) -> int:
         if not readFakeids.is_file():
             return 0
@@ -91,7 +99,7 @@ class CrawlStore:
         if not readFakeid.strip():
             raise ValueError("fakeid is required")
         readSource = "MANUAL" if readManual else "AUTO"
-        readTime = datetime.now(timezone.utc).isoformat()
+        readTime = datetime.now(UTC).isoformat()
         with self.openDatabase() as updateDatabase:
             updateDatabase.execute(
                 """
@@ -116,7 +124,7 @@ class CrawlStore:
     def saveName(self, readFakeid: str, updateName: str, updateManual: bool = False) -> None:
         self.saveAccount(readFakeid)
         updateSource = "MANUAL" if updateManual else "AUTO"
-        updateTime = datetime.now(timezone.utc).isoformat()
+        updateTime = datetime.now(UTC).isoformat()
         with self.openDatabase() as updateDatabase:
             updateDatabase.execute(
                 """
@@ -175,7 +183,7 @@ class CrawlStore:
         readPath: Path,
         readHash: str,
     ) -> None:
-        readTime = datetime.now(timezone.utc).isoformat()
+        readTime = datetime.now(UTC).isoformat()
         with self.openDatabase() as updateDatabase:
             updateDatabase.execute(
                 """
@@ -200,7 +208,7 @@ class CrawlStore:
             )
 
     def saveCheckpoint(self, readFakeid: str, updateUrl: str) -> None:
-        updateTime = datetime.now(timezone.utc).isoformat()
+        updateTime = datetime.now(UTC).isoformat()
         with self.openDatabase() as updateDatabase:
             updateDatabase.execute(
                 "UPDATE accounts SET last_article_url = ?, updated_at = ? WHERE fakeid = ?",
@@ -209,7 +217,7 @@ class CrawlStore:
 
     def startRun(self, readMode: str, readFakeid: str) -> str:
         createId = str(uuid.uuid4())
-        createTime = datetime.now(timezone.utc).isoformat()
+        createTime = datetime.now(UTC).isoformat()
         with self.openDatabase() as updateDatabase:
             updateDatabase.execute(
                 """
@@ -227,7 +235,7 @@ class CrawlStore:
         updateCount: int = 0,
         updateError: str = "",
     ) -> None:
-        updateTime = datetime.now(timezone.utc).isoformat()
+        updateTime = datetime.now(UTC).isoformat()
         with self.openDatabase() as updateDatabase:
             updateDatabase.execute(
                 """
@@ -264,8 +272,18 @@ class CrawlStore:
                 "UPDATE articles SET structured = 1 WHERE url = ?", (readUrl,)
             )
 
+    def markPrefiltered(self, url: str, reason: str, version: str) -> None:
+        with self.openDatabase() as db:
+            db.execute("UPDATE articles SET structured=1, prefilter_reason=?, prefilter_version=? WHERE url=?",
+                       (reason, version, url))
+
+    def requeuePrefiltered(self, version: str) -> int:
+        with self.openDatabase() as db:
+            return db.execute("UPDATE articles SET structured=0, prefilter_reason='' "
+                              "WHERE prefilter_version=? AND prefilter_reason<>''", (version,)).rowcount
+
     def deferArticle(self, readUrl: str) -> None:
-        updateTime = datetime.now(timezone.utc).isoformat()
+        updateTime = datetime.now(UTC).isoformat()
         with self.openDatabase() as updateDatabase:
             updateDatabase.execute(
                 "UPDATE articles SET created_at = ? WHERE url = ?", (updateTime, readUrl)

@@ -36,6 +36,8 @@ def configure(root: Path, supplied: dict, options: dict) -> dict:
     paths.DEFAULT_ARTICLES_DIR = str(root / "data/articles")
     paths.LEGACY_ARTICLES_DIR = str(root / "公众号文章")
     config = dict(supplied)
+    config["relevance_lexicon"] = str(VENDOR / "job_structuring/data/relevance_lexicon.json")
+    config["relevance_titles_xlsx"] = str(VENDOR / "生涯智能体信息源.xlsx")
     allowed = {
         "llm_temperature", "llm_max_tokens", "admin_llm_max_tokens",
         "admin_llm_timeout_seconds", "llm_timeout_seconds", "llm_send_disable_thinking",
@@ -43,12 +45,22 @@ def configure(root: Path, supplied: dict, options: dict) -> dict:
         "upload_timeout_seconds", "bootstrap_article_limit", "daily_mirror_to_dated_folder",
         "daily_folder_suffix", "min_file_size_kb", "delete_small_files",
         "llm_model", "llm_fast_model", "llm_extra_body",
+        "prefilter_enabled", "prefilter_min_hits",
+        "relevance_lexicon", "relevance_titles_csv", "relevance_titles_xlsx",
+        "company_score_enabled", "recommend_log_enabled", "recommend_log_dir",
     }
     if options.keys() - allowed:
         raise ValueError("Unsupported algorithm config option")
     config.update(options)
+    for key in ("relevance_lexicon", "relevance_titles_csv", "relevance_titles_xlsx"):
+        if options.get(key):
+            config[key] = str(local_path(root, str(options[key])))
     paths.configure(config)
     paths.ensure_project_dirs()
+    if config.get("prefilter_enabled", True):
+        from job_structuring.prefilter import collect_terms
+        if not collect_terms(config):
+            raise ValueError("Job relevance lexicon is missing or empty")
     return config
 
 
@@ -71,8 +83,7 @@ def read_positions() -> list[dict]:
 
 
 def jobs(operation: str, request: dict, root: Path, config: dict) -> dict:
-    from job_structuring import engine, paths
-    from job_structuring import admin_parse
+    from job_structuring import admin_parse, engine, paths
     from job_structuring.export import export_positions_json
     from job_structuring.normalize import clean_company_name, sanitize_position_name
 
@@ -172,8 +183,9 @@ def resume_file(request: dict, root: Path, temp: Path) -> Path:
                 raise ValueError("Resume exceeds 20 MB")
             data = base64.b64decode(encoded, validate=True)
         elif "file_url" in request:
-            import requests
             from urllib.parse import urlparse
+
+            import requests
 
             url = request["file_url"]
             if urlparse(url).scheme not in {"http", "https"}:
@@ -200,8 +212,8 @@ def resume_file(request: dict, root: Path, temp: Path) -> Path:
 
 
 def resumes(operation: str, request: dict, root: Path, config: dict) -> dict:
-    from resume_parser.parser import ResumeParser
     from resume_parser.llm.deepseek_client import DeepSeekClient
+    from resume_parser.parser import ResumeParser
 
     parser = ResumeParser(api_key=config["llm_api_key"])
     parser._llm = DeepSeekClient(config["llm_api_key"], config["llm_model"], config["llm_base_url"])
@@ -310,9 +322,10 @@ def wechat(operation: str, request: dict, root: Path, config: dict) -> dict:
 
 
 def upload(request: dict, root: Path, config: dict) -> dict:
-    from job_structuring import upload_backend
-    from app.algorithms.job_structuring.normalize import normalizeJob
     import requests
+    from job_structuring import upload_backend
+
+    from app.algorithms.job_structuring.normalize import normalizeJob
 
     # Preserve upstream upload dedup/state/batching while using the deployed Java auth contract.
     session = requests.Session()
@@ -342,6 +355,10 @@ def execute(payload: dict) -> dict:
     request = payload["request"]
     config = configure(root, payload["config"], request.get("config", {}))
     operation = payload["operation"]
+    if operation in {"job_prefilter", "job_recommend_prepare", "job_recommend_turn",
+                     "job_recommend_rank", "job_source_stats"} or operation.startswith("weread_"):
+        from app.algorithms.enhanced_worker import execute_enhanced
+        return execute_enhanced(operation, request, root, config, VENDOR)
     if operation == "job_upload":
         return upload(request, root, config)
     if operation.startswith("job_"):
@@ -374,7 +391,9 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
             result = {"result": execute(payload)}
-        except Exception as error:
+        # This is the subprocess protocol boundary: every upstream failure must
+        # be serialized for the parent process instead of terminating silently.
+        except Exception as error:  # noqa: BLE001
             message = str(error)
             for secret in payload["config"].values():
                 if isinstance(secret, str) and secret:

@@ -123,6 +123,7 @@ class BackendClient:
             f"/internal/agent/tools/{tool_name}",
             json=arguments,
             headers=read_headers,
+            timeout=settings.tool_timeout(tool_name, write=tool_name.startswith("propose_")),
         )
         return self._unwrap(resp)
 

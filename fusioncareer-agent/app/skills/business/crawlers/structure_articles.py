@@ -11,11 +11,12 @@ from typing import Any
 
 from app.algorithms.job_filter import filter_jobs
 from app.algorithms.job_structuring import structureJobs
+from app.algorithms.upstream import run_algorithm
+from app.config import settings
 from app.core.base_skill import BaseSkill
 from app.integrations.backend import BackendClient
 from app.integrations.llm import LLMClient
-from app.skills.business.crawlers.paths import resolve_config_root
-from app.skills.business.crawlers.paths import CrawlPaths
+from app.skills.business.crawlers.paths import CrawlPaths, resolve_config_root
 from app.skills.business.crawlers.store import CrawlStore
 
 readBackend: BackendClient | None = None
@@ -112,6 +113,12 @@ async def structureArticles(
                 ):
                     readStore.markStructured(readArticle["url"])
                     return 0, 0, 1
+                if settings.prefilter_enabled and readClient is None:
+                    pref = await run_algorithm("job_prefilter", {"text": readText})
+                    if pref.get("skipped"):
+                        version = pref["lexiconVersion"]
+                        readStore.markPrefiltered(readArticle["url"], pref.get("reason", "关键词预筛未命中"), version)
+                        return 0, 0, 1
                 if _algorithm_workflow is not None and readClient is None:
                     readResult = await _algorithm_workflow({
                         "text": readText, "sourceUrl": readArticle["url"], "sourceType": "CRAWL",
@@ -150,7 +157,7 @@ async def structureArticles(
                     readExisting.add(buildJobKey(createJob))
                 readStore.markStructured(readArticle["url"])
                 return len(createJobs) + len(createRecycledJobs), 0, 0
-            except Exception as readError:  # noqa: BLE001 - defer one article and continue the batch
+            except Exception as readError:
                 if isBalanceError(readError):
                     readBalanceExhausted.set()
                     raise BalanceExhaustedError("LLM balance exhausted; batch stopped") from readError
