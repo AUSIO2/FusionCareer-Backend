@@ -592,7 +592,7 @@ schemathesis-report/schema-coverage.html
 
 - 接通资料、简历正文、文件列表、上传、下载、删除和配额接口。
 - 对齐 `Gender`、`PoliticalStatus`、`EduLevel` 和 `Mindset`。
-- 文件限制统一为 PDF/JPG/JPEG/PNG、20MB、总配额 30MB。
+- 文件限制统一为 PDF/DOCX/JPG/JPEG/PNG、20MB、总配额 30MB。
 - 空表单值按协议转换为 `null`。
 
 验收：
