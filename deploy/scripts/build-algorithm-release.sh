@@ -84,8 +84,8 @@ java_image=$java_image
 java_image_id=$java_id
 agent_image=$agent_image
 agent_image_id=$agent_id
-company_score_default=false
-recommendation_audit_log_default=false
+company_score_default=true
+recommendation_audit_log_default=true
 
 This archive intentionally contains no .env.production or secrets.
 Merge new keys from deploy/env.*.example into the existing server environment.

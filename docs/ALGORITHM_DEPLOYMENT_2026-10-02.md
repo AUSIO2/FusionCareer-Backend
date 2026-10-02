@@ -11,15 +11,15 @@
 
 本轮新增更严格的技术岗过滤、同公司岗位去重、可展示推荐理由、80 条有界候选窗口，以及既有预筛、源统计和 WeRead 管理能力。岗位权限和可见性仍由 Java 控制；历史卡片只保存岗位 ID、受限偏好和限长理由，读取时重新检查岗位状态。
 
-## 默认灰度策略
+## 生产启用策略
 
 - `AI_CHAT_RECOMMEND_ENABLED=true`：启用受控推荐 Tool。
 - `RECOMMENDATION_LLM_ENABLED=true`：模型重排失败时回退规则排序。
-- `RECOMMENDATION_COMPANY_SCORE_ENABLED=false`：企业市值功能会逐公司访问第三方服务，默认不进入交互链路。
-- `RECOMMENDATION_AUDIT_LOG_ENABLED=false`：上游审计会包含偏好及简历摘要，未建立留存策略前不落盘。
+- `RECOMMENDATION_COMPANY_SCORE_ENABLED=true`：按发布决定启用企业市值评分；推荐 Tool 预算提高到 110 秒，整轮提高到 150 秒。
+- `RECOMMENDATION_AUDIT_LOG_ENABLED=true`：按发布决定启用上游推荐审计；日志只保存在 Agent 私有持久卷，下载接口不开放该目录。
 - `PREFILTER_ENABLED=true`：启用新版预筛；上线前先对近期文章做只读抽检。
 
-若以后开启市值或审计，两次规则/模型排序会使用受锁的 `recommend-shared` 私有 workspace，以复用缓存并避免并发写日志；开启市值前必须单独压测，并相应提高 Tool 与整轮时限。
+市值与审计使用受锁的 `recommend-shared` 私有 workspace，以复用缓存并避免并发写日志。发布后先用测试账号完成冷缓存验收；若第三方接口使延迟或失败率不可接受，可分别关闭两个开关，不影响技术岗过滤、同公司去重、规则排序和推荐理由。
 
 ## 发布顺序
 

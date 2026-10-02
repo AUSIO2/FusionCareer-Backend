@@ -22,23 +22,22 @@
 
 ```dotenv
 # 优先级最高：指定 Tool 名称覆盖默认值
-AI_CHAT_TOOL_TIMEOUTS={"recommend_jobs":45,"search_jobs":8,"parse_resume_file":90}
+AI_CHAT_TOOL_TIMEOUTS={"recommend_jobs":110,"search_jobs":8,"parse_resume_file":90}
 AI_CHAT_RECOMMEND_ENABLED=true
 
 # 未命中名称覆盖时：专用值优先，再按读/写分类
-AI_CHAT_RECOMMEND_TIMEOUT_SECONDS=30
+AI_CHAT_RECOMMEND_TIMEOUT_SECONDS=110
 AI_CHAT_PARSE_TIMEOUT_SECONDS=90
 AI_CHAT_READ_TOOL_TIMEOUT_SECONDS=3
 AI_CHAT_WRITE_TOOL_TIMEOUT_SECONDS=15
 
 # 对话总时限独立存在，包含所有 Tool 与模型回复
-AI_CHAT_RUN_TIMEOUT_SECONDS=120
+AI_CHAT_RUN_TIMEOUT_SECONDS=150
 RECOMMENDATION_LLM_TIMEOUT_SECONDS=15
 RECOMMENDATION_LLM_ENABLED=true
-# 外部市值查询逐公司访问第三方服务，先单独压测再灰度
-RECOMMENDATION_COMPANY_SCORE_ENABLED=false
-# 上游审计包含偏好和简历摘要，仅在明确留存策略下开启
-RECOMMENDATION_AUDIT_LOG_ENABLED=false
+# 2026-10-02 发布决定：两项均启用，先用测试账号验收冷缓存
+RECOMMENDATION_COMPANY_SCORE_ENABLED=true
+RECOMMENDATION_AUDIT_LOG_ENABLED=true
 ```
 
 不配置 `AI_CHAT_TOOL_TIMEOUTS` 时使用专用/分类默认值；配置 `{}` 仅清除名称覆盖。一个 Tool 的整体 asyncio deadline 覆盖内部重试与子进程。Java Tool HTTP 请求使用同一 Tool 预算，避免配置长解析时仍被 Python HTTP 客户端默认 30 秒截断。
@@ -55,7 +54,7 @@ PYTHON_SERVICE_READ_TIMEOUT_MS=60000
 
 延长单轮处理时间时，同时调整 Java HTTP、SSE、租约、AgentContext 有效期和 Nginx `proxy_read_timeout`。`PYTHON_SERVICE_READ_TIMEOUT_MS` 控制 Java 对普通解析接口的等待，与对话 SSE 时限不同。不要把一个 Tool 的超时设得比单轮总时间还长并期待它生效。
 
-Java 和 Agent 的 AI_CHAT_RECOMMEND_ENABLED 保持一致；设为 false 隐藏推荐能力并阻止内部推荐查询，普通聊天与搜索继续可用。重排失败/超时时仅降级为真实候选的规则排序；候选查询失败返回工具错误，不伪装为空结果。推荐交互不落盘完整 LLM 输入输出；上游新增的推荐审计默认关闭，后台原有私有调试日志机制保留。最新算法的技术岗过滤、同公司去重和推荐理由不依赖这两个灰度开关。
+Java 和 Agent 的 AI_CHAT_RECOMMEND_ENABLED 保持一致；设为 false 隐藏推荐能力并阻止内部推荐查询，普通聊天与搜索继续可用。重排失败/超时时仅降级为真实候选的规则排序；候选查询失败返回工具错误，不伪装为空结果。推荐交互不落盘完整 LLM 输入输出；上游推荐审计按本轮发布决定启用，并只保存在私有持久卷。最新算法的技术岗过滤、同公司去重和推荐理由不依赖市值或审计开关，可在异常时单独关闭两项。
 
 ## 消息协议
 
