@@ -1,7 +1,7 @@
 # FusionCareer-Algorithm integration
 
 - Repository: https://github.com/chenxin1209/FusionCareer-Algorithm
-- Pinned commit: `72ff6b2b44520f78090958f0c3a7e74959189646` (2026-09-15)
+- Pinned commit: `1f3d8a7a7d244487294a3793658e625d4d9086f1` (2026-10-02)
 - License: MIT, preserved in the vendor directory and THIRD_PARTY_LICENSES.
 - Source: `app/vendor/fusioncareer_algorithm/`.
 - `PROVENANCE.json` records SHA-256 hashes of every upstream tracked file.
