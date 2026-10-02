@@ -1,26 +1,11 @@
 {
-  "name": "for_loop_simple",
+  "name": "for_loop_demo_body",
+  "description": "For 循环演示 body；实际 loop 参数见 POST /api/workflows/for_loop_demo_body/run 请求体",
   "nodes": {
-    "loop": {
-      "kind": "for",
-      "judge_skill": "judge_continue",
-      "max_iterations": 100,
-      "judge_inputs": {
-        "max_true": { "value": 3 }
-      },
-      "initial_globals": {
-        "judge_count": 0
-      },
-      "target_workflow": {
-        "name": "target_echo",
-        "nodes": {
-          "src": {
-            "skill": "input_text",
-            "inputs": {
-              "text": { "value": "loop-body" }
-            }
-          }
-        }
+    "src": {
+      "skill": "input_text",
+      "inputs": {
+        "text": { "value": "loop-body" }
       }
     }
   }

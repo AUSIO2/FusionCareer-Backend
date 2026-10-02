@@ -1,5 +1,6 @@
 package com.fusioncareer.controller;
 
+import cn.hutool.core.bean.BeanUtil;
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
 import com.fusioncareer.common.R;
@@ -41,14 +42,14 @@ public class QuestionnaireController {
     @GetMapping("/questions/{jobPostId}")
     @Operation(summary = "获取某岗位的投递问卷（含截止信息）")
     public R<JobPostQuestionnaireResponse> getQuestions(@PathVariable Long jobPostId) {
-        JobPostEntity job = jobPostService.getById(jobPostId);
+        JobPostEntity job = jobPostService.getVisibleJob(jobPostId);
         if (job == null) {
             throw ServiceException.of(QuestionnaireErrorCode.JOB_POST_NOT_FOUND);
         }
-        JobPostQuestionnaireResponse resp = new JobPostQuestionnaireResponse();
-        resp.setQuestionnaireDeadline(job.getWorkEndDate());
-        resp.setExpired(QuestionnaireDeadlineUtil.isExpired(job.getWorkEndDate()));
-        resp.setSourceUrl(job.getSourceUrl());
+        JobPostQuestionnaireResponse resp = BeanUtil.copyProperties(job, JobPostQuestionnaireResponse.class);
+        resp.setQuestionnaireDeadline(job.getApplicationDeadline());
+        resp.setExpired(QuestionnaireDeadlineUtil.isExpired(
+                job.getApplicationDeadline(), job.getWorkEndDate()));
         resp.setQuestions(jobPostQuestionService.listByJobPostId(jobPostId));
         return R.success(resp);
     }

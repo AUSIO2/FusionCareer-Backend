@@ -5,6 +5,8 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.res.JobPostResponse;
+import com.fusioncareer.exception.ResultCode;
+import com.fusioncareer.exception.ServiceException;
 import com.fusioncareer.service.JobPostService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -28,7 +30,11 @@ public class JobPostController {
     @GetMapping("/{id}")
     @Operation(summary = "获取岗位详情")
     public R<JobPostResponse> getById(@PathVariable Long id) {
-        return R.success(jobPostService.getJobPost(id));
+        JobPostResponse readJob = jobPostService.getVisibleJobPost(id);
+        if (readJob == null) {
+            throw ServiceException.of(ResultCode.NOT_FOUND, "岗位不存在或当前不可见");
+        }
+        return R.success(readJob);
     }
 
     @GetMapping("/list")

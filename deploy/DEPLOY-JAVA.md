@@ -1,21 +1,16 @@
-# Java 机从零部署指南（空机器 + 堡垒机 + Mac 本地编译）
+# Java 机从零部署指南（空机器 + 双向隧道 + Mac 本地编译）
 
-适用：**全新 Ubuntu Java 机** `172.22.130.216`，通过 **复旦云堡垒机** 登录；**不在 Java 机上安装 Maven/编译源码**。  
+适用：**全新 Ubuntu Java 机** `172.22.130.216`；Mac 先直接 SSH 到 Python 机 `10.107.13.184`，再通过 Python↔Java SSH 通道进入目标机。Java 机不从 Mac 直连，也**不在 Java 机上安装 Maven/编译源码**。
 Python 网关已部署见 [DEPLOY-DUAL.md](DEPLOY-DUAL.md)、[docker-compose.gateway.yml](docker-compose.gateway.yml)。
 
-## 自动化脚本（推荐）
+## 发布流程（推荐）
 
 | 步骤 | 机器 | 命令 |
 |------|------|------|
 | 1 | **Mac** | `cp deploy/env.java.example .env.production` 并编辑 |
-| 2 | **Mac** | `chmod +x deploy/scripts/*.sh && ./deploy/scripts/mac-build-and-serve.sh` |
-| 3 | **Java** | 按脚本输出的 `MAC_IP` 执行下面两行 |
-
-```bash
-export MAC_IP=10.x.x.x    # Mac 脚本打印的校园网 IP
-curl -f -o /tmp/java-deploy-from-mac.sh http://${MAC_IP}:8765/java-deploy-from-mac.sh
-bash /tmp/java-deploy-from-mac.sh ${MAC_IP} 8765
-```
+| 2 | **Mac** | `./deploy/scripts/mac-build-and-serve.sh --no-serve` |
+| 3 | **Mac → Python** | 将 `/tmp` 中生成的两个包上传到 Python 机 |
+| 4 | **Python → Java** | 经 SSH 通道传包并进入 Java 部署 |
 
 详见 [scripts/README.md](scripts/README.md)。
 
@@ -36,7 +31,7 @@ bash /tmp/java-deploy-from-mac.sh ${MAC_IP} 8765
 |------|----------|------|
 | 9100 | **仅** `10.107.13.184` | Python Nginx 反代 |
 | 3306 | 不开放 | MySQL 仅容器内网 |
-| 22 | 堡垒机/运维网段 | SSH（按学校规范） |
+| 22 | **仅 Python 机** | SSH 运维入口 |
 
 **部署前准备（纸质/密钥管理）**
 
@@ -131,24 +126,40 @@ cd -
 ls -lh /tmp/fusioncareer-backend-prod.tar.gz /tmp/fusioncareer-java-deploy.tgz
 ```
 
-上传到堡垒机/Java 机的文件共 **2 个**：
+上传到 Python 机的文件共 **2 个**：
 
 - `fusioncareer-backend-prod.tar.gz`（镜像）
 - `fusioncareer-java-deploy.tgz`（compose + schema + env）
 
 ---
 
-## 2. 堡垒机传文件到 Java 机
+## 2. 经双向通道传文件到 Java 机
 
-1. 打开 https://blj-fcloud.fudan.edu.cn/shterm  
-2. 连接资产 **`172.22.130.216`**  
-3. 将上述 2 个文件传到 Java 机 `/tmp/`（页面上传、`rz`、或堡垒机中转 `scp`，按学校规范）
+先从 Mac 将上述 2 个文件上传到 Python 机，再登录 Python：
+
+```bash
+scp /tmp/fusioncareer-backend-prod.tar.gz \
+  /tmp/fusioncareer-java-deploy.tgz \
+  vmadmin@10.107.13.184:/tmp/
+ssh vmadmin@10.107.13.184
+```
+
+在 Python 机通过 `127.0.0.1:19022` 反向 SSH 通道把文件送到 Java：
+
+```bash
+scp -P 19022 \
+  /tmp/fusioncareer-backend-prod.tar.gz \
+  /tmp/fusioncareer-java-deploy.tgz \
+  root@127.0.0.1:/tmp/
+```
+
+以后部署均使用此路径，不再让 Java 机从 Mac HTTP 拉包。
 
 ---
 
 ## 3. Java 空机：系统初始化 + Docker
 
-以下在 **Java 机终端**执行（堡垒机 SSH 进去后）。系统以 **Ubuntu 22.04/24.04** 为例。
+以下在 **Java 机终端**执行（从 Python 机经 SSH 通道进入后）。系统以 **Ubuntu 22.04/24.04** 为例。
 
 ### 3.1 基础工具
 

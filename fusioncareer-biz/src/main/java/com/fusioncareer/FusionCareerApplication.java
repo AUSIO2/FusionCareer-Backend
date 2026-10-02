@@ -2,6 +2,7 @@ package com.fusioncareer;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * FusionCareer 应用启动类
@@ -9,6 +10,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * @author Xiong Heng
  */
 @SpringBootApplication
+@EnableScheduling
 public class FusionCareerApplication {
 
     public static void main(String[] args) {

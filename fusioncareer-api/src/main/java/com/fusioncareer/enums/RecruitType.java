@@ -18,7 +18,8 @@ public enum RecruitType {
     DAILY_INTERNSHIP(3, "日常实习"),
     CAMPUS_RECRUITMENT(4, "应届生招聘"),
     CAMPUS_SCREENING(5, "应届生摸排"),
-    OTHER(6, "其他");
+    OTHER(6, "其他"),
+    BOTH_INTERNSHIP(7, "大/小实习均可");
 
     @EnumValue
     private final int code;

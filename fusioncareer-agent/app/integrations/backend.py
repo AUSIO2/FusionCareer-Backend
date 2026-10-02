@@ -13,9 +13,10 @@ logger = logging.getLogger(__name__)
 class BackendApiError(Exception):
     """Java 后端返回业务错误"""
 
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, http_status: int | None = None):
         self.code = code
         self.message = message
+        self.http_status = http_status
         super().__init__(f"Backend API Error [{code}]: {message}")
 
 
@@ -33,10 +34,13 @@ class BackendClient:
 
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
+            read_headers = {"Content-Type": "application/json"}
+            if settings.internal_service_token:
+                read_headers["X-Internal-Token"] = settings.internal_service_token
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
                 timeout=30.0,
-                headers={"Content-Type": "application/json"},
+                headers=read_headers,
             )
         return self._client
 
@@ -77,6 +81,52 @@ class BackendClient:
         resp.raise_for_status()
         return resp.content
 
+    async def read_resume_file(self, user_id: int, file_id: int) -> tuple[dict, bytes]:
+        """Validate ownership through the user file list, then download bytes."""
+        read_files = await self.list_resume_files(user_id)
+        read_file = next(
+            (read_item for read_item in read_files if str(read_item.get("id")) == str(file_id)),
+            None,
+        )
+        if read_file is None:
+            raise BackendApiError(403, "resume file does not belong to user")
+        return read_file, await self.download_resume_file(file_id)
+
+    # ── 岗位相关 ──────────────────────────────
+
+    async def list_job_posts(self) -> list[dict]:
+        read_jobs: list[dict] = []
+        read_page = 1
+        while True:
+            read_result = await self._get(f"/internal/job-post/list?page={read_page}&size=100") or {}
+            read_jobs.extend(read_result.get("list") or [])
+            if read_page >= int(read_result.get("totalPages") or 0):
+                return read_jobs
+            read_page += 1
+
+    async def create_job_posts(self, create_jobs: list[dict]) -> None:
+        if create_jobs:
+            await self._post("/internal/job-post/batch", create_jobs)
+
+    async def run_agent_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        agent_context: str,
+        tool_call_id: str | None = None,
+    ) -> Any:
+        client = await self._ensure_client()
+        read_headers = {"X-Agent-Context": agent_context}
+        if tool_call_id:
+            read_headers["X-Agent-Tool-Call-Id"] = tool_call_id
+        resp = await client.post(
+            f"/internal/agent/tools/{tool_name}",
+            json=arguments,
+            headers=read_headers,
+            timeout=settings.tool_timeout(tool_name, write=tool_name.startswith("propose_")),
+        )
+        return self._unwrap(resp)
+
     # ── 通用方法 ──────────────────────────────
 
     async def _post(self, path: str, data: Any) -> Any:
@@ -103,8 +153,16 @@ class BackendClient:
     @staticmethod
     def _unwrap(resp: httpx.Response) -> Any:
         """解析统一响应 {"code": 200, "message": "...", "data": ...}"""
-        body = resp.json()
+        try:
+            body = resp.json()
+        except ValueError:
+            resp.raise_for_status()
+            raise BackendApiError(resp.status_code, "后端返回了无效响应", resp.status_code)
         code = body.get("code", -1)
-        if code != 200:
-            raise BackendApiError(code, body.get("message", "Unknown error"))
+        if not resp.is_success or code != 200:
+            raise BackendApiError(
+                code if isinstance(code, int) else resp.status_code,
+                str(body.get("message") or "后端请求失败")[:256],
+                resp.status_code,
+            )
         return body.get("data")

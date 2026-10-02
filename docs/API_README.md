@@ -1,11 +1,17 @@
 # FusionCareer Backend API 接口文档
 
-> **Base URL**: `http://localhost:8080`  
-> **认证方式**: Sa-Token，Header 传递 `Fusion-Token: <token>`  
+> **Base URL**: `http://localhost:8080`
+>
+> **认证方式**: Sa-Token，Header 传递 `Fusion-Token: <token>`
+>
 > **统一响应格式**:
 > ```json
 > { "code": 200, "message": "操作成功", "data": ... }
 > ```
+> 请求错误仍使用相同结构且 `data` 为 `null`。标准错误的 HTTP 状态与
+> `code` 一致：参数错误 400、未登录 401、无权限 403、资源不存在 404、
+> 状态冲突 409、服务异常 500；模块业务码（如 410xx、420xx）保持在响应体
+> `code` 中，由客户端读取并展示 `message`。
 
 ---
 
@@ -14,12 +20,13 @@
 - [1. 系统接口](#1-系统接口)
 - [2. 认证接口（复旦 SSO）](#2-认证接口复旦-sso)
 - [3. 用户端接口（需登录）](#3-用户端接口需登录)
+  - [3.0 个人空间](#30-个人空间)
   - [3.1 个人资料](#31-个人资料)
   - [3.2 个人简历](#32-个人简历)
   - [3.3 简历文件](#33-简历文件)
   - [3.4 岗位浏览](#34-岗位浏览)
   - [3.5 岗位投递问卷](#35-岗位投递问卷)
-- [4. 内部管理接口（无需登录）](#4-内部管理接口无需登录)
+- [4. 管理员与内部接口](#4-管理员与内部接口)
   - [4.1 用户管理](#41-用户管理)
   - [4.2 用户资料管理](#42-用户资料管理)
   - [4.3 简历管理](#43-简历管理)
@@ -48,12 +55,25 @@
 
 | 方法 | 路径 | 说明 | 认证 |
 |------|------|------|------|
-| GET | `/fudan/login` | 重定向至复旦统一认证登录 | ❌ |
-| GET | `/fudan/callback?code=xxx` | 认证回调（复旦认证中心调用） | ❌ |
+| GET | `/fudan/login?target=user|admin` | 重定向至复旦统一认证登录，并保存登录目标 | ❌ |
+| GET | `/fudan/callback?code=xxx&state=xxx` | 认证回调（复旦认证中心调用） | ❌ |
 | GET | `/fudan/logout` | 主动注销，重定向至复旦退出 | ❌ |
+| POST | `/fudan/logout` | 注销本地会话并返回 UIS 退出地址 | ✅ |
 | GET | `/fudan/slo?token=xxx` | 被动注销回调（复旦认证中心调用） | ❌ |
 
-> 登录成功后，回调接口会自动创建/更新用户并生成 Sa-Token，通过 Cookie 或 URL 参数返回给前端。
+> 登录请求和回调必须携带匹配的一次性 `state`。`target` 只决定登录后的落地页，管理员权限仍由数据库角色和 `/admin/**` 后端鉴权决定。登录成功后生成 Sa-Token，并重定向到 `/#/home?token=...` 或 `/#/admin?token=...`；fragment 不会进入 Nginx 请求日志。普通用户请求管理端时回到首页并携带 `notice=admin_forbidden`。
+
+POST 退出响应：
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "redirectUrl": "https://id.fudan.edu.cn/..."
+  }
+}
+```
 
 ---
 
@@ -61,12 +81,167 @@
 
 > 所有接口需要 Header: `Fusion-Token: <token>`
 
+姓名展示约定：`GET /user/me`、用户列表/详情及投递审核响应的 `realName` 优先读取用户资料，
+其次使用确实为姓名的历史 `username`。空值、纯数字及与 `studentId` 相同的标识不作为姓名，
+无可用姓名时返回 `null`，界面显示“未填写姓名”。`username` 仍为账号字段，`studentId` 单独展示为学工号。
+`/user/profile/get` 使用同样的姓名规则；个人空间的 `displayName` 无姓名时为“未填写姓名”。
+UIS 登录会跳过姓名字段中的学工号，并在有真实姓名时修复历史空白或学工号占位，保留用户已填写的有效姓名。
+
+### 3.0 个人空间
+
+个人空间是当前登录用户账号、资料、简历、文件、投递、长期记忆和唯一 AI Session 的统一入口。总览只返回摘要和链接，不包含联系方式、简历正文、文件列表、问卷答案、记忆正文或聊天消息。
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/personal-space` | 获取个人空间轻量总览 |
+| GET | `/personal-space/profile` | 获取当前用户资料 |
+| PATCH | `/personal-space/profile` | 按字段修改当前用户资料 |
+| GET | `/personal-space/resume` | 获取当前用户结构化简历 |
+| PATCH | `/personal-space/resume` | 按字段修改当前用户结构化简历 |
+| GET | `/personal-space/documents` | 获取文件列表和配额 |
+| GET | `/personal-space/documents/deleted` | 获取回收站文件 |
+| DELETE | `/personal-space/documents/{fileId}` | 将文件移入回收站 |
+| POST | `/personal-space/documents/{fileId}/restore` | 恢复回收站文件 |
+| GET | `/personal-space/applications?page=&size=&status=` | 分页获取我的投递 |
+| GET | `/personal-space/memory` | 获取轻量长期记忆 |
+| PUT | `/personal-space/memory/{key}` | 设置一个长期记忆项 |
+| DELETE | `/personal-space/memory/{key}?expectedVersion=` | 删除一个长期记忆项 |
+| DELETE | `/personal-space/memory?expectedVersion=` | 清空长期记忆 |
+| GET | `/personal-space/actions?beforeId=&size=` | 游标分页获取安全变更历史 |
+| GET | `/personal-space/actions/{actionId}` | 获取一条变更的安全详情 |
+| POST | `/personal-space/actions/{actionId}/revert` | 创建一个 PENDING 回退提案 |
+| POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行回退提案 |
+| POST | `/personal-space/actions/{actionId}/reject` | 拒绝回退提案 |
+| GET | `/personal-space/assistant/session` | 获取当前用户唯一 AI Session 状态 |
+| GET | `/personal-space/assistant/messages?beforeId=&size=` | 游标分页获取当前 epoch 消息 |
+| POST | `/personal-space/assistant/messages/stream` | 发送消息并获取 `text/event-stream` |
+| POST | `/personal-space/assistant/run/cancel` | 取消当前 active run |
+| POST | `/personal-space/assistant/session/clear` | epoch 加一并清空当前对话 |
+| DELETE | `/personal-space/assistant/session` | 删除 Session 和消息 |
+
+Profile 和 Resume 的 PATCH 请求使用统一的 SET/CLEAR 语义：
+
+```json
+{
+  "expectedVersion": 6,
+  "set": {
+    "major": "新闻传播学",
+    "intentionCity": ["上海", "杭州"]
+  },
+  "clear": ["supervisor"]
+}
+```
+
+- `expectedVersion` 必填；与当前资源版本不一致时返回 HTTP 409；资源尚不存在时使用 `0` 创建。
+- 同一字段不能同时出现在 `set` 和 `clear`；`set` 不接受 `null` 或空字符串，清空必须使用 `clear`。
+- Profile 只允许修改 16 个公开用户字段，Resume 只允许修改 9 个公开用户字段；账号和系统字段会返回 HTTP 400。
+- `intentionCity` 在 PATCH 中使用字符串数组；服务端负责转换为数据库 JSON 表示。
+- 实际值没有变化时是幂等成功，不递增 `version`。
+
+Memory 只接受以下固定 key：
+
+- 字符串：`responseStyle`、`currentGoal`；
+- 字符串数组：`targetCities`、`targetIndustries`、`preferredWorkModes`、`temporaryConstraints`。
+
+PUT 请求体：
+
+```json
+{
+  "expectedVersion": 1,
+  "value": ["上海", "杭州"]
+}
+```
+
+单个字符串最多 256 字符，数组包含 1–10 个不重复非空字符串，全部记忆序列化后最多 4KB。Memory 使用独立版本 CAS；首次创建使用版本 `0`，无实际变化时不递增版本。清空 Agent Session 不会清除该资源。
+
+Profile、Resume 和 Memory 的 canonical 写入会与 `APPLIED` Action/Item 在同一事务中提交。历史查询只返回操作来源、资源、字段名和版本，不返回 before/after 或密文。实际变更字段的快照使用 AES-256-GCM 加密，并以用户、Action、资源和快照方向作为认证附加数据；密文被修改或移动到其他资源后无法通过认证。
+
+文件 multipart 上传属于用户明确操作，上传成功时同步记录 `APPLIED CREATE` Action。对该 Action 执行 Revert 会把文件移入回收站而不删除 blob；Revert-of-Revert 恢复同一文件 ID。只有明确的永久数据清除流程会物理删除文件。
+
+`GET /personal-space/actions/{actionId}/confirmation` 返回当前登录用户专用的确认卡，只包含字段中文名和安全展示文本。手机号、邮箱等敏感旧值默认脱敏，问卷答案只显示回答数量，长简历正文会截断；接口永不返回原始快照、密文或存储路径。其他用户请求同一 actionId 返回 404。
+
+回退没有时间窗口。`revert` 会使用原 Action 的 before/after 与当前资源逐字段比较：当前值仍等于 after 时生成反向修改，已经等于 before 的字段视为无操作，其他值返回 HTTP 409。`confirm` 再次执行版本 CAS 后应用修改；原 Action 永远保持 `APPLIED`，新 Revert Action 也可再次 Revert。当前自动回退范围包含 Profile、Resume、Memory、文件软删除状态、问卷作答及 Profile + Resume 多资源 Action；多资源确认或 Revert 任一项冲突时整体回滚。已审核投递的撤回生成 `WITHDRAWN` 并保留审核元数据。
+
+同字段冲突后，登录用户可调用 `POST /personal-space/actions/{actionId}/revert/resolve`，按 `resourceType + resourceKey` 选择明确要恢复的字段；存在性冲突还需显式设置 `forceResourceState=true`。该接口仍只创建 PENDING Revert，随后必须查看确认卡并调用 confirm，不会直接覆盖当前数据。
+
+AI Session 以 `userId` 为主键，同一用户最多一条记录，并在第一次发送消息时惰性创建。清空对话通过 `epoch + 1` 隔离旧消息和迟到的模型结果；重置会删除 Session 与聊天消息，但两者都保留 PersonalSpace Memory 和已应用变更历史。消息流通过 Java 登录态接口转发 Python AsyncOpenAI，依次产生 `start`、`delta`、`ping` 和一个 `done/error/cancelled` 终态；Java 必须先完成最终消息落库和租约释放，再发送 `done`。相同 `clientRequestId` 的已完成请求只重放 snapshot，不再次调用模型。
+
+`GET /personal-space/assistant/capabilities` 是前端的权威能力来源，返回 AgentContext 是否已配置、写 Tool 灰度状态、当前只读/写入 Tool 名称以及消息、附件、历史和上下文上限。前端不得自行硬编码 `AI_CHAT_WRITE_ENABLED`。
+
+模型上下文最多携带摘要后的最近 12 条、20K 字符消息。累计 20 条完整消息或超过字符预算时，Java 在回复落库后异步调用 `/api/internal/chat/summarize`；摘要端点没有 Tool 权限，写回使用 `epoch + summaryThroughMessageId` CAS，失败不影响当前 SSE。
+
+后台任务每分钟回收 `lease_until` 已过期的运行：助手消息转为 `FAILED`、错误码为 `LEASE_EXPIRED`，对应未确认提案转为 `REJECTED/RUN_NOT_COMPLETED`，Session 重新允许发起新请求。
+
+当前只读 Tool 包含：`get_my_space`、`get_my_account`、`get_my_profile`、`get_my_resume`、`list_my_files`、`get_my_file`、`get_my_file_quota`、`get_my_memory`、`list_my_applications`、`get_my_application`、`search_jobs`、`get_job`、`get_job_questionnaire`、`list_my_changes`、`get_my_change`。模型不可传入 userId；Python 只原样转发 Java 签发的 AgentContext，Java 在每次 Tool 调用时重新校验签名、过期时间、run、epoch、租约和 scope。
+
+`AI_CHAT_WRITE_ENABLED=true` 时开放 8 个提案 Tool：Profile、Resume、Memory、文件删除、文件恢复、问卷草稿、问卷提交和简历解析。字段 Tool 使用 `changes: [{field, operation, value?}]`；文件 Tool 只接受当前用户对应状态的 `fileId`；问卷 Tool 使用结构化 `{questionId,value}` 数组；简历解析只接受当前用户活动文件，并生成 Profile + Resume 多 Item Action。Java 从 AgentContext 确定用户和当前版本，并以 `runId + toolCallId` 派生幂等键。Tool 只保存加密的 `PENDING` Action；Python 会产生 `action_proposed` SSE 事件。确认和拒绝只能由登录用户调用 `/personal-space/actions/{id}/confirm|reject`，确认时再次执行版本 CAS，成功后该 Action 可随时 Revert。
+
+总览响应示例：
+
+```json
+{
+  "code": 200,
+  "message": "操作成功",
+  "data": {
+    "account": {
+      "id": "2050967238021779458",
+      "username": "zhangsan",
+      "displayName": "张三",
+      "studentId": "22300000000",
+      "role": "NORMAL",
+      "status": "NORMAL"
+    },
+    "sections": {
+      "profile": {
+        "exists": true,
+        "version": "0",
+        "updatedAt": "2026-09-28T10:00:00",
+        "href": "/api/personal-space/profile"
+      },
+      "resume": {
+        "exists": true,
+        "version": "0",
+        "updatedAt": "2026-09-28T10:01:00",
+        "href": "/api/personal-space/resume"
+      },
+      "documents": {
+        "count": "2",
+        "usedBytes": "102400",
+        "quotaBytes": "31457280",
+        "href": "/api/personal-space/documents"
+      },
+      "applications": {
+        "total": "3",
+        "draft": "1",
+        "submitted": "1",
+        "reviewed": "1",
+        "href": "/api/personal-space/applications"
+      },
+      "memory": {
+        "count": 2,
+        "version": "1",
+        "updatedAt": "2026-09-29T10:00:00",
+        "href": "/api/personal-space/memory"
+      },
+      "assistant": {
+        "sessionExists": true,
+        "activeRun": false,
+        "href": "/api/personal-space/assistant/session"
+      }
+    }
+  }
+}
+```
+
 ### 3.1 个人资料
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| GET | `/user/me` | 获取当前用户、角色和状态 |
 | GET | `/user/profile/get` | 获取个人资料 |
 | PUT | `/user/profile/save` | 保存个人资料 |
+
+`GET /user/me` 返回 `UserResponse`，其中 `role` 为 `NORMAL`、`ADMIN` 或 `SUPERADMIN`，`status` 为 `NORMAL` 或 `DISABLED`。管理员路由必须以后端角色校验结果为准。
 
 **PUT 请求体** `UserProfileRequest`:
 ```json
@@ -81,7 +256,7 @@
   "hometown": "上海市",
   "grade": "2022级",
   "major": "新闻学",
-  "eduLevel": "BACHELOR",
+  "eduLevel": "UNDERGRADUATE",
   "supervisor": "李教授",
   "intentionOrder": "企业公司,新闻媒体",
   "intentionCity": "[\"上海\",\"北京\"]",
@@ -119,10 +294,10 @@
 | POST | `/user/resume/file/upload` | 上传简历文件（multipart/form-data, field: `file`） |
 | GET | `/user/resume/file/list` | 获取我的简历文件列表 |
 | GET | `/user/resume/file/{fileId}/download` | 下载指定简历文件（流式） |
-| DELETE | `/user/resume/file/{fileId}` | 删除指定简历文件 |
+| DELETE | `/user/resume/file/{fileId}` | 将指定简历文件移入回收站 |
 | GET | `/user/resume/file/quota` | 查询存储配额 |
 
-**上传限制**: PDF / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB
+**上传限制**: PDF / DOCX / JPG / PNG，单文件 ≤ 20MB，个人总配额 30MB
 
 **文件列表响应** `ResumeFileResponse`:
 ```json
@@ -132,7 +307,10 @@
   "url": "http://localhost:8080/files/resumes/xxx/2026-05-03/abc.pdf",
   "fileSize": 102400,
   "mimeType": "application/pdf",
-  "createdAt": "2026-05-03T12:00:00"
+  "version": "0",
+  "deletedAt": null,
+  "createdAt": "2026-05-03T12:00:00",
+  "updatedAt": "2026-05-03T12:00:00"
 }
 ```
 
@@ -142,6 +320,8 @@
 |------|------|------|
 | GET | `/job/{id}` | 获取岗位详情 |
 | GET | `/job/list` | 分页查询已发布岗位列表 |
+
+岗位详情与列表使用相同可见性条件：仅返回 `PUBLISHED`，且投递截止日期和工作结束日期均未过期的岗位；不存在或不可见详情返回 404。
 
 **GET `/job/list` 查询参数**:
 
@@ -156,14 +336,28 @@
 | `workDurationType` | enum | 工作时长类型 |
 | `workPeriodType` | enum | 实习时长 |
 | `workMode` | enum | 工作形式 |
-| `workCity` | string | 工作城市 |
+| `workProvince` | string | 工作省份 |
+| `workCity` | string | 工作城市；同时兼容匹配 `workCities` 中的任一城市 |
+| `reqEduLevel` | enum | 学历要求；同时兼容匹配 `reqEduLevels` 中的任一学历 |
+| `salaryMin` | int | 查询薪资下限，与岗位薪资区间相交 |
+| `salaryMax` | int | 查询薪资上限，与岗位薪资区间相交 |
+| `sortBy` | enum | `NEWEST`（默认）或 `DEADLINE` |
+| `recommended` | boolean | 是否只查询推荐岗位 |
 | `sourceType` | enum | 来源类型 |
+
+岗位响应额外包含：
+
+- `recommended`：是否推荐。
+- `applicationCount`：已提交和已审核的投递数，不包含草稿。
+- `workCities`：工作城市数组；旧数据会由 `workCity` 补为单元素数组。
+- `reqEduLevels`：学历要求数组；旧数据会由 `reqEduLevel` 补为单元素数组。
 
 ### 3.5 岗位投递问卷
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/questionnaire/questions/{jobPostId}` | 获取某岗位的投递问卷 |
+| POST | `/questionnaire/draft` | 保存问卷草稿 |
 | POST | `/questionnaire/submit` | 提交问卷作答（重复提交覆盖更新） |
 | GET | `/questionnaire/my/{jobPostId}` | 查看我对某岗位的作答 |
 | POST | `/questionnaire/upload` | 上传问卷附件（multipart/form-data, field: `file`） |
@@ -175,6 +369,9 @@
   "answers": "[{\"questionId\":1,\"value\":\"研一\"},{\"questionId\":2,\"value\":\"男\"},{\"questionId\":3,\"value\":\"310101200001011234\"}]"
 }
 ```
+
+草稿与提交均要求岗位当前可见且未截止。答案必须引用当前岗位的题目，并按 `TEXT`、`TEXTAREA`、`RADIO`、`CHECKBOX`、`FILE_UPLOAD` 校验类型、长度和选项；文件答案必须属于当前用户且未在回收站。草稿可缺少必填项，正式提交必须填写全部 required 题。
+作答状态为 `DRAFT`、`SUBMITTED`、`REVIEWED` 或 `WITHDRAWN`。已审核投递的 Revert 会进入 `WITHDRAWN`，不会清除 `reviewedAt`、`reviewPassed` 或 `reviewComments`。
 > `answers` 字段是 JSON 字符串，数组中每个对象包含 `questionId`（题目ID）和 `value`（作答值）。
 
 **问卷题目响应** `JobPostQuestionResponse`:
@@ -195,9 +392,111 @@
 
 ---
 
-## 4. 内部管理接口（无需登录）
+## 4. 管理员与内部接口
 
-> 路径前缀 `/internal/**`，不经过 Sa-Token 拦截器，供管理后台和 Python 算法服务直接调用。
+### 4.0 浏览器管理员接口
+
+浏览器管理接口需要 `Fusion-Token`。岗位管理允许 `ADMIN` 和 `SUPERADMIN`；系统管理仅允许 `SUPERADMIN`：
+
+| 资源 | 路径 | 能力 |
+|------|------|------|
+| 系统管理（仅超级管理员） | `/admin/user/**` | 分页查看、修改角色、用户资料/简历查询、简历下载、Excel 导出 |
+| 岗位 | `/admin/job-post/**` | 列表、详情、创建、Excel 批量导入、更新、回收与恢复 |
+| 问卷题目 | `/admin/questionnaire/questions/**` | 读取、整组保存、删除 |
+| 投递审核 | `/admin/questionnaire/answers/**` | 列表、详情、单条审核、批量审核、导出 |
+
+未登录返回 HTTP 401，无对应角色返回 HTTP 403。普通管理员访问 `/admin/user/**` 返回 403。
+超级管理员继承岗位和投递审核权限，角色变更在下次请求立即生效；数据库仍保存单一角色。
+
+投递导出：
+
+```text
+GET /admin/questionnaire/answers/job/{jobPostId}/export?format=csv
+GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip
+GET /admin/questionnaire/answers/job/{jobPostId}/export?format=zip&content=profile&content=resume&content=files
+```
+
+- `answerIds` 可选，可重复传递或使用逗号分隔，只导出选中的投递。
+- `content` 可选且可重复传递，支持 `profile`（用户资料）、`resume`（在线简历正文）和 `files`（用户上传的简历文件）。
+- 选择 `profile` 或 `resume` 时，相应字段追加到 `applications.csv`；选择 `files` 时必须使用 ZIP。
+- CSV 带 UTF-8 BOM，可直接用 Excel 打开。
+- 未传 `content` 时保持旧行为：ZIP 包含 `applications.csv` 和问卷文件题引用的附件。
+- 传入 `content=files` 时，ZIP 包含选中投递用户上传的全部简历文件。
+- 草稿不会进入导出结果。
+
+系统管理用户接口（全部要求 SUPERADMIN）：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/user/list?page=1&size=10&username=xxx` | 分页查询用户列表 |
+| GET | `/admin/user/{id}` | 查询账号信息，不返回密码 |
+| GET | `/admin/user/{id}/profile` | 查询完整个人资料 |
+| GET | `/admin/user/{id}/resume` | 查询在线简历正文 |
+| GET | `/admin/user/{id}/resume/file/list` | 查询简历文件元数据 |
+| GET | `/admin/user/{id}/resume/file/{fileId}/download` | 流式下载属于该用户的简历文件 |
+| GET | `/admin/user/export?username=xxx&role=NORMAL&userIds=1,2` | 下载用户信息 `.xlsx`，参数均可选 |
+| PUT | `/admin/user/{id}/role?role=SUPERADMIN` | 设置为 NORMAL、ADMIN 或 SUPERADMIN；不可撤销自己的超级管理员权限 |
+
+列表与导出的 `username` 匹配姓名、用户名或学号/工号，`role` 精确匹配角色；`userIds` 支持逗号分隔或重复参数，
+与其他筛选条件取交集。未传筛选时导出全部用户，包含所有分页，而非仅当前页。
+Excel 包含账号信息、用户资料、简历正文三个工作表，用用户ID关联；无资料的用户保留空白行，
+不包含密码、登录令牌和文件存储路径。ID、学号、手机号按文本保存，用户输入不会成为 Excel 公式。
+单字段超过 Excel 的 32767 字符限制会明确返回 400，不截断正文。
+
+用户不存在返回 404；存在但未填写的资料/简历为空。下载时文件不存在或不属于指定用户返回 404。
+文件和 Excel 响应包含 `Content-Disposition: attachment` 以及 `Cache-Control: no-store`。
+原 `/files/**` 简历链接现在也要求登录：仅文件所有者或超级管理员可访问。
+前端预览/下载应携带 Fusion-Token 请求文件流，再使用 Blob 展示或下载，不能依赖匿名静态链接。
+
+前端菜单建议：ADMIN 显示岗位管理（含问卷/投递审核），SUPERADMIN 同时显示岗位管理和系统管理；
+NORMAL 不进入管理员端。登录回跳已支持超级管理员的 `target=admin`。
+
+首位超级管理员由运维根据明确指定的账号初始化，系统不会自动提升现有管理员：
+
+```sql
+UPDATE fc_user SET role = 2 WHERE student_id = '指定的学号或工号' AND status = 1;
+```
+
+初始化后可由超级管理员在系统管理中授予/撤销其他用户权限。role 列已是 TINYINT，无需扩列迁移。
+本地 dev 模式可用 `/fudan/login?role=SUPERADMIN&target=admin` 登录独立的 `dev-admin-super` 测试账号；生产不启用模拟登录。
+
+岗位 Excel 导入：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/job-post/import-template` | 下载 `.xlsx` 导入模板 |
+| POST | `/admin/job-post/import` | 上传 Excel，`multipart/form-data` 字段名为 `file` |
+
+导入兼容平台模板和学院现有的“岗位需求总表”，支持合并的单位、补贴和联系人单元格。
+全部行校验通过后才批量创建，导入岗位统一保存为 `PUBLISHED` 并立即发布，不限制单次导入条数。
+`workTimeRequirement`、`careerDirection`、`internalCompensation`、`contactName`、`contactInfo`
+和 `internalRemark` 会出现在管理员列表/详情中，标记“不对外”的字段不会出现在学生端岗位响应中。
+
+岗位文档积压处理：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/job-post/structure-pending` | 查询清理状态和待处理文档数量 |
+| POST | `/admin/job-post/structure-pending` | 后台启动清理；重复调用不会创建第二个任务 |
+
+任务持续分批处理到 `pendingCount=0`。POST 返回 HTTP 200 的统一 `R` 响应，内部
+`data.status` 为 `RUNNING`；使用 GET 查询 `COMPLETED`、`FAILED` 或剩余数量。
+
+岗位回收站：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| DELETE | `/admin/job-post/{id}` | 软删除到回收站，原因记为“人工删除” |
+| GET | `/admin/job-post/list?status=RECYCLED` | 查看回收站及回收原因 |
+| PUT | `/admin/job-post/{id}/restore` | 恢复为未发布草稿 |
+
+回收状态为 `RECYCLED`（数据库值 `3`），并记录 `recycleReason`、`recycledAt`。
+
+### 内部服务接口
+
+> 路径前缀 `/internal/**`，不经过 Sa-Token 拦截器，仅供 Python 等内网服务直接调用。
+
+浏览器和公网客户端不得调用 `/internal/**`；生产 Nginx 对 `/api/internal/**` 返回 404。该路径只允许 Python 等服务在隔离网络中直连 Java。
 
 ### 4.1 用户管理
 
@@ -266,17 +565,20 @@
   "workPeriodType": "THREE_TO_SIX_MONTHS",
   "workMode": "OFFLINE",
   "workCity": "上海",
+  "workCities": ["上海", "北京"],
   "workProvince": "上海市",
   "workLocation": "复旦大学邯郸路校区",
   "salaryMin": 3000,
   "salaryMax": 5000,
   "salaryDisplay": "150/天",
   "jobDesc": "协助老师完成日常行政工作...",
-  "reqEduLevel": "BACHELOR",
+  "reqEduLevel": "UNDERGRADUATE",
+  "reqEduLevels": ["UNDERGRADUATE", "ACADEMIC_MASTER"],
   "reqMajor": "不限",
   "reqGradYear": "2026届",
   "reqSkills": "Office 办公软件",
   "reqOther": "认真负责",
+  "recommended": true,
   "status": "PUBLISHED"
 }
 ```
@@ -321,7 +623,7 @@
     "title": "请上传个人简历",
     "questionType": "FILE_UPLOAD",
     "required": false,
-    "placeholder": "支持 PDF/JPG/PNG"
+    "placeholder": "支持 PDF/DOCX/JPG/PNG"
   }
 ]
 ```
@@ -377,6 +679,7 @@
 | `CAMPUS_RECRUITMENT` | 4 | 应届生招聘 |
 | `CAMPUS_SCREENING` | 5 | 应届生摸排 |
 | `OTHER` | 6 | 其他 |
+| `BOTH_INTERNSHIP` | 7 | 大/小实习均可 |
 
 ### JobPostStatus（岗位状态）
 | 枚举值 | code | 说明 |
@@ -390,7 +693,7 @@
 |--------|------|------|
 | `ONLINE` | 1 | 线上 |
 | `OFFLINE` | 2 | 线下 |
-| `BOTH` | 3 | 线上线下均可 |
+| `HYBRID` | 3 | 线上线下均可 |
 
 ### Gender（性别）
 | 枚举值 | code | 说明 |
@@ -412,6 +715,7 @@
 |--------|------|------|
 | `NORMAL` | 0 | 普通用户 |
 | `ADMIN` | 1 | 管理员 |
+| `SUPERADMIN` | 2 | 超级管理员 |
 
 ---
 

@@ -1,16 +1,22 @@
 package com.fusioncareer.controller;
 
 import com.fusioncareer.common.R;
+import com.fusioncareer.config.FudanOAuth2Properties;
+import com.fusioncareer.enums.UserRole;
 import com.fusioncareer.service.FudanSsoService;
+import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+
+import java.util.Map;
 
 /**
  * 复旦 SSO 统一身份认证接口
@@ -24,17 +30,33 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @Tag(name = "复旦SSO接口", description = "复旦 SSO 统一身份认证接口")
 public class FudanSsoController {
 
+    private static final String SSO_STATE = "FUDAN_SSO_STATE";
+    private static final String SSO_TARGET = "FUDAN_SSO_TARGET";
+    private static final String ADMIN_TARGET = "admin";
+
     private final FudanSsoService fudanSsoService;
+    private final FudanOAuth2Properties ssoProperties;
 
     /**
      * 主动发起登录：重定向至 Fudan 统一认证中心
      */
     @GetMapping("/login")
     @Operation(summary = "主动发起登录")
-    public RedirectView login() {
-        String url = fudanSsoService.buildLoginUrl();
-        log.info("Redirecting to Fudan SSO login: {}", url);
-        return new RedirectView(url);
+    public RedirectView login(
+            @RequestParam(name = "role", required = false) UserRole readRole,
+            @RequestParam(name = "target", required = false) String readTarget,
+            HttpSession updateSession) {
+        boolean openAdmin = ADMIN_TARGET.equalsIgnoreCase(readTarget);
+        if (fudanSsoService.useMockLogin()) {
+            log.warn("Using dev mock login");
+            return new RedirectView(fudanSsoService.loginMock(readRole, openAdmin));
+        }
+        String createState = fudanSsoService.createState();
+        updateSession.setAttribute(SSO_STATE, createState);
+        updateSession.setAttribute(SSO_TARGET, openAdmin ? ADMIN_TARGET : "user");
+        String readUrl = fudanSsoService.buildLoginUrl(createState);
+        log.info("Redirecting to Fudan SSO login");
+        return new RedirectView(readUrl);
     }
 
     /**
@@ -42,17 +64,23 @@ public class FudanSsoController {
      */
     @GetMapping("/callback")
     @Operation(summary = "认证回调地址")
-    public RedirectView callback(@RequestParam("code") String code,
-                                 @RequestParam(value = "state", required = false) String state) {
-        log.info("Received Fudan SSO callback with code: {}", code);
+    public RedirectView callback(@RequestParam("code") String readCode,
+                                 @RequestParam("state") String readActualState,
+                                 HttpSession updateSession) {
+        String readExpectedState = (String) updateSession.getAttribute(SSO_STATE);
+        String readTarget = (String) updateSession.getAttribute(SSO_TARGET);
+        updateSession.removeAttribute(SSO_STATE);
+        updateSession.removeAttribute(SSO_TARGET);
         try {
-            String redirectUrl = fudanSsoService.processCallback(code);
-            log.info("User logged in successfully, redirecting to {}", redirectUrl);
-            return new RedirectView(redirectUrl);
+            fudanSsoService.verifyState(readExpectedState, readActualState);
+            String readUrl = fudanSsoService.processCallback(
+                    readCode, ADMIN_TARGET.equals(readTarget));
+            log.info("Fudan SSO login completed");
+            return new RedirectView(readUrl);
         } catch (Exception e) {
-            log.error("Fudan SSO callback error", e);
-            // 发生异常时，可以重定向到前端的特定错误页面
-            return new RedirectView("/error?msg=" + e.getMessage());
+            log.warn("Fudan SSO login rejected");
+            return new RedirectView(ssoProperties.getFrontendRedirectUrl()
+                    + "#/login?error=sso_login_failed");
         }
     }
 
@@ -62,9 +90,15 @@ public class FudanSsoController {
     @GetMapping("/logout")
     @Operation(summary = "主动发起退出")
     public RedirectView logout() {
-        String url = fudanSsoService.processLogout();
-        log.info("Redirecting to Fudan SSO logout: {}", url);
-        return new RedirectView(url);
+        String readUrl = fudanSsoService.processLogout();
+        log.info("Redirecting to Fudan SSO logout");
+        return new RedirectView(readUrl);
+    }
+
+    @PostMapping("/logout")
+    @Operation(summary = "注销本地会话并返回复旦统一退出地址")
+    public R<Map<String, String>> logoutSession() {
+        return R.success(Map.of("redirectUrl", fudanSsoService.processLogout()));
     }
 
     /**
@@ -72,9 +106,9 @@ public class FudanSsoController {
      */
     @GetMapping("/slo")
     @Operation(summary = "被动跟随退出")
-    public R<Void> slo(@RequestParam("token") String token) {
-        log.info("Received Fudan SSO logout request for token: {}", token);
-        fudanSsoService.processSlo(token);
+    public R<Void> slo(@RequestParam("token") String readToken) {
+        log.info("Received Fudan SSO logout request");
+        fudanSsoService.processSlo(readToken);
         return R.success();
     }
 }

@@ -30,6 +30,27 @@ mybatis-plus:
     db-config:
       id-type: assign_id
 
+# ===== 个人空间变更历史加密 =====
+# USER_CHANGE_KEY 为 Base64 编码的 32 字节 AES-256 key。
+# 密钥轮换时可使用 USER_CHANGE_KEYS="1=base64,2=base64" 保留旧版本。
+user-change:
+  key-version: ${USER_CHANGE_KEY_VERSION:1}
+  key: ${USER_CHANGE_KEY:}
+  keys: ${USER_CHANGE_KEYS:}
+
+# ===== Agent 短期能力上下文 =====
+agent-context:
+  secret: ${AGENT_CONTEXT_SECRET:}
+  ttl-seconds: ${AGENT_CONTEXT_TTL_SECONDS:300}
+
+# 写 Tool 仅创建 PENDING 提案；生产灰度时显式开启。
+ai-chat:
+  write-enabled: ${AI_CHAT_WRITE_ENABLED:false}
+  recommend-enabled: ${AI_CHAT_RECOMMEND_ENABLED:true}
+  stream-timeout-ms: ${AI_CHAT_STREAM_TIMEOUT_MS:200000}
+  upstream-timeout-seconds: ${AI_CHAT_UPSTREAM_TIMEOUT_SECONDS:180}
+  run-lease-seconds: ${AI_CHAT_RUN_LEASE_SECONDS:240}
+
 # ===== Sa-Token 配置 =====
 sa-token:
   # Token 名称（同时也是 Cookie 和 Header 中的 key）
@@ -54,7 +75,7 @@ python-service:
   # 连接超时时间（毫秒）
   connect-timeout: 5000
   # 读取超时时间（毫秒），算法可能较慢，默认 60 秒
-  read-timeout: 60000
+  read-timeout: ${PYTHON_SERVICE_READ_TIMEOUT_MS:60000}
 
 # ===== 复旦 SSO 统一身份认证配置 =====
 # 【接入必读：向复旦信息化中心申请注册清单】
@@ -84,11 +105,13 @@ upload:
   # 允许上传的 MIME 类型白名单
   allowed-mime-types:
     - application/pdf
+    - application/vnd.openxmlformats-officedocument.wordprocessingml.document
     - image/jpeg
     - image/png
   # 允许上传的文件扩展名白名单（小写）
   allowed-extensions:
     - pdf
+    - docx
     - jpg
     - jpeg
     - png

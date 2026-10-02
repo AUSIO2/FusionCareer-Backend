@@ -19,8 +19,15 @@ public class JobPostQueryRequest {
     private WorkDurationType workDurationType;
     private WorkPeriodType workPeriodType;
     private WorkMode workMode;
+    private String workProvince;
     private String workCity;
+    private EduLevel reqEduLevel;
+    private Integer salaryMin;
+    private Integer salaryMax;
+    private JobPostSort sortBy = JobPostSort.NEWEST;
+    private Boolean recommended;
     private JobPostStatus status;
     private SourceType sourceType;
+    private Boolean internalApply;
     private String keyword;
 }
