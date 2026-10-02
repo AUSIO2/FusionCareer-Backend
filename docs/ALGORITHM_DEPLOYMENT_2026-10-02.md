@@ -1,6 +1,6 @@
-# 2026-10-02 新算法发布准备
+# 2026-10-02 新算法生产发布记录
 
-状态：代码与本地回归已通过，尚未执行本轮生产发布。
+状态：已于 2026-10-03 完成生产发布和验收。
 
 ## 固定版本
 
@@ -8,6 +8,7 @@
 - Vendor 同步提交：`8b334e0`。
 - Python Agent 适配提交：`8004abd`。
 - Java 推荐卡与消息协议提交：`18b1d1d`。
+- 生产发布提交：`f5ffc85551582af6f330a75118bbd3a21e8ba5a9`。
 
 本轮新增更严格的技术岗过滤、同公司岗位去重、可展示推荐理由、80 条有界候选窗口，以及既有预筛、源统计和 WeRead 管理能力。岗位权限和可见性仍由 Java 控制；历史卡片只保存岗位 ID、受限偏好和限长理由，读取时重新检查岗位状态。
 
@@ -33,14 +34,19 @@
 
 1. 记录并备份当前 Java、Agent 镜像，数据库、Agent runtime、CrawlStore 和 runtime workflow 覆盖文件。
 2. 查询 `fc_ai_message.input_metadata` 与 `presentation`。缺列时只执行一次 `V20260930__ai_message_presentation.sql`；已有列不得重复执行。
-3. 先发布 Agent，确认健康检查、vendor 哈希、工作流目录和默认灰度开关。
-4. 再发布 Java，确认 capabilities 包含 `recommend_jobs` 和 `job_results`。
+3. 先发布向后兼容的 Java，确认健康检查、推荐内部入口和消息展示协议。
+4. 再发布 Agent，确认 vendor 哈希、工作流目录及生产开关。
 5. 使用专用测试账号验证普通聊天、规则推荐、模型推荐、历史恢复、取消/清空、写提案确认与回退。
 6. 对近期采集文章抽检新版预筛。WeRead 不自动增加调度，待管理员扫码和增量去重验证后单独启用。
 
 ## 回滚
 
 先关闭推荐、预筛和新增调度，再回退 Java 与 Agent 镜像。保留新增数据库列和持久卷，避免破坏新版本写入的消息及用户历史；不要删除 CrawlStore、上传文件或 Agent runtime。
+
+本轮服务器回滚入口：
+
+- Python：`/home/vmadmin/fusioncareer/releases/20261002-algorithm-f5ffc85/rollback-python.sh`
+- Java：`/data/fusioncareer/releases/20261002-algorithm-f5ffc85/rollback-java.sh`
 
 ## 本地门禁
 
@@ -49,4 +55,17 @@
 - OpenAPI：全新 MySQL 初始化后生成 1,929 个用例，全部通过。
 - 前端生产构建、Nginx、变更文件 Ruff、JSON、Compose 和 Git whitespace 检查通过。
 - Linux amd64 Agent 镜像构建、非 root 运行、持久卷写入、健康检查和端到端岗位/简历 smoke 通过。
-- 本地候选镜像摘要：`sha256:bf7a0a324bd4b4f27c45ef9bbb787b55dfaa3739ba0211bcce4c2f5345073714`；镜像内 90 个上游 tracked 文件哈希全部匹配 `1f3d8a7`。
+- 最终 Agent 镜像摘要：`sha256:2ff7f38a403cf84543de93ec6336b8076062216b83fa089337bf7bb973b406f2`；镜像内 90 个上游 tracked 文件哈希全部匹配 `1f3d8a7`。
+- 最终 Java 镜像摘要：`sha256:54d86faaefc6fc1972da991b2851ae806fa52fbfb23732fd15b7da46d761ff98`。
+
+## 生产验收
+
+- 数据库原有 `input_metadata`、`presentation` 列，本轮未重复执行迁移。
+- 发布前备份了 MySQL、上传文件、CrawlStore、Agent runtime 配置、环境文件和容器/镜像信息，并为两侧旧镜像创建独立回滚标签。
+- Java、Agent、MySQL、SSH 隧道、Nginx、源站和正式 HTTPS 健康检查全部通过。
+- 公网内部接口返回 404、匿名 Assistant 返回 401，学生/管理员登录均正确 302 到复旦统一认证。
+- 专用验收账号执行真实 Java → Agent → Java 推荐：返回 10 张岗位卡，`rules+llm`、无降级、10 张均有推荐理由，算法版本 `1f3d8a7`，冷缓存耗时约 15.5 秒。
+- 市值评分实际处理 40 家公司并生成缓存；本次样本中上市命中 0、未上市/未命中 40，其中 37 家为 `-2`。该分布需持续观察，若排序偏置明显可单独关闭市值开关。
+- 推荐审计实际生成规则与 LLM 两阶段记录。保存脱敏统计后已删除测试审计；正式审计目录为空，市值缓存保留。
+- 验收账号及其 2 条 AI 消息已清理；发布前后保持 21 个用户、37,879 个岗位、14 条 AI 消息。
+- 无候选容器、测试账号或启动错误日志残留；WeRead 调度未新增。
