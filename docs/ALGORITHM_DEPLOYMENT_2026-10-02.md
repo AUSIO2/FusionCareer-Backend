@@ -23,6 +23,14 @@
 
 ## 发布顺序
 
+先在开发机生成不含密钥的版本化发布包：
+
+```bash
+./deploy/scripts/build-algorithm-release.sh
+```
+
+默认输出到 `/tmp/fusioncareer-algorithm-YYYYMMDD-<commit>/`，包含 Java/Agent 两个 linux/amd64 镜像、配置包、`RELEASE-MANIFEST.txt` 和 `SHA256SUMS`。配置包不会包含 `.env.production`，部署时必须保留服务器现有密钥，只按 `env.*.example` 合并新增变量。
+
 1. 记录并备份当前 Java、Agent 镜像，数据库、Agent runtime、CrawlStore 和 runtime workflow 覆盖文件。
 2. 查询 `fc_ai_message.input_metadata` 与 `presentation`。缺列时只执行一次 `V20260930__ai_message_presentation.sql`；已有列不得重复执行。
 3. 先发布 Agent，确认健康检查、vendor 哈希、工作流目录和默认灰度开关。
