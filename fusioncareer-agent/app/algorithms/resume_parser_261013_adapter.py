@@ -73,7 +73,9 @@ def _experience_item(read_value: Any) -> Any:
     detail = "；".join(filter(None, (_text(read_value.get("tasks")), _text(read_value.get("results")))))
     header = "｜".join(filter(None, (organization, role, time_value)))
     if header and detail:
-        return f"{header}：{detail}"
+        # A newline is structural and does not depend on the upstream detail
+        # keyword heuristic (for example, "采写新闻" has no listed verb token).
+        return f"{header}\n{detail}"
     return header or detail or read_value
 
 

@@ -80,7 +80,7 @@ class WrappedResumeModel:
             "internship": [{
                 "organization": "示例媒体",
                 "role": "编辑实习生",
-                "tasks": ["采写新闻", "运营账号"],
+                "tasks": ["采写新闻"],
             }],
             "campus": [
                 "复旦大学记者团｜记者｜2024.01-2024.06：采写校园新闻",
@@ -99,7 +99,7 @@ def test_261013_adapter_keeps_legacy_wrappers_missing_dates_and_distinct_experie
 
     assert result["real_name"] == "李同学"
     assert result["skills"] == "C；C++"
-    assert result["internship"] == "示例媒体 | 编辑实习生\n采写新闻；运营账号"
+    assert result["internship"] == "示例媒体 | 编辑实习生\n采写新闻"
     assert "记者团 | 记者" in result["campus"]
     assert "记者团 | 编辑" in result["campus"]
 
