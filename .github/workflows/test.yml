@@ -18,7 +18,7 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - run: ./deploy/scripts/test-java.sh
+      - run: TZ=UTC ./deploy/scripts/test-java.sh
 
   python:
     runs-on: ubuntu-latest

@@ -21,6 +21,7 @@ import com.fusioncareer.enums.UserStatus;
 import com.fusioncareer.mapper.AiMessageMapper;
 import com.fusioncareer.mapper.AiSessionMapper;
 import com.fusioncareer.mapper.UserChangeActionMapper;
+import com.fusioncareer.service.AiChatRecoveryService;
 import com.fusioncareer.service.AiChatService;
 import com.fusioncareer.service.ResumeFileService;
 import com.fusioncareer.service.UserMemoryService;
@@ -75,8 +76,11 @@ import static org.mockito.Mockito.when;
 @Transactional
 class AiChatTest {
 
+    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
+
     @Autowired MockMvc readMvc;
     @Autowired AiChatService manageChat;
+    @Autowired AiChatRecoveryService manageRecovery;
     @Autowired AiSessionMapper readSessions;
     @Autowired AiMessageMapper readMessages;
     @Autowired UserService readUsers;
@@ -184,7 +188,7 @@ class AiChatTest {
         manageChat.completeRun(createUser.getId(), first.session().epoch(),
                 first.assistantMessage().runId(), "好的", "fake", "stop", 1, 1);
         AiSessionEntity session = readSessions.selectById(createUser.getId());
-        session.setUsageDate(LocalDate.now(ZoneId.of("Asia/Shanghai")));
+        session.setUsageDate(LocalDate.now(SHANGHAI));
         session.setDailyUsageCount(100);
         readSessions.updateById(session);
 
@@ -278,7 +282,7 @@ class AiChatTest {
                 createUser.getId(), new AiMessageRequest("request-expired", "超时", List.of()));
         com.fusioncareer.entity.AiSessionEntity updateSession =
                 readSessions.selectById(createUser.getId());
-        updateSession.setLeaseUntil(LocalDateTime.now().minusSeconds(1));
+        updateSession.setLeaseUntil(LocalDateTime.now(SHANGHAI).minusSeconds(1));
         readSessions.updateById(updateSession);
 
         assertThat(manageChat.recoverExpiredRun(
@@ -299,6 +303,22 @@ class AiChatTest {
         manageChat.cancelRun(createUser.getId());
         assertThat(createRun.assistantMessage().runId())
                 .isNotEqualTo(createNext.assistantMessage().runId());
+    }
+
+    @Test
+    void scheduledRecoveryUsesShanghaiLeaseClock() {
+        AiChatService.RunStart createRun = manageChat.startRun(
+                createUser.getId(), new AiMessageRequest("request-scheduled-expired", "超时", List.of()));
+        AiSessionEntity updateSession = readSessions.selectById(createUser.getId());
+        updateSession.setLeaseUntil(LocalDateTime.now(SHANGHAI).minusSeconds(1));
+        readSessions.updateById(updateSession);
+
+        manageRecovery.recoverExpiredRuns();
+
+        assertThat(readSessions.selectById(createUser.getId()).getActiveRunId()).isNull();
+        AiMessageEntity readAssistant = readMessages.selectById(createRun.assistantMessage().id());
+        assertThat(readAssistant.getStatus()).isEqualTo(AiMessageStatus.FAILED);
+        assertThat(readAssistant.getErrorCode()).isEqualTo("LEASE_EXPIRED");
     }
 
     @Test
@@ -516,7 +536,7 @@ class AiChatTest {
         var run = manageChat.startRun(createUser.getId(), new AiMessageRequest("quota-reset-original", "找岗位", List.of()));
         manageChat.completeRun(createUser.getId(), run.session().epoch(), run.assistantMessage().runId(), "结果", "fake", "stop", 1, 1);
         AiSessionEntity limited = readSessions.selectById(createUser.getId());
-        limited.setUsageDate(LocalDate.now(ZoneId.of("Asia/Shanghai")));
+        limited.setUsageDate(LocalDate.now(SHANGHAI));
         limited.setDailyUsageCount(100); limited.setIrrelevantStrikeCount(2);
         readSessions.updateById(limited);
         limited = readSessions.selectById(createUser.getId());
@@ -551,7 +571,7 @@ class AiChatTest {
         }
         AiSessionEntity restricted = readSessions.selectById(createUser.getId());
         assertThat(restricted.getIrrelevantStrikeCount()).isEqualTo(3);
-        assertThat(restricted.getAiBannedUntil()).isAfter(LocalDateTime.now(ZoneId.of("Asia/Shanghai")));
+        assertThat(restricted.getAiBannedUntil()).isAfter(LocalDateTime.now(SHANGHAI));
         for (int index = 1; index <= 2; index++) {
             readMvc.perform(delete("/personal-space/assistant/session").header("Fusion-Token", createToken))
                     .andExpect(status().isOk()).andExpect(jsonPath("$.data.epoch").value(Integer.toString(index + 1)));
@@ -599,6 +619,24 @@ class AiChatTest {
                 next.userMessage().requestId(), List.of("profile:read"));
         assertThat(quotaContexts.verifyContext(current, "profile:read").epoch()).isEqualTo(2L);
         assertThat(readSessions.selectById(createUser.getId()).getDailyUsageCount()).isEqualTo(originalLimits.getDailyUsageCount() + 1);
+    }
+
+    @Test
+    void expiredLeaseRejectsSignedAgentContext() {
+        AiChatService.RunStart createRun = manageChat.startRun(
+                createUser.getId(), new AiMessageRequest("expired-context", "找岗位", List.of()));
+        String signed = quotaContexts.issueContext(
+                createUser.getId(),
+                createRun.assistantMessage().runId(),
+                createRun.session().epoch(),
+                createRun.userMessage().requestId(),
+                List.of("profile:read"));
+        AiSessionEntity updateSession = readSessions.selectById(createUser.getId());
+        updateSession.setLeaseUntil(LocalDateTime.now(SHANGHAI).minusSeconds(1));
+        readSessions.updateById(updateSession);
+
+        assertThatThrownBy(() -> quotaContexts.verifyContext(signed, "profile:read"))
+                .hasMessageContaining("AgentContext 无效");
     }
 
     private void assertQuotaState(AiSessionEntity actual, AiSessionEntity expected) {

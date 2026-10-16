@@ -327,7 +327,7 @@ public class AiChatService {
         consumeDailyQuota(readSession);
         validateFiles(updateUserId, updateFileIds);
         String createRunId = UUID.randomUUID().toString();
-        LocalDateTime updateLease = LocalDateTime.now().plusSeconds(runLeaseSeconds);
+        LocalDateTime updateLease = LocalDateTime.now(SHANGHAI).plusSeconds(runLeaseSeconds);
         if (sessionMapper.acquireRun(
                 updateUserId, readSession.getEpoch(), createRunId, updateLease) != 1) {
             throw buildConflict("已有一轮 AI 对话正在运行");
@@ -407,7 +407,8 @@ public class AiChatService {
     @Transactional
     public boolean markStreaming(Long updateUserId, Long readEpoch, String readRunId) {
         if (sessionMapper.renewRun(
-                updateUserId, readEpoch, readRunId, LocalDateTime.now().plusSeconds(runLeaseSeconds)) != 1) {
+                updateUserId, readEpoch, readRunId,
+                LocalDateTime.now(SHANGHAI).plusSeconds(runLeaseSeconds)) != 1) {
             return false;
         }
         UpdateWrapper<AiMessageEntity> updateMessage = new UpdateWrapper<>();
@@ -599,7 +600,7 @@ public class AiChatService {
     private void recoverLease(AiSessionEntity readSession) {
         if (readSession.getActiveRunId() == null
                 || readSession.getLeaseUntil() == null
-                || !readSession.getLeaseUntil().isBefore(LocalDateTime.now())) {
+                || !readSession.getLeaseUntil().isBefore(LocalDateTime.now(SHANGHAI))) {
             return;
         }
         recoverExpiredRun(
@@ -762,7 +763,7 @@ public class AiChatService {
         }
         boolean hasActiveRun = readSession.getActiveRunId() != null
                 && readSession.getLeaseUntil() != null
-                && readSession.getLeaseUntil().isAfter(LocalDateTime.now());
+                && readSession.getLeaseUntil().isAfter(LocalDateTime.now(SHANGHAI));
         return new AiSessionResponse(
                 true,
                 readSession.getEpoch(),
