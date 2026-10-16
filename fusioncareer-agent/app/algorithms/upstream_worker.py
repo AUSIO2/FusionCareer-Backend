@@ -213,11 +213,40 @@ def resume_file(request: dict, root: Path, temp: Path) -> Path:
 
 
 def resumes(operation: str, request: dict, root: Path, config: dict) -> dict:
-    from resume_parser.llm.deepseek_client import DeepSeekClient
-    from resume_parser.parser import ResumeParser
+    requested_version = str(config.get("resume_parser_version") or "legacy")
+    # Batch parsing predates the bounded single-file transport. Keep it on the
+    # compatible implementation until it has a per-file budget and fixtures.
+    version = requested_version if operation == "resume_parse" else "legacy"
+    if version == "261013":
+        import resume_parser.parser_261013 as parser_module_261013
+        from resume_parser.llm.io_log_261013 import ModelIOLogger261013
+        from resume_parser.parser_261013 import ResumeParser261013
 
-    parser = ResumeParser(api_key=config["llm_api_key"])
-    parser._llm = DeepSeekClient(config["llm_api_key"], config["llm_model"], config["llm_base_url"])
+        from app.algorithms.resume_parser_261013_adapter import adapt_resume_parser_261013
+
+        parser = ResumeParser261013(
+            api_key=config["llm_api_key"],
+            model=config["llm_model"],
+            base_url=config["llm_base_url"],
+            io_logger=ModelIOLogger261013(
+                enabled=bool(config.get("resume_model_io_log_enabled", False)),
+                log_dir=root / "logs/resume_llm_io_261013",
+                include_sensitive=False,
+                max_text_chars=int(config.get("resume_model_io_log_max_text_chars") or 120000),
+            ),
+            actor_hmac_secret=str(config.get("resume_model_io_actor_hmac_secret") or ""),
+        )
+        adapt_resume_parser_261013(parser, parser_module_261013)
+    elif version == "legacy":
+        from resume_parser.llm.deepseek_client import DeepSeekClient
+        from resume_parser.parser import ResumeParser
+
+        parser = ResumeParser(api_key=config["llm_api_key"])
+        parser._llm = DeepSeekClient(
+            config["llm_api_key"], config["llm_model"], config["llm_base_url"],
+        )
+    else:
+        raise ValueError("Unsupported resume parser version")
     if operation == "resume_batch":
         files = [local_path(root, name) for name in request["files"]]
         for path in files:
@@ -247,11 +276,29 @@ def resumes(operation: str, request: dict, root: Path, config: dict) -> dict:
         return response
 
     parser._llm._client.chat.completions.create = bounded_completion
-    if "raw_text" in request:
-        result = parser.parse_text(require_text(request, "raw_text"))
-    else:
-        with TemporaryDirectory(prefix="resume-", dir=root) as directory:
-            result = parser.parse(str(resume_file(request, root, Path(directory))))
+    parse_kwargs = {}
+    if version == "261013":
+        parse_kwargs = {
+            "actor_id": str(request.get("actor_id") or ""),
+            "request_id": str(request.get("request_id") or ""),
+        }
+    try:
+        if "raw_text" in request:
+            result = parser.parse_text(require_text(request, "raw_text"), **parse_kwargs)
+        else:
+            with TemporaryDirectory(prefix="resume-", dir=root) as directory:
+                result = parser.parse(str(resume_file(request, root, Path(directory))), **parse_kwargs)
+    except RuntimeError as error:
+        # The 261013 client intentionally hides provider exceptions. Preserve the
+        # existing bounded-timeout contract without exposing provider payloads.
+        cause = error.__cause__
+        if version == "261013" and isinstance(cause, TimeoutError):
+            raise RuntimeError(str(cause)) from error
+        cause_name = type(cause).__name__.casefold() if cause is not None else ""
+        cause_message = str(cause).casefold() if cause is not None else ""
+        if version == "261013" and ("timeout" in cause_name or "timed out" in cause_message):
+            raise RuntimeError("Resume model request timed out") from error
+        raise
     return {"record": result, "metrics": parser.last_metrics}
 
 

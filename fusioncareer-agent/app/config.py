@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     ai_chat_write_tool_timeout_seconds: Seconds = 15.0
     ai_chat_parse_timeout_seconds: Seconds = 90.0
     resume_parse_timeout_seconds: Seconds = 75.0
+    # The upstream repository keeps the 261013 parser beside the legacy entry.
+    # Select it explicitly so production can roll back without replacing images.
+    resume_parser_version: Literal["legacy", "261013"] = "legacy"
+    # The upstream parser can persist model I/O. Keep it opt-in in the Agent;
+    # resume workspaces are private, but their content is still personal data.
+    resume_model_io_log_enabled: bool = False
+    resume_model_io_log_max_text_chars: int = Field(default=120000, ge=1000, le=1000000)
+    resume_model_io_actor_hmac_secret: str = ""
     # JSON object in AI_CHAT_TOOL_TIMEOUTS, e.g. {"recommend_jobs":45,"get_job":5}.
     # Named overrides take precedence over the existing per-category defaults.
     ai_chat_tool_timeouts: dict[str, Seconds] = Field(default_factory=dict)

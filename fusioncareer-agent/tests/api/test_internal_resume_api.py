@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 from app.config import settings
 from app.main import app
 
-
 READ_CONTRACT = Path(__file__).parents[1] / "fixtures" / "algorithm" / "resume_contract.json"
 
 
@@ -23,7 +22,13 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         assert operation == "resume_parse"
         assert request["filename"] == "resume.pdf"
         assert request["file_base64"]
-        return {"record": json.loads(READ_CONTRACT.read_text(encoding="utf-8"))}
+        assert request["actor_id"] == "700000000000000001"
+        return {
+            "record": json.loads(READ_CONTRACT.read_text(encoding="utf-8")),
+            "metrics": {"normalization": {
+                "normalization_warnings": ["moved_internship_item_to_campus"],
+            }},
+        }
 
     monkeypatch.setattr("app.integrations.backend.BackendClient.read_resume_file", readFile)
     monkeypatch.setattr("app.skills.business.algorithm.run_algorithm", readResume)
@@ -43,6 +48,7 @@ def testParseResume(client: TestClient):
     )
     assert readResponse.status_code == 200
     assert readResponse.json()["profilePatch"]["gender"] == "FEMALE"
+    assert readResponse.json()["warnings"] == ["261013:moved_internship_item_to_campus"]
 
 
 def testProtectResume(client: TestClient):

@@ -6,7 +6,6 @@ import json
 import re
 from typing import Any
 
-
 PROFILE_FIELDS = {
     "realName", "gender", "birthDate", "politicalStatus", "phone", "email", "wechat",
     "hometown", "grade", "major", "eduLevel", "supervisor", "intentionOrder",
@@ -31,6 +30,22 @@ ENUM_CODES = {
         4: "VERY_ANXIOUS", 5: "ZEN_WAITING",
     },
 }
+PROFILE_TEXT_LIMITS = {
+    "realName": 32, "phone": 20, "email": 64, "wechat": 64, "hometown": 64,
+    "grade": 16, "major": 64, "supervisor": 64, "intentionOrder": 64,
+    "intentionDream": 256,
+}
+RESUME_TEXT_LIMITS = {
+    "personalIntro": 300,
+    "basicInfo": 16_000,
+    "education": 16_000,
+    "internship": 16_000,
+    "campus": 16_000,
+    "awards": 16_000,
+    "skills": 16_000,
+    "portfolio": 16_000,
+    "remark": 16_000,
+}
 
 
 def normalizeDate(readValue: Any) -> str:
@@ -51,6 +66,7 @@ def normalizeResume(readResponse: dict[str, Any]) -> dict[str, Any]:
             elif updateField in RESUME_FIELDS:
                 readResume[updateField] = readValue
 
+    readWarnings = list(readResponse.get("warnings") or [])
     createProfile: dict[str, Any] = {}
     for readField, readValue in readProfile.items():
         updateField = FIELD_NAMES.get(readField, readField)
@@ -71,18 +87,33 @@ def normalizeResume(readResponse: dict[str, Any]) -> dict[str, Any]:
         elif updateField == "intentionCity":
             readCities = readValue if isinstance(readValue, list) else [readValue]
             readCities = [str(readCity).strip() for readCity in readCities if str(readCity).strip()]
+            if len(readCities) > 20 or any(len(readCity) > 64 for readCity in readCities):
+                readWarnings.append("truncated:intentionCity")
+            readCities = [readCity[:64] for readCity in readCities[:20]]
             if readCities:
                 createProfile[updateField] = json.dumps(readCities, ensure_ascii=False)
         else:
-            createProfile[updateField] = str(readValue).strip()
+            readText = str(readValue).strip()
+            readLimit = PROFILE_TEXT_LIMITS.get(updateField)
+            if readLimit is not None and len(readText) > readLimit:
+                # Truncating identifiers such as email or phone can create false data.
+                readWarnings.append(f"over_limit:{updateField}")
+                continue
+            createProfile[updateField] = readText
 
-    createResume = {
-        FIELD_NAMES.get(readField, readField): str(readValue).strip()
-        for readField, readValue in readResume.items()
-        if FIELD_NAMES.get(readField, readField) in RESUME_FIELDS and readValue not in (None, "", [])
-    }
+    createResume: dict[str, str] = {}
+    for readField, readValue in readResume.items():
+        updateField = FIELD_NAMES.get(readField, readField)
+        if updateField not in RESUME_FIELDS or readValue in (None, "", []):
+            continue
+        readText = str(readValue).strip()
+        readLimit = RESUME_TEXT_LIMITS[updateField]
+        if len(readText) > readLimit:
+            readText = readText[:readLimit]
+            readWarnings.append(f"truncated:{updateField}")
+        createResume[updateField] = readText
     return {
         "profilePatch": createProfile,
         "resumePatch": createResume,
-        "warnings": list(readResponse.get("warnings") or []),
+        "warnings": list(dict.fromkeys(readWarnings)),
     }

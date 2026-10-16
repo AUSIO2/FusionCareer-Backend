@@ -117,6 +117,7 @@ def service(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "llm_model", "test-model")
     monkeypatch.setattr(settings, "backend_base_url", base)
     monkeypatch.setattr(settings, "agent_runtime_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "resume_parser_version", "261013")
     monkeypatch.setattr(settings, "ocr_preload", False)
     monkeypatch.setattr(settings, "internal_service_token", "test-internal")
     monkeypatch.setattr(settings, "agent_admin_token", "test-admin")
@@ -130,7 +131,7 @@ def service(tmp_path, monkeypatch):
 
 def test_vendored_source_matches_pinned_commit():
     manifest = json.loads((VENDOR / "PROVENANCE.json").read_text())
-    assert manifest["commit"] == "216e4054acb68ea5b2e7b8b3c82219109912319e"
+    assert manifest["commit"] == "702440f1c5b2153d0f9fdfd6ba7c573eff82a3b6"
     for name, digest in manifest["sha256"].items():
         assert hashlib.sha256((VENDOR / name).read_bytes()).hexdigest() == digest, name
 
@@ -352,12 +353,15 @@ def test_resume_text_metrics_and_batch_csv(service):
     result = asyncio.run(run_algorithm("resume_parse", {"raw_text": "张同学 Python"}))
     assert result["record"]["real_name"] == "张同学"
     assert result["metrics"]["total_tokens"] == 30
+    assert result["metrics"]["request_id"]
     root = service[3] / "algorithm/resumes"
     root.mkdir(parents=True)
     writePdf(root / "one.pdf")
     result = asyncio.run(run_algorithm("resume_batch", {"workspace": "resumes", "files": ["one.pdf"]}))
     with Path(result["file"]).open(encoding="utf-8-sig") as stream:
         assert next(iter(csv.DictReader(stream)))["skills"] == "Python"
+    assert "唯一归类规则" in service[0][0]["messages"][1]["content"]
+    assert "唯一归类规则" not in service[0][1]["messages"][1]["content"]
 
 
 def test_upstream_failures_and_paths(service):

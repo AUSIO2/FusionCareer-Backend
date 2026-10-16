@@ -86,6 +86,7 @@ def transport(tmp_path, monkeypatch):
     for key, value in {"llm_base_url": base + "/v1", "llm_api_key": "synthetic-key",
                        "llm_model": "deepseek-v4-flash", "backend_base_url": base,
                        "agent_runtime_dir": str(tmp_path / "runtime"), "ocr_preload": False,
+                       "resume_parser_version": "261013",
                        "internal_service_token": "test-internal", "agent_admin_token": "test-admin"}.items():
         monkeypatch.setattr(settings, key, value)
     monkeypatch.setattr("app.main.backend_client", BackendClient())
@@ -120,6 +121,18 @@ def test_real_http_download_and_pinned_parse_share_bounded_model_config(transpor
     assert request["thinking"] == {"type": "disabled"}
     assert request["response_format"] == {"type": "json_object"}
     assert request["temperature"] == 0
+    assert "唯一归类规则" in request["messages"][1]["content"]
+    assert not list((tmp_path / "runtime").rglob("model_io_261013_*.jsonl"))
+
+
+def test_legacy_resume_parser_kill_switch_remains_runnable(transport, monkeypatch):
+    monkeypatch.setattr(settings, "resume_parser_version", "legacy")
+
+    result = asyncio.run(run_algorithm("resume_parse", {"raw_text": "Synthetic student Python"}))
+
+    assert result["record"]["skills"] == "Python"
+    assert result["metrics"]["total_tokens"] == 32
+    assert "唯一归类规则" not in transport["requests"][-1]["messages"][1]["content"]
 
 
 @pytest.mark.parametrize("mode, expected_calls, expected_status", [
@@ -204,7 +217,7 @@ def test_json_repair_uses_remaining_shared_model_budget(monkeypatch, tmp_path,
 
     from app.algorithms import upstream_worker
 
-    deepseek_client = import_module("resume_parser.llm.deepseek_client")
+    deepseek_client = import_module("resume_parser.llm.deepseek_client_261013")
     calls, retry_limits = [], []
     class FakeOpenAI:
         def __init__(self, **kwargs):
@@ -222,6 +235,7 @@ def test_json_repair_uses_remaining_shared_model_budget(monkeypatch, tmp_path,
     readings = iter(clock)
     monkeypatch.setattr(upstream_worker.time, "monotonic", lambda: next(readings))
     cfg = {"llm_api_key": "test-key", "llm_model": "deepseek-v4-flash", "llm_base_url": "http://local",
+           "resume_parser_version": "261013",
            "llm_timeout_seconds": 60, "llm_max_tokens": 8192,
            "llm_extra_body": {"thinking": {"type": "disabled"}}}
     if expected_calls == 1:

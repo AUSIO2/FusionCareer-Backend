@@ -41,6 +41,9 @@ def test_resume_advice_and_run_budgets_require_finite_positive_seconds(field, va
 
 def test_native_dedup_release_defaults_match_upstream():
     config = Settings(_env_file=None)
+    assert config.resume_parser_version == "legacy"
+    assert config.resume_model_io_log_enabled is False
+    assert config.resume_model_io_log_max_text_chars == 120000
     assert config.job_record_dedup_enabled is True
     assert config.article_dedup_enabled is True
     assert config.article_dedup_ngram == 3
@@ -69,3 +72,15 @@ def test_native_dedup_rejects_lsh_above_exact_threshold():
 def test_native_dedup_rejects_out_of_range_and_nonfinite_thresholds(field, value):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **{field: value})
+
+
+def test_resume_parser_version_is_an_explicit_kill_switch():
+    assert Settings(_env_file=None, resume_parser_version="legacy").resume_parser_version == "legacy"
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, resume_parser_version="latest")
+
+
+@pytest.mark.parametrize("value", [999, 1000001])
+def test_resume_model_log_limit_is_bounded(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, resume_model_io_log_max_text_chars=value)

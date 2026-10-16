@@ -134,6 +134,21 @@ curl -fsS -X POST \
 排查调用量时关注容器日志中的 `operation=job_index|job_detail|job_single`、`finish_reason`、
 `prompt_tokens` 和 `completion_tokens`。不得将完整提示词、文章正文或 API key 输出到普通运维日志。
 
+### 261013 简历解析
+
+代码/Compose 默认 `RESUME_PARSER_VERSION=legacy`；批准的生产 override 显式设为 `261013`，选择上游
+新增的经历分段、保守重分类、跨字段去重和双栏 PDF 提取。首发只切单文件 `resume_parse`，批量解析仍走
+legacy。正式 Java 契约不变，仍由 Agent 校验文件归属、格式、20 MB 上限和
+75 秒 HTTP 总预算；模型调用继续禁用 SDK 网络重试，并让一次 JSON 修复共享 60 秒模型预算。
+
+`RESUME_MODEL_IO_LOG_ENABLED=false` 是 Agent 的生产默认值。确需排障时，日志只写私有算法 workspace，
+强制 `include_sensitive=false`，并应配置独立的 `RESUME_MODEL_IO_ACTOR_HMAC_SECRET`；不得复用 API Token，
+不得把日志复制到普通运维输出。恢复完成后立即关闭日志，并按既有数据保留策略清理。
+
+发布前至少验证：261013/legacy 开关、经历换行与分类、PDF 保守回退、真实工作流契约、一次 JSON 修复的
+共享超时，以及岗位去重回归。回滚只需把 `RESUME_PARSER_VERSION` 改为 `legacy` 并重建 Agent，三个
+持久卷和 Java/MySQL 均不变。
+
 ### 跨来源岗位去重
 
 `JOB_RECORD_DEDUP_ENABLED=true` 控制抽岗后的岗位级去重，和整篇 Markdown 的

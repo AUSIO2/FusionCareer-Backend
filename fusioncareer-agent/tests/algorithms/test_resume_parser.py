@@ -1,13 +1,12 @@
 import asyncio
 import json
 import sys
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 from app.algorithms.resume_parser import parseText
 from app.algorithms.resume_parser.extract import createOcr, extractPdf, readOcr
 from app.algorithms.resume_parser.normalize import normalizeResume
-
 
 READ_FIXTURES = Path(__file__).parents[1] / "fixtures" / "algorithm"
 
@@ -93,6 +92,27 @@ def testNormalizeResume():
         "skills": "采访写作；Premiere；Python",
     }
     assert normalizeResume(readRaw) == readContract
+
+
+def testNormalizeResumeEnforcesJavaFieldBudgets():
+    result = normalizeResume({
+        "real_name": "名" * 33,
+        "intention_city": ["城" * 65] * 21,
+        "personal_intro": "介" * 301,
+        "internship": "经" * 16_001,
+    })
+
+    assert "realName" not in result["profilePatch"]
+    assert len(json.loads(result["profilePatch"]["intentionCity"])) == 20
+    assert all(len(city) == 64 for city in json.loads(result["profilePatch"]["intentionCity"]))
+    assert len(result["resumePatch"]["personalIntro"]) == 300
+    assert len(result["resumePatch"]["internship"]) == 16_000
+    assert result["warnings"] == [
+        "over_limit:realName",
+        "truncated:intentionCity",
+        "truncated:personalIntro",
+        "truncated:internship",
+    ]
 
 
 def testParseText():

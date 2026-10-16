@@ -11,7 +11,7 @@ from pathlib import Path
 
 from app.config import settings
 
-ALGORITHM_COMMIT = "216e4054acb68ea5b2e7b8b3c82219109912319e"
+ALGORITHM_COMMIT = "702440f1c5b2153d0f9fdfd6ba7c573eff82a3b6"
 ALGORITHM_VERSION = ALGORITHM_COMMIT[:7]
 
 OPERATIONS = (
@@ -62,6 +62,13 @@ async def run_algorithm(operation: str, request: dict) -> dict:
             "crawl_root": settings.crawl_config_root or settings.wechat_config_root,
         },
     }
+    if operation.startswith("resume_"):
+        payload["config"].update(
+            resume_parser_version=settings.resume_parser_version,
+            resume_model_io_log_enabled=settings.resume_model_io_log_enabled,
+            resume_model_io_log_max_text_chars=settings.resume_model_io_log_max_text_chars,
+            resume_model_io_actor_hmac_secret=settings.resume_model_io_actor_hmac_secret,
+        )
     if operation == "resume_parse":
         from app.integrations.llm import LLMClient
 
