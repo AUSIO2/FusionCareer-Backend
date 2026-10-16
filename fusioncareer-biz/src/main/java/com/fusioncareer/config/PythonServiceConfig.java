@@ -37,6 +37,9 @@ public class PythonServiceConfig {
     @Value("${python-service.read-timeout:60000}")
     private long readTimeout;
 
+    @Value("${python-service.resume-read-timeout:${PYTHON_SERVICE_RESUME_READ_TIMEOUT_MS:85000}}")
+    private long resumeReadTimeout;
+
     @Value("${internal-service.token:}")
     private String internalToken;
 
@@ -55,6 +58,12 @@ public class PythonServiceConfig {
                 .requestFactory(requestFactory)
                 .defaultHeader("X-Internal-Token", internalToken)
                 .build();
+        JdkClientHttpRequestFactory resumeRequestFactory =
+                new JdkClientHttpRequestFactory(readHttpClient);
+        resumeRequestFactory.setReadTimeout(Duration.ofMillis(resumeReadTimeout));
+        RestClient resumeClient = restClient.mutate()
+                .requestFactory(resumeRequestFactory)
+                .build();
 
         return new PythonServiceClient() {
             @Override
@@ -68,7 +77,7 @@ public class PythonServiceConfig {
             @Override
             public ResumeParseResponse parseResume(ResumeParseRequest readRequest) {
                 byte[] createBody = createBody(readRequest);
-                return restClient.post()
+                return resumeClient.post()
                         .uri("/api/internal/resume/parse")
                         .contentType(MediaType.APPLICATION_JSON)
                         .contentLength(createBody.length)

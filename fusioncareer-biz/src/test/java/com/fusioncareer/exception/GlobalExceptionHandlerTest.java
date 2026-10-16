@@ -13,6 +13,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.context.request.ServletWebRequest;
+import org.springframework.web.multipart.MultipartException;
 
 import java.util.stream.Stream;
 
@@ -64,6 +65,20 @@ class GlobalExceptionHandlerTest {
 
         assertThat(readResponse.getStatus()).isEqualTo(200);
         assertThat(readBody.getCode()).isEqualTo(ResumeErrorCode.FILE_NOT_FOUND.getCode());
+    }
+
+    @Test
+    void rejectMalformedMultipartAsClientError() {
+        MockHttpServletResponse readResponse = new MockHttpServletResponse();
+
+        R<Void> readBody = readHandler.handleMultipartException(
+                new MultipartException("sensitive-parser-detail"), readResponse);
+
+        assertThat(readResponse.getStatus()).isEqualTo(400);
+        assertThat(readBody.getCode()).isEqualTo(400);
+        assertThat(readBody.getMessage()).isEqualTo(ResultCode.VALIDATE_FAILED.getMessage());
+        assertThat(readBody.getMessage()).doesNotContain("sensitive-parser-detail", "MultipartException");
+        assertThat(readBody.getData()).isNull();
     }
 
     @Test

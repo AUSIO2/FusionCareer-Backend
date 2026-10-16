@@ -1,11 +1,13 @@
 import asyncio
+import json
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routers import chat as chat_router
-from app.chat.tools import WRITE_TOOLS
+from app.chat.tools import READ_TOOLS, WRITE_TOOLS
 from app.config import settings
 from app.integrations.backend import BackendApiError
 from app.main import app
@@ -98,11 +100,32 @@ class FakeBackend:
         return {"jobs": [{"positionName": "编辑"}]}
 
 
+class CapturingChatClient(FakeChatClient):
+    def __init__(self):
+        self.plans = []
+        self.streams = []
+        self.summaries = []
+
+    async def plan_tools(self, messages, tools, **readOptions):
+        self.plans.append((deepcopy(messages), readOptions["system_prompt"]))
+        return await super().plan_tools(messages, tools, **readOptions)
+
+    async def stream_chat(self, messages, **readOptions):
+        self.streams.append((deepcopy(messages), readOptions["system_prompt"]))
+        async for event in super().stream_chat(messages, **readOptions):
+            yield event
+
+    async def chat(self, user_message, **readOptions):
+        self.summaries.append((json.loads(user_message), readOptions["system_prompt"]))
+        return await super().chat(user_message, **readOptions)
+
+
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "agent_runtime_dir", str(tmp_path / "runtime"))
     monkeypatch.setattr(settings, "internal_service_token", "internal-test")
     monkeypatch.setattr(settings, "ai_chat_write_enabled", True)
+    monkeypatch.setattr(settings, "ai_chat_topic_guard_enabled", False)
     monkeypatch.setattr(chat_router, "chatClient", FakeChatClient())
     with TestClient(app) as readClient:
         readClient.app.state.backend_client = FakeBackend()
@@ -140,6 +163,53 @@ def testWriteToolRegistryIncludesReversibleFileDelete():
     assert "parse_resume_file" in readNames
 
 
+def testReadToolRegistryIncludesReadOnlyResumeFileAnalysis():
+    readNames = {readTool["function"]["name"] for readTool in READ_TOOLS}
+    assert "analyze_resume_file" in readNames
+    assert "get_job" in readNames
+    assert "get_my_resume" in readNames
+    assert "advise_resume" in readNames
+    assert "resume_advice_context" not in readNames
+
+
+@pytest.mark.parametrize("extra", [
+    {"interaction": {"type": "resume_advice", "source": "online"}},
+    {"jobId": "100", "interaction": {"type": "resume_advice", "source": "file", "fileIds": ["1"]}},
+    {"jobId": "100", "interaction": {"type": "resume_advice", "source": "online", "fileIds": ["1"]}},
+])
+def testAdviceInteractionRequiresPageJobAndCurrentAttachment(client: TestClient, extra):
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json={**readBody(), **extra})
+    assert response.status_code == 422
+
+
+def testAdviceInteractionRunsSameFixedAgentToolAndEmitsReport(client: TestClient, monkeypatch):
+    from app.chat import resume_advice
+
+    calls = []
+    capture = CapturingChatClient()
+
+    async def fixed_advice(backend, context, arguments, call_id):
+        calls.append((context, arguments, call_id))
+        return {"status": "needs_resume", "jobId": "100", "resumeVersion": "missing",
+                "summary": "请先完善简历。", "fitLevel": "unknown", "requirements": [],
+                "sectionSuggestions": [], "proofQuestions": []}
+
+    monkeypatch.setattr(resume_advice, "advise_resume", fixed_advice)
+    monkeypatch.setattr(chat_router, "chatClient", capture)
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json={
+        **readBody(), "jobId": "100", "input": "分析当前岗位", "attachments": [{
+            "fileId": "1", "name": "resume.pdf", "mimeType": "application/pdf"}],
+        "interaction": {"schemaVersion": 1, "type": "resume_advice", "source": "file", "fileIds": ["1"]},
+    })
+    assert response.status_code == 200
+    assert "event: resume_advice" in response.text
+    assert "event: action_proposed" not in response.text
+    assert len(calls) == 1
+    assert calls[0][1] == {"source": "file", "fileId": "1", "question": "分析当前岗位"}
+    assert capture.plans == []
+    assert len(capture.streams) == 1
+
+
 def testProtectStream(client: TestClient):
     assert client.post("/api/internal/chat/stream", json=readBody()).status_code == 403
 
@@ -161,6 +231,29 @@ def testStreamText(client: TestClient):
     assert readResponse.text.rfind("event: done") > readResponse.text.index("event: delta")
 
 
+def testUnrelatedTopicStopsBeforeMainModel(client: TestClient, monkeypatch):
+    from app.chat.topic_guard import TopicDecision
+
+    capture = CapturingChatClient()
+    monkeypatch.setattr(settings, "ai_chat_topic_guard_enabled", True)
+    monkeypatch.setattr(chat_router, "chatClient", capture)
+
+    async def reject(body, model):
+        return TopicDecision(False, "与就业主题无关", "small-model", 8, 4)
+
+    monkeypatch.setattr(chat_router, "checkTopic", reject)
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json={
+        **readBody(), "input": "给我讲一个游戏攻略",
+    })
+
+    assert response.status_code == 200
+    assert "event: topic_check" in response.text
+    assert '"relevant":false' in response.text
+    assert '"finishReason":"topic_rejected"' in response.text
+    assert capture.plans == []
+    assert capture.streams == []
+
+
 def testValidateStream(client: TestClient):
     updateBody = readBody()
     updateBody["input"] = " "
@@ -170,6 +263,148 @@ def testValidateStream(client: TestClient):
         json=updateBody,
     )
     assert readResponse.status_code == 422
+
+
+@pytest.mark.parametrize("status", [
+    "REJECTED", "APPLIED", "SUPERSEDED", "CONFLICT", "FAILED", "UNKNOWN",
+])
+def testCurrentActionStateReachesPlanningAndAnswerDespiteStaleHistory(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, status: str,
+):
+    capture = CapturingChatClient()
+    monkeypatch.setattr(chat_router, "chatClient", capture)
+    staleSummary = "用户希望更新专业，提案 2001 待确认。"
+    staleHistory = [{"role": "assistant", "content": "提案 2001 待确认，请点击确认。"}]
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json={
+        **readBody(), "input": "现在是什么情况？", "summary": staleSummary,
+        "history": staleHistory,
+        "actionStates": [{"actionId": "2001", "status": status,
+                          "requiresConfirmation": True, "toolName": "propose_profile_patch"}],
+    })
+
+    assert response.status_code == 200
+    assert "event: done" in response.text
+    assert "event: action_proposed" not in response.text
+    assert len(capture.plans) == len(capture.streams) == 1
+    for messages, prompt in [*capture.plans, *capture.streams]:
+        # Current state follows the historical text and is present in both calls.
+        assert messages[0] == staleHistory[0]
+        context = json.loads(messages[-2]["content"])["contextData"]
+        assert context["summary"] == staleSummary
+        assert context["actionStates"] == [{
+            "actionId": "2001", "status": status, "requiresConfirmation": False,
+            "toolName": "propose_profile_patch",
+        }]
+        assert messages[-1]["content"] == "现在是什么情况？"
+        assert "contextData.actionStates" in prompt
+        assert "优先于历史消息和 summary 中的旧文字" in prompt
+        assert "不得只基于历史或 summary 重建提案" in prompt
+
+
+def testPendingActionNormalizesConfirmationAndWorksWithoutOtherContext(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+):
+    capture = CapturingChatClient()
+    monkeypatch.setattr(chat_router, "chatClient", capture)
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json={
+        **readBody(), "actionStates": [{"actionId": "2001", "status": "PENDING",
+                                      "requiresConfirmation": False}],
+    })
+
+    assert response.status_code == 200
+    for messages, _ in [*capture.plans, *capture.streams]:
+        states = json.loads(messages[-2]["content"])["contextData"]["actionStates"]
+        assert states == [{"actionId": "2001", "status": "PENDING",
+                           "requiresConfirmation": True, "toolName": None}]
+
+
+def testMixedProposalHistoryRefsReachBothModelsWithoutProviderExtraFields(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+):
+    capture = CapturingChatClient()
+    monkeypatch.setattr(chat_router, "chatClient", capture)
+    history = [
+        {"role": "user", "content": "请更新资料和求职目标"},
+        {"role": "assistant", "content": "提案 2001 和 2002 待确认。",
+         "actionIds": ["2001", "2002"]},
+    ]
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json={
+        **readBody(), "input": "还有什么需要确认？", "history": history,
+        "actionStates": [
+            {"actionId": "2001", "status": "REJECTED", "requiresConfirmation": True,
+             "toolName": "propose_profile_patch"},
+            {"actionId": "2002", "status": "PENDING", "requiresConfirmation": False,
+             "toolName": "propose_memory_patch"},
+        ],
+    })
+
+    assert response.status_code == 200
+    assert len(capture.plans) == len(capture.streams) == 1
+    for messages, prompt in [*capture.plans, *capture.streams]:
+        assert messages[:2] == [
+            {"role": "user", "content": history[0]["content"]},
+            {"role": "assistant", "content": history[1]["content"]},
+        ]
+        assert all(set(message) == {"role", "content"} for message in messages)
+        context = json.loads(messages[-2]["content"])["contextData"]
+        assert context["historyActionRefs"] == [
+            {"historyIndex": 1, "actionIds": ["2001", "2002"]},
+        ]
+        assert [(state["actionId"], state["status"], state["requiresConfirmation"])
+                for state in context["actionStates"]] == [
+            ("2001", "REJECTED", False), ("2002", "PENDING", True),
+        ]
+        assert "contextData.historyActionRefs" in prompt
+        assert "必须分别按 actionStates 的最新状态处理" in prompt
+
+
+def testLegacyHistoryWithoutActionIdsPreservesProviderMessages(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+):
+    capture = CapturingChatClient()
+    monkeypatch.setattr(chat_router, "chatClient", capture)
+    history = [{"role": "assistant", "content": "之前讨论了求职目标。"}]
+    body = {**readBody(), "history": history}
+    assert chat_router.ChatStreamBody.model_validate(body).history[0].actionIds == []
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json=body)
+
+    assert response.status_code == 200
+    for messages, _ in [*capture.plans, *capture.streams]:
+        assert messages == [*history, {"role": "user", "content": "你好"}]
+
+
+@pytest.mark.parametrize("actionIds", [["2001"] * 33, ["bad-id"], ["1" * 33]])
+def testHistoryActionRefsAreBoundedNumericIds(client: TestClient, actionIds: list):
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json={
+        **readBody(), "history": [{"role": "assistant", "content": "待确认。",
+                                  "actionIds": actionIds}],
+    })
+    assert response.status_code == 422
+
+
+def testLegacyStreamWithoutActionStatesStillReachesBothModelCalls(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+):
+    capture = CapturingChatClient()
+    monkeypatch.setattr(chat_router, "chatClient", capture)
+    assert chat_router.ChatStreamBody.model_validate(readBody()).actionStates == []
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(), json=readBody())
+
+    assert response.status_code == 200
+    assert capture.plans[0][0] == [{"role": "user", "content": "你好"}]
+    assert capture.streams[0][0] == capture.plans[0][0]
+
+
+@pytest.mark.parametrize("states", [
+    [{"actionId": "2001", "status": "PENDING"}] * 101,
+    [{"actionId": "2001", "status": "INVALID"}],
+    [{"actionId": "not-an-id", "status": "REJECTED"}],
+    [{"actionId": "2001", "status": "REJECTED", "toolName": "x" * 65}],
+])
+def testActionStatesRejectInvalidOrOversizedContext(client: TestClient, states: list):
+    response = client.post("/api/internal/chat/stream", headers=readHeaders(),
+                           json={**readBody(), "actionStates": states})
+    assert response.status_code == 422
 
 
 def testReadTool(client: TestClient):
@@ -307,3 +542,24 @@ def testSummarizeWithoutAgentContext(client: TestClient):
         "summary": "用户正在寻找媒体实习",
         "throughMessageId": "42",
     }
+
+
+def testSummaryInstructsRemovalOfStaleProposalLifecycle(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+):
+    capture = CapturingChatClient()
+    monkeypatch.setattr(chat_router, "chatClient", capture)
+    previous = "用户在找媒体实习。更新专业提案待确认。"
+    response = client.post("/api/internal/chat/summarize",
+                           headers={"X-Internal-Token": "internal-test"}, json={
+        "previousSummary": previous,
+        "messages": [{"role": "assistant", "content": "请确认修改专业的提案。"}],
+        "throughMessageId": "42",
+    })
+
+    assert response.status_code == 200
+    payload, prompt = capture.summaries[0]
+    assert payload["previousSummary"] == previous
+    assert "不得保留提案生命周期、待确认或等待确认的待办信息" in prompt
+    assert "previousSummary 中已有的这类信息也必须删除" in prompt
+    assert "仍可保留用户的长期目标和偏好" in prompt

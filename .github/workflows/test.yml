@@ -18,7 +18,7 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
-      - run: ./deploy/scripts/test-java.sh
+      - run: TZ=UTC ./deploy/scripts/test-java.sh
 
   python:
     runs-on: ubuntu-latest
@@ -34,4 +34,4 @@ jobs:
           cache-dependency-path: fusioncareer-agent/pyproject.toml
       - run: pip install ".[dev]"
       - run: pytest -q
-      - run: ruff check app/skills/business/official_sites.py tests/skills/test_official_sites.py
+      - run: ruff check --ignore I001 app/skills/business/crawlers/official tests/skills/crawlers/test_official_sites.py

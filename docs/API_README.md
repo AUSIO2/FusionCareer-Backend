@@ -87,9 +87,22 @@ POST 退出响应：
 `/user/profile/get` 使用同样的姓名规则；个人空间的 `displayName` 无姓名时为“未填写姓名”。
 UIS 登录会跳过姓名字段中的学工号，并在有真实姓名时修复历史空白或学工号占位，保留用户已填写的有效姓名。
 
+2026-10-07 使用本应用的一次真实 UIS 授权，直接调用 `/idp/api/v3/oauth2/userInfo` 验证：
+JSON 根层 `user_name` 为姓名，`user_id` 为学工号。本次响应还包含 `user_type`、`mobile`、`sessionId`、
+`department`、`email`；不把 `user_type` 当作本平台角色，不把 `department` 编号当作专业。
+解析器优先使用已验证的 `user_name`、`user_id`；其余兼容字段不作为复旦 v3 接口契约证据。
+独立取证无需替换或重启 Java 后端，未保存授权码、Token 或身份字段的值。公开 OIDC 元数据的
+`/oidc/getUserInfo` 与本项目 `/api/v3/oauth2/userInfo` 是不同端点，不能相互替代字段定义。
+
 ### 3.0 个人空间
 
 个人空间是当前登录用户账号、资料、简历、文件、投递、长期记忆和唯一 AI Session 的统一入口。总览只返回摘要和链接，不包含联系方式、简历正文、文件列表、问卷答案、记忆正文或聊天消息。
+
+提案状态同步：Java 每轮向 Python 发送当前用户、当前会话 epoch 最近 100 条提案的实时
+`actionStates`（`actionId/status/requiresConfirmation/toolName`）；历史 Assistant 消息可带
+`actionIds` 供模型关联提案，原聊天正文不改写。状态优先于旧历史和摘要，REJECTED/APPLIED 等终态
+的 `requiresConfirmation` 为 false。Python 规划与回答使用同一份当前状态，摘要不再保存易过期的
+提案确认待办；用户在卡片拒绝不会自动追加一条聊天请求。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -175,6 +188,8 @@ AI Session 以 `userId` 为主键，同一用户最多一条记录，并在第�
 当前只读 Tool 包含：`get_my_space`、`get_my_account`、`get_my_profile`、`get_my_resume`、`list_my_files`、`get_my_file`、`get_my_file_quota`、`get_my_memory`、`list_my_applications`、`get_my_application`、`search_jobs`、`get_job`、`get_job_questionnaire`、`list_my_changes`、`get_my_change`。模型不可传入 userId；Python 只原样转发 Java 签发的 AgentContext，Java 在每次 Tool 调用时重新校验签名、过期时间、run、epoch、租约和 scope。
 
 `AI_CHAT_WRITE_ENABLED=true` 时开放 8 个提案 Tool：Profile、Resume、Memory、文件删除、文件恢复、问卷草稿、问卷提交和简历解析。字段 Tool 使用 `changes: [{field, operation, value?}]`；文件 Tool 只接受当前用户对应状态的 `fileId`；问卷 Tool 使用结构化 `{questionId,value}` 数组；简历解析只接受当前用户活动文件，并生成 Profile + Resume 多 Item Action。Java 从 AgentContext 确定用户和当前版本，并以 `runId + toolCallId` 派生幂等键。Tool 只保存加密的 `PENDING` Action；Python 会产生 `action_proposed` SSE 事件。确认和拒绝只能由登录用户调用 `/personal-space/actions/{id}/confirm|reject`，确认时再次执行版本 CAS，成功后该 Action 可随时 Revert。
+
+每个用户按 `Asia/Shanghai` 自然日最多发起 100 次 AI 消息，幂等重放不重复计数。Python 在主模型和 Tool 规划前使用 `AI_CHAT_TOPIC_MODEL` 做低 token、关闭思考的主题检查；无关消息只返回提示。用户第 3 次无关消息起封禁 1 小时，后续无关次数按 2 倍增长，最长 7 天。额度和封禁由 Java 的用户 Session 行锁定维护，Python 只返回 `topic_check` 判定事件。所有上下文、附件、Action 和 Tool 数据继续使用 `user_id + epoch/run` 约束。
 
 总览响应示例：
 
@@ -481,6 +496,18 @@ UPDATE fc_user SET role = 2 WHERE student_id = '指定的学号或工号' AND st
 
 任务持续分批处理到 `pendingCount=0`。POST 返回 HTTP 200 的统一 `R` 响应，内部
 `data.status` 为 `RUNNING`；使用 GET 查询 `COMPLETED`、`FAILED` 或剩余数量。
+
+草稿箱全文搜索使用管理员列表的可选参数：
+
+```text
+GET /admin/job-post/list?status=OFFLINE&fullText=true&keyword=视频剪辑&page=1&size=20
+```
+
+`fullText` 默认为 `false`，默认仍只搜岗位名和公司。管理员启用后，`keyword` 去除首尾空白，
+按完整字符串匹配岗位名、公司、部门、描述、专业/技能/其他要求、工作地点、备注、联系方式、来源链接等已有文本字段。
+`%`、`_`、反斜杠和 `!` 按字面量处理，不作为通配符；空关键词不筛选。
+状态、类别等筛选与全文条件同时生效，分页总数是匹配总数。普通岗位接口忽略 `fullText`，不扩大搜索至内部备注。
+搜索不使用 AI，也不需要修改数据库结构。
 
 岗位回收站：
 

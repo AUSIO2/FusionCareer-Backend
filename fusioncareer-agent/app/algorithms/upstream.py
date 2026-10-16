@@ -11,7 +11,7 @@ from pathlib import Path
 
 from app.config import settings
 
-ALGORITHM_COMMIT = "1f3d8a7a7d244487294a3793658e625d4d9086f1"
+ALGORITHM_COMMIT = "702440f1c5b2153d0f9fdfd6ba7c573eff82a3b6"
 ALGORITHM_VERSION = ALGORITHM_COMMIT[:7]
 
 OPERATIONS = (
@@ -51,11 +51,32 @@ async def run_algorithm(operation: str, request: dict) -> dict:
             "token": settings.wechat_token, "cookie": settings.wechat_cookie,
             "prefilter_enabled": settings.prefilter_enabled,
             "prefilter_min_hits": settings.prefilter_min_hits,
+            "job_record_dedup_enabled": settings.job_record_dedup_enabled,
+            # Upstream batch dedup persists signatures before extraction succeeds,
+            # which can suppress failed articles on retry. Only native_job_structure
+            # uses the safe adapter that indexes after Java confirms the job write;
+            # legacy batch/pipeline keep their existing retry behavior instead.
+            "article_dedup_enabled": False,
             "company_score_enabled": settings.recommendation_company_score_enabled,
             "recommend_log_enabled": settings.recommendation_audit_log_enabled,
             "crawl_root": settings.crawl_config_root or settings.wechat_config_root,
         },
     }
+    if operation.startswith("resume_"):
+        payload["config"].update(
+            resume_parser_version=settings.resume_parser_version,
+            resume_model_io_log_enabled=settings.resume_model_io_log_enabled,
+            resume_model_io_log_max_text_chars=settings.resume_model_io_log_max_text_chars,
+            resume_model_io_actor_hmac_secret=settings.resume_model_io_actor_hmac_secret,
+        )
+    if operation == "resume_parse":
+        from app.integrations.llm import LLMClient
+
+        payload["config"].update(
+            llm_timeout_seconds=60.0,
+            llm_max_tokens=8192,
+            llm_extra_body=LLMClient.tool_chat_options(settings.llm_model).get("extra_body", {}),
+        )
     worker = Path(__file__).with_name("upstream_worker.py")
     # Upstream has process-global paths and synchronous clients. Each run owns a process;
     # cancellation kills it, so no background write survives a cancelled workflow node.

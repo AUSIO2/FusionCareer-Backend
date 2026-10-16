@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 /** 定时回收因进程崩溃遗留的过期 AI 运行租约。 */
@@ -18,6 +19,7 @@ import java.util.List;
 public class AiChatRecoveryService {
 
     private static final int BATCH_SIZE = 100;
+    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
 
     private final AiSessionMapper sessionMapper;
     private final AiChatService chatService;
@@ -30,7 +32,7 @@ public class AiChatRecoveryService {
                 new LambdaQueryWrapper<AiSessionEntity>()
                         .isNotNull(AiSessionEntity::getActiveRunId)
                         .isNotNull(AiSessionEntity::getLeaseUntil)
-                        .lt(AiSessionEntity::getLeaseUntil, LocalDateTime.now())
+                        .lt(AiSessionEntity::getLeaseUntil, LocalDateTime.now(SHANGHAI))
                         .orderByAsc(AiSessionEntity::getLeaseUntil)
                         .last("LIMIT " + BATCH_SIZE));
         for (AiSessionEntity readSession : readSessions) {

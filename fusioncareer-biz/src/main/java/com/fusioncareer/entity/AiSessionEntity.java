@@ -7,6 +7,7 @@ import lombok.Data;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 
 @Data
 @TableName("fc_ai_session")
@@ -23,6 +24,10 @@ public class AiSessionEntity implements Serializable {
     private String activeRunId;
     private LocalDateTime leaseUntil;
     private LocalDateTime lastMessageAt;
+    private LocalDate usageDate;
+    private Integer dailyUsageCount;
+    private Integer irrelevantStrikeCount;
+    private LocalDateTime aiBannedUntil;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

@@ -22,7 +22,7 @@ VENDOR = Path(__file__).parents[2] / "app/vendor/fusioncareer_algorithm"
 @pytest.fixture
 def service(tmp_path, monkeypatch):
     calls, uploads = [], []
-    state = {"status": 200, "invalid": False}
+    state = {"status": 200, "invalid": False, "jobs": []}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -37,7 +37,14 @@ def service(tmp_path, monkeypatch):
             self.wfile.write(body)
 
         def do_GET(self):
-            self.send_json({"code": 200, "data": {"list": [], "total": 0}})
+            from urllib.parse import parse_qs, urlsplit
+
+            query = parse_qs(urlsplit(self.path).query)
+            page = int(query.get("page", [1])[0])
+            size = int(query.get("size", [200])[0])
+            start = (page - 1) * size
+            jobs = state["jobs"]
+            self.send_json({"code": 200, "data": {"list": jobs[start:start + size], "total": len(jobs)}})
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -62,18 +69,37 @@ def service(tmp_path, monkeypatch):
                     }, "finish_reason": "stop"}],
                 })
                 return
-            resume = "简历" in body["messages"][0]["content"]
-            result = {"real_name": "张同学", "gender": 2, "skills": "Python"} if resume else {
-                "岗位列表": [{
-                    "单位名称": "示例科技有限公司2027届校园招聘",
+            system_prompt = body["messages"][0]["content"]
+            resume = "简历" in system_prompt
+            if "岗位目录识别助手" in system_prompt:
+                block_id = body["messages"][-1]["content"].split("BLOCK_ID=", 1)[1].splitlines()[0]
+                result = {"count": 2, "jobs": [
+                    {"companyName": "示例科技有限公司", "positionName": "编辑",
+                     "evidenceBlockIds": [block_id]},
+                    {"companyName": "示例科技有限公司", "positionName": "记者",
+                     "evidenceBlockIds": [block_id]},
+                ]}
+            elif "TARGET_JOBS_JSON=" in system_prompt:
+                targets = json.loads(system_prompt.split("TARGET_JOBS_JSON=", 1)[1])
+                result = {"jobs": [{
+                    "targetId": target["targetId"],
+                    "单位名称": target["companyName"],
+                    "岗位名称": target["positionName"],
+                    "岗位大类": "企业公司", "岗位二级分类": "民企",
+                    "招聘类型": "应届生招聘",
+                } for target in targets], "warnings": []}
+            elif resume:
+                result = {"real_name": "张同学", "gender": 2, "skills": "Python"}
+            else:
+                result = {"jobs": [{
+                    "单位名称": "示例科技有限公司",
                     "岗位名称": "编辑", "岗位大类": "企业公司", "岗位二级分类": "民企",
-                    "招聘类型": "小实习", "投递截止日期": "12月31日",
+                    "招聘类型": "小实习", "投递截止日期": "2026-12-31",
                     "其他要求与投递说明": "来源：学院内推",
                 }, {
                     "单位名称": "示例科技有限公司", "岗位名称": "记者",
                     "岗位大类": "企业公司", "岗位二级分类": "民企", "招聘类型": "大实习",
-                }],
-            }
+                }], "warnings": []}
             self.send_json({
                 "id": "test", "object": "chat.completion", "created": 1, "model": "test",
                 "choices": [{"index": 0, "message": {
@@ -91,6 +117,7 @@ def service(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "llm_model", "test-model")
     monkeypatch.setattr(settings, "backend_base_url", base)
     monkeypatch.setattr(settings, "agent_runtime_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "resume_parser_version", "261013")
     monkeypatch.setattr(settings, "ocr_preload", False)
     monkeypatch.setattr(settings, "internal_service_token", "test-internal")
     monkeypatch.setattr(settings, "agent_admin_token", "test-admin")
@@ -104,7 +131,7 @@ def service(tmp_path, monkeypatch):
 
 def test_vendored_source_matches_pinned_commit():
     manifest = json.loads((VENDOR / "PROVENANCE.json").read_text())
-    assert manifest["commit"] == "1f3d8a7a7d244487294a3793658e625d4d9086f1"
+    assert manifest["commit"] == "702440f1c5b2153d0f9fdfd6ba7c573eff82a3b6"
     for name, digest in manifest["sha256"].items():
         assert hashlib.sha256((VENDOR / name).read_bytes()).hexdigest() == digest, name
 
@@ -146,13 +173,8 @@ def test_java_job_api_runs_real_upstream_workflow(service, monkeypatch):
         assert jobs[0]["recruitType"] == "SMALL_INTERNSHIP"
         assert jobs[0]["applicationDeadline"].endswith("-12-31")
         assert all(job["status"] == "OFFLINE" for job in jobs)
-        assert "upstream_algorithm" in executed[0]
-        assert "normalize_job_result" in executed[0]
-        assert "学院内推" in service[0][0]["messages"][0]["content"]
-        assert "当前日期" in service[0][0]["messages"][1]["content"]
-        logs = list(service[3].glob("algorithm/*/logs/llm_io/*.jsonl"))
-        assert logs
-        assert "test-secret" not in logs[0].read_text()
+        assert "native_job_structure" in executed[0]
+        assert "学院内推" in service[0][0]["messages"][1]["content"]
         assert app.state.workflow_catalog.get("job_structure")["nodes"]["input"]["inputs"]["json_obj"]["value"]["text"] == ""
 
 
@@ -207,18 +229,139 @@ def test_batch_pipeline_exports_and_upload_deduplicates(service):
     assert all(job["status"] == "OFFLINE" for job in service[1][0][1])
 
 
+def test_upload_deduplicates_cross_source_campaign_aliases(service):
+    root = service[3] / "algorithm/semantic-upload"
+    root.mkdir(parents=True)
+    shared = {
+        "positionName": "行政管培生",
+        "jobCategory": "ENTERPRISE",
+        "jobSubCategory": "PRIVATE_ENTERPRISE",
+        "recruitType": "CAMPUS_RECRUITMENT",
+        "reqGradYear": "2027届",
+        "reqOther": "网申：https://huicecom.zhiye.com/Campus；邮箱：hr@huice.com",
+    }
+    rows = [
+        {**shared, "sourceUrl": "https://career.fudan.edu.cn/a", "companyName": "慧策集团",
+         "workCity": "北京"},
+        {**shared, "sourceUrl": "https://jy.xmu.edu.cn/b", "companyName": "北京掌上先机网络科技有限公司",
+         "workCity": "北京、天津"},
+    ]
+    (root / "jobs.json").write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+
+    result = asyncio.run(run_algorithm("job_upload", {
+        "workspace": "semantic-upload", "json": "jobs.json", "dry_run": False,
+    }))
+
+    assert result["uploaded"] == 1 and result["skipped_dup"] == 1
+    assert len(service[1]) == 1 and len(service[1][0][1]) == 1
+    assert set(service[1][0][1][0]["workCities"]) == {"北京", "天津"}
+
+
+def test_upload_record_dedup_kill_switch_restores_exact_only(service, monkeypatch):
+    monkeypatch.setattr(settings, "job_record_dedup_enabled", False)
+    root = service[3] / "algorithm/semantic-disabled"
+    root.mkdir(parents=True)
+    shared = {
+        "positionName": "行政管培生",
+        "jobCategory": "ENTERPRISE",
+        "jobSubCategory": "PRIVATE_ENTERPRISE",
+        "recruitType": "CAMPUS_RECRUITMENT",
+        "reqGradYear": "2027届",
+        "reqOther": "网申：https://huicecom.zhiye.com/Campus；邮箱：hr@huice.com",
+    }
+    rows = [
+        {**shared, "sourceUrl": "https://career.fudan.edu.cn/a", "companyName": "慧策集团"},
+        {**shared, "sourceUrl": "https://jy.xmu.edu.cn/b", "companyName": "北京掌上先机网络科技有限公司"},
+    ]
+    (root / "jobs.json").write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+
+    result = asyncio.run(run_algorithm("job_upload", {
+        "workspace": "semantic-disabled", "json": "jobs.json", "dry_run": False,
+    }))
+
+    assert result["uploaded"] == 2 and result["skipped_dup"] == 0
+
+
+@pytest.mark.parametrize("firstPatch,secondPatch", [
+    ({"workCity": "北京"}, {"workCity": "上海"}),
+    ({"department": "行政部"}, {"department": "销售部"}),
+    ({"recruitType": "CAMPUS_RECRUITMENT"}, {"recruitType": "DAILY_INTERNSHIP"}),
+    ({"salaryMin": 8000}, {"salaryMin": 12000}),
+])
+def test_upload_preserves_semantic_conflicts(service, firstPatch, secondPatch):
+    root = service[3] / "algorithm/semantic-conflict"
+    root.mkdir(parents=True)
+    shared = {
+        "companyName": "慧策集团",
+        "positionName": "行政管培生",
+        "jobCategory": "ENTERPRISE",
+        "jobSubCategory": "PRIVATE_ENTERPRISE",
+        "recruitType": "CAMPUS_RECRUITMENT",
+        "reqGradYear": "2027届",
+        "reqOther": "网申：https://huicecom.zhiye.com/Campus；邮箱：hr@huice.com",
+    }
+    rows = [
+        {**shared, **firstPatch, "sourceUrl": "https://career.fudan.edu.cn/a"},
+        {**shared, **secondPatch, "sourceUrl": "https://jy.xmu.edu.cn/b"},
+    ]
+    (root / "jobs.json").write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+
+    result = asyncio.run(run_algorithm("job_upload", {
+        "workspace": "semantic-conflict", "json": "jobs.json", "dry_run": False,
+    }))
+
+    assert result["uploaded"] == 2 and result["skipped_dup"] == 0
+    assert len(service[1][0][1]) == 2
+
+
+def test_upload_semantically_matches_existing_backend_job(service):
+    root = service[3] / "algorithm/semantic-existing"
+    root.mkdir(parents=True)
+    existing = {
+        "id": "101",
+        "sourceUrl": "https://career.fudan.edu.cn/old",
+        "companyName": "北京掌上先机网络科技有限公司",
+        "positionName": "行政管培生",
+        "recruitType": "CAMPUS_RECRUITMENT",
+        "reqGradYear": "2027届",
+        "workCity": "北京",
+        "reqOther": "网申：https://huicecom.zhiye.com/Campus；邮箱：hr@huice.com",
+        "status": "PUBLISHED",
+        "createdAt": "2026-09-30 20:00:00",
+    }
+    service[2]["jobs"] = [existing]
+    incoming = {
+        **existing,
+        "id": None,
+        "sourceUrl": "https://jy.xmu.edu.cn/new",
+        "companyName": "慧策集团",
+        "status": "OFFLINE",
+    }
+    (root / "jobs.json").write_text(json.dumps([incoming], ensure_ascii=False), encoding="utf-8")
+
+    result = asyncio.run(run_algorithm("job_upload", {
+        "workspace": "semantic-existing", "json": "jobs.json", "dry_run": False,
+    }))
+
+    assert result["uploaded"] == 0 and result["skipped_dup"] == 1
+    assert service[1] == []
+
+
 def test_resume_text_metrics_and_batch_csv(service):
     from tests.algorithms.test_resume_parser import writePdf
 
     result = asyncio.run(run_algorithm("resume_parse", {"raw_text": "张同学 Python"}))
     assert result["record"]["real_name"] == "张同学"
     assert result["metrics"]["total_tokens"] == 30
+    assert result["metrics"]["request_id"]
     root = service[3] / "algorithm/resumes"
     root.mkdir(parents=True)
     writePdf(root / "one.pdf")
     result = asyncio.run(run_algorithm("resume_batch", {"workspace": "resumes", "files": ["one.pdf"]}))
     with Path(result["file"]).open(encoding="utf-8-sig") as stream:
         assert next(iter(csv.DictReader(stream)))["skills"] == "Python"
+    assert "唯一归类规则" in service[0][0]["messages"][1]["content"]
+    assert "唯一归类规则" not in service[0][1]["messages"][1]["content"]
 
 
 def test_upstream_failures_and_paths(service):
@@ -263,7 +406,7 @@ def test_runtime_preset_is_used_and_failure_not_reported_as_success(service):
                                json={"text": "招聘编辑"})
         assert response.status_code == 400
         preset = app.state.workflow_catalog.get("job_structure")
-        preset["nodes"]["algorithm"]["skill"] = "missing_skill"
+        preset["nodes"]["result"]["skill"] = "missing_skill"
         response = client.post("/api/internal/job/structure", headers={"X-Internal-Token": "test-internal"},
                                json={"text": "招聘编辑"})
         assert response.status_code == 422

@@ -26,7 +26,7 @@ from app.skills.business.crawlers.wechat.core import (
 )
 from app.skills.business.crawlers.paths import CrawlPaths
 from app.skills.business.crawlers.store import CrawlStore
-from app.skills.business.crawlers.structure_articles import structureArticles
+from app.skills.business.crawlers.structure_articles import drainPendingArticles
 
 readZone = ZoneInfo("Asia/Shanghai")
 
@@ -148,13 +148,8 @@ def crawlAccounts(
 async def structurePending(readPaths: CrawlPaths) -> None:
     createBackend = BackendClient()
     try:
-        while True:
-            createResult = await structureArticles(readPaths, createBackend)
-            print(json.dumps({"event": "structure", **createResult}), flush=True)
-            if createResult["articleCount"] == 0:
-                return
-            if createResult["failedCount"] == createResult["articleCount"]:
-                raise RuntimeError("all pending articles failed to structure")
+        createResult = await drainPendingArticles(readPaths, createBackend, readBatchSize=20)
+        print(json.dumps({"event": "structure", **createResult}), flush=True)
     finally:
         await createBackend.close()
 

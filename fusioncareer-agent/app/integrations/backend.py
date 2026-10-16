@@ -9,6 +9,18 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+_JOB_POST_REQUEST_FIELDS = frozenset({
+    "sourceType", "sourceUrl", "companyName", "department", "positionName",
+    "jobCategory", "jobSubCategory", "recruitType", "headcount", "headcountDisplay",
+    "workStartDate", "workEndDate", "applicationDeadline", "workDaysPerWeek",
+    "workTimeRequirement", "workDurationType", "workPeriodType", "workMode",
+    "workCity", "workCities", "workProvince", "workLocation", "salaryMin", "salaryMax",
+    "salaryDisplay", "careerDirection", "jobDesc", "reqEduLevel", "reqEduLevels",
+    "reqMajor", "reqGradYear", "reqSkills", "reqOther", "internalCompensation",
+    "contactName", "contactInfo", "internalRemark", "recommended", "status",
+    "recycleReason",
+})
+
 
 class BackendApiError(Exception):
     """Java 后端返回业务错误"""
@@ -108,6 +120,19 @@ class BackendClient:
         if create_jobs:
             await self._post("/internal/job-post/batch", create_jobs)
 
+    async def merge_job_post_evidence(
+        self, job_id: int | str, expected_updated_at: str, incoming_job: dict,
+    ) -> dict:
+        """Atomically merge compatible evidence into a locked keeper row."""
+        incoming = {
+            key: value for key, value in incoming_job.items()
+            if key in _JOB_POST_REQUEST_FIELDS
+        }
+        return await self._put(
+            f"/internal/job-post/{job_id}/merge-evidence",
+            {"expectedUpdatedAt": expected_updated_at, "incoming": incoming},
+        )
+
     async def run_agent_tool(
         self,
         tool_name: str,
@@ -147,7 +172,6 @@ class BackendClient:
         client = await self._ensure_client()
         logger.debug(f"PUT {path}")
         resp = await client.put(path, json=data)
-        resp.raise_for_status()
         return self._unwrap(resp)
 
     @staticmethod

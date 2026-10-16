@@ -46,6 +46,22 @@ READ_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "analyze_resume_file",
+            "description": (
+                "只读解析当前用户已上传并在本轮附件中选中的简历文件，返回脱敏后的"
+                "结构化证据。用于结合当前岗位给出简历优化建议；不会保存或覆盖在线简历。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"fileId": {"type": "string", "pattern": "^[0-9]+$"}},
+                "required": ["fileId"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_my_files",
             "description": "分页列出当前用户未删除文件的安全元数据。",
             "parameters": {
@@ -385,6 +401,19 @@ READ_TOOLS.append({
     },
 })
 
+READ_TOOLS.append({
+    "type": "function",
+    "function": {
+        "name": "advise_resume",
+        "description": "只读分析当前岗位与本人简历的匹配，返回有证据的优化建议。岗位由本轮页面绑定；不保存、不改写投递、不创建提案。file来源只能使用本轮选中附件。",
+        "parameters": {"type": "object", "additionalProperties": False,
+            "properties": {"source": {"type": "string", "enum": ["online", "file"]},
+                "fileId": {"type": "string", "pattern": "^[0-9]{1,19}$"},
+                "question": {"type": "string", "maxLength": 2000}},
+            "required": ["source"]},
+    },
+})
+
 TOOLS = READ_TOOLS + WRITE_TOOLS
 TOOL_NAMES = {readTool["function"]["name"] for readTool in TOOLS}
 READ_TOOL_NAMES = {readTool["function"]["name"] for readTool in READ_TOOLS}
@@ -448,6 +477,20 @@ async def runTool(
             return safeBackendError(error)
         except Exception:  # noqa: BLE001 - recommendation failures are model-safe data
             return toolError("TOOL_UNAVAILABLE", "推荐服务暂时不可用", True)
+    if readName == "advise_resume":
+        from pydantic import ValidationError
+
+        from app.chat.resume_advice import advise_resume
+        try:
+            report = await advise_resume(readBackend, readContext, readArgs, readCallId)
+            return ToolResult(json.dumps({"untrustedData": report}, ensure_ascii=False),
+                presentation={"schemaVersion": 1, "type": "resume_advice", "report": report})
+        except BackendApiError as error:
+            return safeBackendError(error)
+        except (ValidationError, ValueError, TypeError):
+            return toolError("ADVICE_VALIDATION_FAILED", "简历建议未通过证据或格式校验，请重试", True)
+        except Exception:  # noqa: BLE001 - never expose model or evidence payloads in errors
+            return toolError("TOOL_UNAVAILABLE", "简历顾问暂时不可用", True)
     readAttempts = 2 if readName in READ_TOOL_NAMES else 1
     for readAttempt in range(readAttempts):
         try:

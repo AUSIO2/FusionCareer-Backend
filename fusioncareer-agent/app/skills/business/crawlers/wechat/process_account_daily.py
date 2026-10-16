@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,6 @@ class WechatProcessAccountDailySkill(BaseSkill):
         readAccount = readAccounts[iteration]
         fakeid = readAccount["fakeid"]
         account_name = readAccount["name"]
-        result = process_account_daily(paths, fakeid, account_name)
+        result = await asyncio.to_thread(process_account_daily, paths, fakeid, account_name)
         merge_account_result(state_path, result)
         return {"json_obj": result}

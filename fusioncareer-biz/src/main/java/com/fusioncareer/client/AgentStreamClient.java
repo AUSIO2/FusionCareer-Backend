@@ -3,6 +3,7 @@ package com.fusioncareer.client;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fusioncareer.service.AiChatService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -166,19 +167,31 @@ public class AgentStreamClient {
             String summary,
             List<HistoryMessage> history,
             Object interaction,
-            String jobId) {
+            String jobId,
+            List<AiChatService.ActionState> actionStates) {
+        public StreamRequest(String runId, Long epoch, String requestId, String userMessageId,
+                String assistantMessageId, String input, List<Attachment> attachments,
+                Map<String, Object> memory, String summary, List<HistoryMessage> history,
+                Object interaction, String jobId) {
+            this(runId, epoch, requestId, userMessageId, assistantMessageId, input,
+                    attachments, memory, summary, history, interaction, jobId, List.of());
+        }
+
         public StreamRequest(String runId, Long epoch, String requestId, String userMessageId,
                 String assistantMessageId, String input, List<Attachment> attachments,
                 Map<String, Object> memory, String summary, List<HistoryMessage> history) {
             this(runId, epoch, requestId, userMessageId, assistantMessageId, input,
-                    attachments, memory, summary, history, null, null);
+                    attachments, memory, summary, history, null, null, List.of());
         }
     }
 
     public record Attachment(String fileId, String name, String mimeType) {
     }
 
-    public record HistoryMessage(String role, String content) {
+    public record HistoryMessage(String role, String content, List<String> actionIds) {
+        public HistoryMessage(String role, String content) {
+            this(role, content, List.of());
+        }
     }
 
     public record StreamEvent(String name, JsonNode data) {

@@ -1,9 +1,9 @@
 # 算法仓库完整接入工作流引擎
 
-基线：`chenxin1209/FusionCareer-Algorithm@1f3d8a7a7d244487294a3793658e625d4d9086f1`。
+基线：`chenxin1209/FusionCareer-Algorithm@702440f1c5b2153d0f9fdfd6ba7c573eff82a3b6`。
 本说明取代旧集成计划中“只选择性迁入六月版本”的范围约定。
 
-2026-09-30 增加预筛、推荐准备/对话/排序、源统计、WeRead 登录/采集工作流，并将推荐作为现有 Agent 的只读 Tool。2026-10-02 同步更严格的技术岗过滤、同公司去重和可展示的推荐理由。新增契约、超时配置和发布步骤见 [迁移实施说明](VISUAL_MIGRATION_IMPLEMENTATION.md)。交互式推荐默认关闭上游审计落盘；原后台解析工作流的私有调试日志保持不变。
+2026-09-30 增加预筛、推荐准备/对话/排序、源统计、WeRead 登录/采集工作流，并将推荐作为现有 Agent 的只读 Tool。2026-10-02 同步更严格的技术岗过滤、同公司去重和可展示的推荐理由。2026-10-16 同步并启用上游 261013 简历解析器，保留 legacy 运行时回退。新增契约、超时配置和发布步骤见 [迁移实施说明](VISUAL_MIGRATION_IMPLEMENTATION.md)。交互式推荐默认关闭上游审计落盘；含个人经历的简历模型 I/O 日志在 Agent 集成中默认关闭。
 
 ## 执行关系
 
@@ -22,6 +22,11 @@ Java /api/internal/resume/parse
 
 job_structure 根据 sourceType 选择管理员短提示词或 Markdown 抽取。
 官网/公众号现有采集工作流的岗位结构化步骤也进入 job_structure。
+结构化结果写 Java 前还会执行岗位级跨来源去重：岗位名必须一致，并以版本化公司别名、职位级 URL，
+或可解析出租户/活动身份的 ATS URL + 招聘周期识别不同高校转载的同一招聘活动；邮箱作为活动级辅助
+证据。全国覆盖文案会规范化，但明确不同届别、部门、职位 ID、专业学历或互斥城市不自动合并；已有
+keeper 缺少的硬证据不会只在内存中补齐后丢失。
+该层不依赖整篇文章相似度，且与文章 MinHash 去重分别提供独立开关。
 共享采集模块位于 `app/skills/business/crawlers/`，官网和公众号分别位于其 `official/`、`wechat/` 子目录；
 目录配置优先使用 CRAWL_CONFIG_ROOT，旧 WECHAT_CONFIG_ROOT 仍兼容。
 Java 接口鉴权、请求和响应格式兼容；简历归属检查仍通过 BackendClient。
@@ -43,7 +48,7 @@ Skill：`upstream_algorithm`，输入 operation:text、request:json_obj，输出
 | job_export_json | CSV → JSON | workspace |
 | job_export_xlsx | CSV → Excel，表头/冻结/列宽 | workspace |
 | job_upload | 文件/远端/本地索引去重、分批上传 | workspace, json/csv, dry_run, fetch_existing |
-| resume_parse | 文本/PDF/DOCX/图片/OCR、清洗、提取、token/耗时指标 | raw_text，或 file/file_base64/file_url；filename 可指定扩展名 |
+| resume_parse | 261013 文本/PDF/DOCX/图片/OCR、经历分段/分类/去重、token/耗时指标 | raw_text，或 file/file_base64/file_url；filename 可指定扩展名 |
 | resume_batch | 简历批量 CSV | workspace, files, output |
 | wechat_bootstrap | 每号最新 N 条、Markdown、history | workspace, accounts |
 | wechat_daily | 增量、日期镜像、日报 JSONL 和 Markdown | workspace, accounts |
@@ -55,8 +60,8 @@ Skill：`upstream_algorithm`，输入 operation:text、request:json_obj，输出
 install-cron 由 Scheduler cron trigger 承担。交互式扫码在操作员浏览器完成，
 节点通过 CDP 同步，不在服务端等待终端 Enter。
 
-原仓库的 JSON 修复、公司名清洗、枚举映射、日期补年、LLM 完整输入输出日志、
-token/耗时指标均由原函数执行。
+原仓库的 JSON 修复、公司名清洗、枚举映射、日期补年及 token/耗时指标均由原函数执行。
+岗位私有工作区日志保持原行为；261013 简历模型 I/O 日志由 Agent 独立开关控制且默认关闭。
 
 ## 调用示例
 
@@ -113,7 +118,7 @@ Scheduler 示例（PUT /api/admin/schedules/upstream-wechat-daily）：
 - 文件位于 `$AGENT_RUNTIME_DIR/algorithm/<workspace>/`；未指定 workspace 时生成独立 ID。
 - 批处理、导出、上传、采集需复用同一 workspace；通用预设默认 workspace=default。
 - 文件参数必须位于当前 workspace 内；简历最大 20 MB。
-- 岗位 CSV/JSON/XLSX 在 data/output，日志在 logs，公众号状态在 workspace 根目录。
+- 岗位 CSV/JSON/XLSX 在 data/output，日志在 logs，公众号状态在 workspace 根目录。简历模型 I/O 日志默认关闭；显式启用后只写对应私有 workspace 下的 `logs/resume_llm_io_261013/`，并强制脱敏。
 - 密钥通过子进程 stdin 注入，不保存到预设、命令行或岗位配置文件。
 - 独立进程隔离上游全局路径、同步客户端和 OCR 单例；同 workspace 文件锁串行，其他可并行。
 - 总超时默认 1800 秒，可用 ALGORITHM_TIMEOUT_SECONDS 配置；引擎节点可设更短 timeout_seconds。
@@ -130,6 +135,7 @@ Scheduler 示例（PUT /api/admin/schedules/upstream-wechat-daily）：
    岗位查重与写入统一使用清洗后的公司/岗位名，避免招聘后缀造成重跑重复；CSV 写入失败也会使节点失败。
 5. 强制结束进程/掉电不保证多文件事务，需要重跑并核对采集状态。
 6. 六月实现保留给显式注入 Python LLMClient 的兼容调用/旧测试；生产 HTTP 和默认采集走新工作流。
+7. 代码与 Compose 的失配安全默认值是 `RESUME_PARSER_VERSION=legacy`；批准的生产发布显式设为 `261013`，紧急回退改回 `legacy` 后只重建 Agent。首发只切单文件 `resume_parse`，未设计逐文件预算的 `resume_batch` 暂留 legacy。上游独立 FastAPI 路由不进入生产，文件下载、20 MB 限制、服务间鉴权和总超时仍由现有 Agent 承担。
 
 ## 构建验证
 

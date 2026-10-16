@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app.integrations.llm import LLMClient
+from app.integrations.llm import LLMClient, LLMOutputTruncatedError
 
 
 class FakeClient(LLMClient):
@@ -80,3 +80,41 @@ def testStructuredDeepSeekDisablesThinking(model, response_format, disables_thin
         assert options["extra_body"] == {"thinking": {"type": "disabled"}}
     else:
         assert "extra_body" not in options
+
+
+def testChatJsonWithMetadata():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    create = AsyncMock(return_value=SimpleNamespace(
+        choices=[SimpleNamespace(
+            message=SimpleNamespace(content='{"jobs": []}'), finish_reason="stop",
+        )],
+        usage=SimpleNamespace(prompt_tokens=12, completion_tokens=3, total_tokens=15),
+    ))
+    client = LLMClient()
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    value, completion = asyncio.run(client.chat_json_with_meta("招聘", operation="job_detail"))
+
+    assert value == {"jobs": []}
+    assert completion.finishReason == "stop"
+    assert completion.totalTokens == 15
+
+
+def testTruncatedJsonDoesNotRetrySameRequest():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    create = AsyncMock(return_value=SimpleNamespace(
+        choices=[SimpleNamespace(
+            message=SimpleNamespace(content='{"jobs": ['), finish_reason="length",
+        )],
+        usage=SimpleNamespace(prompt_tokens=12, completion_tokens=8192, total_tokens=8204),
+    ))
+    client = LLMClient()
+    client._client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    with pytest.raises(LLMOutputTruncatedError):
+        asyncio.run(client.chat_json_with_meta("招聘", operation="job_detail"))
+    assert create.await_count == 1

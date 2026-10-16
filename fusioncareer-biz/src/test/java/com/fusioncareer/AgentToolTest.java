@@ -3,6 +3,7 @@ package com.fusioncareer;
 import com.fusioncareer.client.PythonServiceClient;
 import com.fusioncareer.config.AgentContextProperties;
 import com.fusioncareer.dto.req.AiMessageRequest;
+import com.fusioncareer.dto.req.AiInteraction;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.req.JobPostQuestionRequest;
 import com.fusioncareer.dto.req.QuestionnaireReviewRequest;
@@ -664,6 +665,149 @@ class AgentToolTest {
                 .hasMessageContaining("发生变化");
         assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
         assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Rust");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void analyzeResumeFileReturnsReadOnlyRedactedEvidence() {
+        ResumeFileResponse createFile = readFiles.upload(
+                createUser.getId(),
+                new MockMultipartFile(
+                        "file",
+                        "analysis-resume.pdf",
+                        "application/pdf",
+                        "%PDF-analysis-resume".getBytes(StandardCharsets.UTF_8)));
+        cleanupFileIds.add(createFile.getId());
+
+        UserProfileRequest createProfilePatch = new UserProfileRequest();
+        createProfilePatch.setMajor("新闻学");
+        createProfilePatch.setPhone("13912345678");
+        createProfilePatch.setEmail("student@example.com");
+        createProfilePatch.setWechat("private-wechat");
+        ResumeRequest createResumePatch = new ResumeRequest();
+        createResumePatch.setSkills("Python、数据分析");
+        createResumePatch.setInternship(
+                "负责内容运营，联系方式 student@example.com / 13912345678 / private-wechat");
+        createResumePatch.setBasicInfo("不应发送给模型的基础联系方式");
+        ResumeParseResponse createParsed = new ResumeParseResponse();
+        createParsed.setProfilePatch(createProfilePatch);
+        createParsed.setResumePatch(createResumePatch);
+        createParsed.setWarnings(List.of("请核实 student@example.com / 13912345678 / private-wechat"));
+        when(readPythonClient.parseResume(any())).thenReturn(createParsed);
+        restartAdviceRun(null, List.of(createFile.getId()));
+
+        Map<String, Object> readAnalysis = (Map<String, Object>) runTools.executeTool(
+                createContext,
+                "analyze_resume_file",
+                Map.of("fileId", createFile.getId().toString()),
+                "call-analyze-resume-1");
+
+        assertThat(readAnalysis).containsEntry("readOnly", true);
+        assertThat(readAnalysis.get("fileId")).isEqualTo(createFile.getId().toString());
+        Map<String, Object> readProfileEvidence =
+                (Map<String, Object>) readAnalysis.get("profileEvidence");
+        Map<String, Object> readResumeEvidence =
+                (Map<String, Object>) readAnalysis.get("resumeEvidence");
+        assertThat(readProfileEvidence).containsEntry("major", "新闻学");
+        assertThat(readProfileEvidence).doesNotContainKeys("phone", "email", "wechat");
+        assertThat(readResumeEvidence).containsEntry("skills", "Python、数据分析");
+        assertThat(readResumeEvidence).doesNotContainKey("basicInfo");
+        assertThat(readAnalysis.get("warnings").toString())
+                .doesNotContain("student@example.com", "13912345678", "private-wechat");
+        assertThat(String.valueOf(readResumeEvidence.get("internship")))
+                .doesNotContain("student@example.com", "13912345678", "private-wechat")
+                .contains("[EMAIL_REDACTED]", "[PHONE_REDACTED]", "[CONTACT_REDACTED]");
+        assertThat(readProfiles.getProfile(createUser.getId()).getMajor()).isEqualTo("新闻学");
+        assertThat(readResumes.getResume(createUser.getId()).getSkills()).isEqualTo("Java");
+        verify(readPythonClient, times(1)).parseResume(any());
+    }
+
+    @Test
+    void rejectReadOnlyFileAnalysisUnlessSelectedThisTurn() {
+        ResumeFileResponse createFile = readFiles.upload(createUser.getId(),
+                new MockMultipartFile("file", "unselected.pdf", "application/pdf",
+                        "%PDF-unselected".getBytes(StandardCharsets.UTF_8)));
+        cleanupFileIds.add(createFile.getId());
+        assertThatThrownBy(() -> runTools.executeTool(createContext, "analyze_resume_file",
+                Map.of("fileId", createFile.getId().toString())))
+                .isInstanceOf(ServiceException.class).hasMessageContaining("本轮");
+        verify(readPythonClient, times(0)).parseResume(any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void adviceContextUsesCurrentJobAndOnlyRedactedOwnEvidence() {
+        JobPostRequest createJob = createJob("新闻采编", JobPostStatus.PUBLISHED);
+        createJob.setJobDesc("要求采访与核实；联系 editor@example.com 13955555555");
+        Long readJobId = readJobs.createJobPost(createJob).getId();
+        ResumeRequest updateResume = new ResumeRequest();
+        updateResume.setInternship("工具用户参与校园采访；13800000000；https://private.test/uploads/a");
+        updateResume.setBasicInfo("姓名和基础身份不应读取");
+        readResumes.saveOrUpdateResume(createUser.getId(), updateResume);
+        restartAdviceRun(readJobId, List.of());
+
+        Map<String, Object> readContext = (Map<String, Object>) runTools.executeTool(createContext,
+                "resume_advice_context", Map.of("source", "online"));
+
+        assertThat(readContext).containsEntry("jobId", readJobId.toString()).containsEntry("readOnly", true);
+        assertThat(readContext.get("resumeVersion").toString()).startsWith("online:r").contains(":p");
+        assertThat(readContext.toString()).doesNotContain("工具用户", "13800000000", "editor@example.com",
+                "13955555555", "private.test", "basicInfo", "userId", "phone", "email", "politicalStatus");
+        assertThat(readContext.get("resumeEvidence").toString()).contains("resume-internship", "校园采访", "profile-major");
+        assertThat(readResumes.getResume(createUser.getId()).getInternship()).contains("13800000000");
+        assertThat(runTools.readToolNames()).contains("advise_resume").doesNotContain("resume_advice_context");
+        assertThatThrownBy(() -> runTools.executeTool(createContext, "resume_advice_context",
+                Map.of("source", "online", "jobId", "1")))
+                .isInstanceOf(ServiceException.class).hasMessageContaining("不允许");
+        assertThatThrownBy(() -> runTools.executeTool(createContext, "resume_advice_context",
+                Map.of("source", "online", "userId", "1")))
+                .isInstanceOf(ServiceException.class).hasMessageContaining("不允许");
+        runTools.validateAdviceReportContext(createUser.getId(), createRun.session().epoch(),
+                createRun.assistantMessage().runId(), readContext);
+        ResumeRequest updateNewVersion = new ResumeRequest();
+        updateNewVersion.setSkills("Python");
+        readResumes.saveOrUpdateResume(createUser.getId(), updateNewVersion);
+        assertThatThrownBy(() -> runTools.validateAdviceReportContext(createUser.getId(), createRun.session().epoch(),
+                createRun.assistantMessage().runId(), readContext))
+                .isInstanceOf(ServiceException.class).hasMessageContaining("版本已变化");
+    }
+
+    @Test
+    void adviceContextRejectsMissingPageJobAndJobsThatBecomeInvisible() {
+        assertThatThrownBy(() -> runTools.executeTool(createContext, "resume_advice_context", Map.of("source", "online")))
+                .isInstanceOf(ServiceException.class).hasMessageContaining("岗位详情");
+        Long readJobId = readJobs.createJobPost(createJob("稍后截止", JobPostStatus.PUBLISHED)).getId();
+        restartAdviceRun(readJobId, List.of());
+        readJobs.lambdaUpdate().eq(com.fusioncareer.entity.JobPostEntity::getId, readJobId)
+                .set(com.fusioncareer.entity.JobPostEntity::getApplicationDeadline, LocalDate.now().minusDays(1)).update();
+        assertThatThrownBy(() -> runTools.executeTool(createContext, "resume_advice_context", Map.of("source", "online")))
+                .isInstanceOf(ServiceException.class).hasMessageContaining("不可见");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void adviceInteractionMetadataContainsOnlyItsProtocolFieldsAndValidatesSelection() {
+        Long readJobId = readJobs.createJobPost(createJob("交互岗位", JobPostStatus.PUBLISHED)).getId();
+        manageChat.cancelRun(createUser.getId());
+        var readInteraction = new AiInteraction(1, "resume_advice", null, "online", List.of());
+        var readRun = manageChat.startRun(createUser.getId(), new AiMessageRequest("advice-protocol",
+                "分析当前岗位", List.of(), readInteraction, readJobId.toString()));
+        assertThat((Map<String, Object>) readRun.userMessage().inputMetadata().get("interaction"))
+                .containsOnlyKeys("schemaVersion", "type", "source", "fileIds");
+        assertThatThrownBy(() -> manageChat.startRun(createUser.getId(), new AiMessageRequest("advice-file-invalid",
+                "分析附件", List.of(), new AiInteraction(1, "resume_advice", null, "file", List.of("1")), readJobId.toString())))
+                .isInstanceOf(ServiceException.class).hasMessageContaining("本轮");
+        assertThatThrownBy(() -> manageChat.startRun(createUser.getId(), new AiMessageRequest("advice-source-invalid",
+                "分析附件", List.of(), new AiInteraction(1, "resume_advice", null, "online", List.of("1")), readJobId.toString())))
+                .isInstanceOf(ServiceException.class).hasMessageContaining("格式无效");
+    }
+
+    private void restartAdviceRun(Long readJobId, List<Long> readFileIds) {
+        manageChat.cancelRun(createUser.getId());
+        createRun = manageChat.startRun(createUser.getId(), new AiMessageRequest("advice-" + java.util.UUID.randomUUID(),
+                "只读简历建议", readFileIds, null, readJobId == null ? null : readJobId.toString()));
+        createContext = contextService.issueContext(createUser.getId(), createRun.assistantMessage().runId(),
+                createRun.session().epoch(), createRun.userMessage().requestId(), READ_SCOPES);
     }
 
     private JobPostRequest createJob(String createName, JobPostStatus createStatus) {

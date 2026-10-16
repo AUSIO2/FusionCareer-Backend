@@ -12,14 +12,11 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "agent_runtime_dir", str(tmp_path / "runtime"))
     monkeypatch.setattr(settings, "internal_service_token", "internal-test")
 
-    async def readJobs(operation, request):
-        assert operation == "job_structure"
-        readSourceUrl = request.get("sourceUrl") or ""
-        readSourceType = request.get("sourceType", "PLATFORM")
+    async def readJobs(text, source_url="", source_type="PLATFORM", readClient=None):
         return {
-            "positions": [{
-                "sourceType": readSourceType,
-                "sourceUrl": readSourceUrl,
+            "jobs": [{
+                "sourceType": source_type,
+                "sourceUrl": source_url,
                 "companyName": "示例公司",
                 "positionName": "编辑",
                 "jobCategory": "ENTERPRISE",
@@ -30,7 +27,8 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             "warnings": [],
         }
 
-    monkeypatch.setattr("app.skills.business.algorithm.run_algorithm", readJobs)
+    monkeypatch.setattr("app.skills.business.job_structure.structureJobs", readJobs)
+    monkeypatch.setattr(settings, "job_structure_mode", "chunked")
     monkeypatch.setattr(
         "app.api.routers.internal._structure_status",
         lambda request: {"status": "IDLE", "pendingCount": 7},

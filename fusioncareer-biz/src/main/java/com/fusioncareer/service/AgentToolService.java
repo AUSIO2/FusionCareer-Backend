@@ -11,6 +11,10 @@ import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.dto.res.PersonalSpaceDocumentsResponse;
 import com.fusioncareer.dto.res.QuestionnaireAnswerResponse;
 import com.fusioncareer.dto.res.UserChangeActionResponse;
+import com.fusioncareer.entity.AiMessageEntity;
+import com.fusioncareer.enums.AiMessageRole;
+import com.fusioncareer.mapper.AiMessageMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fusioncareer.enums.ChangeOperation;
 import com.fusioncareer.enums.ChangeResourceType;
 import com.fusioncareer.enums.EduLevel;
@@ -38,6 +42,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * 固定白名单的 Agent Tool 适配器。写 Tool 只允许创建待用户确认的提案。
@@ -46,11 +52,26 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class AgentToolService {
 
+    private static final Pattern EMAIL_PATTERN = Pattern.compile(
+            "[\\w.+-]+@[\\w.-]+\\.[A-Za-z]{2,}");
+    private static final Pattern PHONE_PATTERN = Pattern.compile(
+            "(?<!\\d)1[3-9]\\d{9}(?!\\d)");
+    private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s<>\\\"']+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern WECHAT_PATTERN = Pattern.compile(
+            "(?i)(?:微信|wechat|weixin|wx)\\s*[:：]\\s*[A-Za-z][A-Za-z0-9_-]{4,}");
+    private static final Pattern ID_CARD_PATTERN = Pattern.compile("(?<!\\d)\\d{17}[\\dXx](?!\\d)");
+    private static final Pattern TOKEN_PATTERN = Pattern.compile("(?i)(?:Bearer\\s+[\\w.-]+|sk-[A-Za-z0-9_-]{12,})");
+    private static final Set<String> ADVICE_RESUME_FIELDS = Set.of(
+            "personalIntro", "education", "internship", "campus", "awards", "skills", "portfolio");
+    private static final Set<String> ADVICE_PROFILE_FIELDS = Set.of("grade", "major", "eduLevel");
+
     private static final Map<String, String> TOOL_SCOPES = Map.ofEntries(
             Map.entry("get_my_space", "space:read"),
             Map.entry("get_my_account", "account:read"),
             Map.entry("get_my_profile", "profile:read"),
             Map.entry("get_my_resume", "resume:read"),
+            Map.entry("analyze_resume_file", "resume:read"),
+            Map.entry("resume_advice_context", "resume:read"),
             Map.entry("list_my_files", "file:read"),
             Map.entry("get_my_file", "file:read"),
             Map.entry("get_my_file_quota", "file:read"),
@@ -86,14 +107,20 @@ public class AgentToolService {
     private final ResumeParseService resumeParseService;
     private final JobRecommendationService recommendationService;
     private final ObjectMapper objectMapper;
+    private final AiMessageMapper messageMapper;
+    private final ResumeAdvicePresentationService advicePresentations;
     @org.springframework.beans.factory.annotation.Value("${ai-chat.recommend-enabled:true}")
     private boolean recommendEnabled = true;
+    @org.springframework.beans.factory.annotation.Value("${ai-chat.resume-advice-enabled:true}")
+    private boolean resumeAdviceEnabled = true;
 
     public List<String> readToolNames() {
         return TOOL_SCOPES.entrySet().stream()
                 .filter(readEntry -> !readEntry.getValue().endsWith(":propose"))
                 .filter(entry -> recommendEnabled || !"recommendation_candidates".equals(entry.getKey()))
-                .map(entry -> "recommendation_candidates".equals(entry.getKey()) ? "recommend_jobs" : entry.getKey())
+                .filter(entry -> resumeAdviceEnabled || !"resume_advice_context".equals(entry.getKey()))
+                .map(entry -> "recommendation_candidates".equals(entry.getKey()) ? "recommend_jobs"
+                        : "resume_advice_context".equals(entry.getKey()) ? "advise_resume" : entry.getKey())
                 .sorted()
                 .toList();
     }
@@ -142,6 +169,8 @@ public class AgentToolService {
                 requireKeys(readArgs, Set.of());
                 yield spaceService.readResume(readContext.userId());
             }
+            case "analyze_resume_file" -> analyzeResumeFile(readContext, readArgs);
+            case "resume_advice_context" -> resumeAdviceContext(readContext, readArgs);
             case "list_my_files" -> listFiles(readContext.userId(), readArgs);
             case "get_my_file" -> readFile(readContext.userId(), readArgs);
             case "get_my_file_quota" -> readQuota(readContext.userId(), readArgs);
@@ -214,6 +243,185 @@ public class AgentToolService {
                 "usedBytes", readDocuments.usedBytes(),
                 "quotaBytes", readDocuments.quotaBytes(),
                 "fileCount", readDocuments.files().size());
+    }
+
+    private Object analyzeResumeFile(AgentContextService.AgentContext readContext, Map<String, Object> readArgs) {
+        requireKeys(readArgs, Set.of("fileId"));
+        Long readFileId = readLong(readArgs, "fileId");
+        requireCurrentAttachment(readContext, readFileId);
+        Long readUserId = readContext.userId();
+        ResumeParseService.ParsedPatches readParsed = resumeParseService.parseForProposal(
+                readUserId, readFileId);
+        List<String> readContacts = privateEvidenceTokens(readUserId, readParsed.profileSet());
+        Map<String, Object> readResult = new LinkedHashMap<>();
+        readResult.put("fileId", readFileId.toString());
+        readResult.put("profileEvidence", selectEvidence(
+                readParsed.profileSet(),
+                ADVICE_PROFILE_FIELDS,
+                readContacts));
+        readResult.put("resumeEvidence", selectEvidence(
+                readParsed.resumeSet(),
+                ADVICE_RESUME_FIELDS,
+                readContacts));
+        readResult.put("warnings", redactEvidence(readParsed.warnings(), readContacts));
+        readResult.put("readOnly", true);
+        return readResult;
+    }
+
+    private AiMessageEntity currentUserMessage(AgentContextService.AgentContext readContext) {
+        AiMessageEntity readMessage = messageMapper.selectOne(new LambdaQueryWrapper<AiMessageEntity>()
+                .eq(AiMessageEntity::getUserId, readContext.userId())
+                .eq(AiMessageEntity::getEpoch, readContext.epoch())
+                .eq(AiMessageEntity::getRunId, readContext.runId())
+                .eq(AiMessageEntity::getRequestId, readContext.requestId())
+                .eq(AiMessageEntity::getRole, AiMessageRole.USER));
+        if (readMessage == null) throw buildInvalid("当前对话消息不存在");
+        return readMessage;
+    }
+
+    private void requireCurrentAttachment(AgentContextService.AgentContext readContext, Long readFileId) {
+        try {
+            List<Long> readIds = objectMapper.readValue(currentUserMessage(readContext).getAttachmentIds(),
+                    new TypeReference<>() { });
+            if (readFileId <= 0 || !readIds.contains(readFileId)) {
+                throw buildInvalid("简历文件必须来自本轮选中的附件");
+            }
+            fileService.getOwnFile(readContext.userId(), readFileId);
+        } catch (JsonProcessingException error) {
+            throw buildInvalid("本轮附件格式无效");
+        }
+    }
+
+    private List<String> privateEvidenceTokens(Long readUserId, Map<String, Object> readExtraProfile) {
+        List<String> readTokens = new ArrayList<>();
+        readTokens.add(readUserId.toString());
+        var readProfile = spaceService.readProfile(readUserId);
+        Map<String, Object> readValues = readProfile == null ? Map.of()
+                : objectMapper.convertValue(readProfile, new TypeReference<>() { });
+        for (Map<String, Object> readSource : List.of(readValues, readExtraProfile)) {
+            for (String readKey : List.of("realName", "phone", "email", "wechat")) {
+                Object readValue = readSource.get(readKey);
+                if (readValue != null && !readValue.toString().isBlank()) readTokens.add(readValue.toString());
+            }
+        }
+        var readAccount = userService.getUserById(readUserId);
+        if (readAccount != null) {
+            for (String readValue : List.of(Objects.toString(readAccount.getUsername(), ""),
+                    Objects.toString(readAccount.getStudentId(), ""))) {
+                if (!readValue.isBlank()) readTokens.add(readValue);
+            }
+        }
+        return readTokens.stream().distinct().sorted((left, right) -> Integer.compare(right.length(), left.length())).toList();
+    }
+
+    private Object resumeAdviceContext(AgentContextService.AgentContext readContext, Map<String, Object> readArgs) {
+        if (!resumeAdviceEnabled) throw buildInvalid("简历岗位顾问暂未启用");
+        requireKeys(readArgs, Set.of("source", "fileId"));
+        String readSource = readRequiredText(readArgs, "source", 16);
+        if (!Set.of("online", "file").contains(readSource)) throw buildInvalid("简历来源无效");
+        AiMessageEntity readMessage = currentUserMessage(readContext);
+        Long readJobId;
+        try {
+            Object readRaw = objectMapper.readValue(readMessage.getInputMetadata(), Map.class).get("jobId");
+            readJobId = readRaw == null ? null : Long.valueOf(readRaw.toString());
+        } catch (RuntimeException | JsonProcessingException error) {
+            throw buildInvalid("当前岗位信息无效");
+        }
+        if (readJobId == null || readJobId <= 0) throw buildInvalid("请从当前岗位详情发起简历建议");
+        JobPostResponse readJob = jobService.getVisibleJobPost(readJobId);
+        if (readJob == null) throw ServiceException.of(ResultCode.NOT_FOUND, "当前岗位已不可见");
+        var readProfile = spaceService.readProfile(readContext.userId());
+        var readResume = spaceService.readResume(readContext.userId());
+        List<String> readTokens = privateEvidenceTokens(readContext.userId(), Map.of());
+        Map<String, Object> readProfileEvidence;
+        Map<String, Object> readResumeEvidence;
+        List<?> readWarnings = List.of();
+        String readResumeVersion;
+        if ("file".equals(readSource)) {
+            Long readFileId = readLong(readArgs, "fileId");
+            requireCurrentAttachment(readContext, readFileId);
+            var readFile = fileService.getOwnFile(readContext.userId(), readFileId);
+            var readAnalysis = (Map<String, Object>) analyzeResumeFile(readContext, Map.of("fileId", readFileId));
+            readProfileEvidence = (Map<String, Object>) readAnalysis.get("profileEvidence");
+            readResumeEvidence = (Map<String, Object>) readAnalysis.get("resumeEvidence");
+            readWarnings = (List<?>) readAnalysis.get("warnings");
+            readResumeVersion = "file:" + readFileId + ":v" + readFile.getVersion();
+        } else {
+            if (readArgs.get("fileId") != null) throw buildInvalid("在线简历来源不接受文件 ID");
+            readProfileEvidence = selectEvidence(readProfile == null ? Map.of()
+                    : objectMapper.convertValue(readProfile, new TypeReference<>() { }), ADVICE_PROFILE_FIELDS, readTokens);
+            readResumeEvidence = selectEvidence(readResume == null ? Map.of()
+                    : objectMapper.convertValue(readResume, new TypeReference<>() { }), ADVICE_RESUME_FIELDS, readTokens);
+            readResumeVersion = "online:r" + (readResume == null ? "missing" : readResume.getVersion());
+        }
+        readResumeVersion += ":p" + (readProfile == null ? "missing" : readProfile.getVersion());
+        List<Map<String, String>> readEvidence = new ArrayList<>();
+        for (var readEntry : readResumeEvidence.entrySet()) addAdviceEvidence(readEvidence, "resume-", readEntry);
+        for (var readEntry : readProfileEvidence.entrySet()) addAdviceEvidence(readEvidence, "profile-", readEntry);
+        Map<String, Object> readJobValues = objectMapper.convertValue(readJob, new TypeReference<>() { });
+        Map<String, Object> readJobEvidence = selectEvidence(readJobValues, Set.of("companyName", "department",
+                "positionName", "jobDesc", "reqOther", "reqSkills", "reqMajor", "reqEduLevel", "reqEduLevels",
+                "reqGradYear", "workCity", "workCities", "workMode", "workDaysPerWeek", "workStartDate",
+                "workEndDate", "applicationDeadline"), readTokens);
+        return Map.of("jobId", readJobId.toString(), "jobVersion", Objects.toString(readJob.getUpdatedAt(), "missing"),
+                "resumeVersion", readResumeVersion, "resumeSource", readSource, "job", readJobEvidence,
+                "resumeEvidence", readEvidence, "warnings", readWarnings, "readOnly", true,
+                "userQuestion", redactEvidence(readMessage.getContent().substring(0,
+                        Math.min(readMessage.getContent().length(), 2000)), readTokens));
+    }
+
+    private void addAdviceEvidence(List<Map<String, String>> readEvidence, String readPrefix,
+                                   Map.Entry<String, Object> readEntry) {
+        String readText = Objects.toString(readEntry.getValue(), "").trim();
+        if (!readText.isEmpty()) readEvidence.add(Map.of("id", readPrefix + readEntry.getKey(),
+                "section", readEntry.getKey(), "text", readText));
+    }
+
+    /** Recheck request identity and current versions before persisting a read-only report. */
+    public void validateAdviceReportContext(Long readUserId, Long readEpoch, String readRunId,
+                                           Map<String, Object> readReport) {
+        advicePresentations.validateContext(readUserId, readEpoch, readRunId, readReport);
+    }
+
+    private Map<String, Object> selectEvidence(
+            Map<String, Object> readValues,
+            Set<String> readAllowedFields,
+            List<String> readContacts) {
+        Map<String, Object> readEvidence = new LinkedHashMap<>();
+        readAllowedFields.forEach(readField -> {
+            Object readValue = readValues.get(readField);
+            if (readValue != null) {
+                readEvidence.put(readField, redactEvidence(readValue, readContacts));
+            }
+        });
+        return readEvidence;
+    }
+
+    private Object redactEvidence(Object readValue, List<String> readContacts) {
+        if (readValue instanceof String readText) {
+            String updateText = PHONE_PATTERN.matcher(
+                    EMAIL_PATTERN.matcher(readText).replaceAll("[EMAIL_REDACTED]"))
+                    .replaceAll("[PHONE_REDACTED]");
+            updateText = ID_CARD_PATTERN.matcher(updateText).replaceAll("[ID_REDACTED]");
+            updateText = URL_PATTERN.matcher(updateText).replaceAll("[URL_REDACTED]");
+            updateText = WECHAT_PATTERN.matcher(updateText).replaceAll("[CONTACT_REDACTED]");
+            updateText = TOKEN_PATTERN.matcher(updateText).replaceAll("[TOKEN_REDACTED]");
+            for (String readContact : readContacts) {
+                updateText = updateText.replace(readContact, "[CONTACT_REDACTED]");
+            }
+            return updateText;
+        }
+        if (readValue instanceof List<?> readList) {
+            return readList.stream()
+                    .map(readItem -> redactEvidence(readItem, readContacts))
+                    .toList();
+        }
+        if (readValue instanceof Map<?, ?> readMap) {
+            Map<String, Object> readSafe = new LinkedHashMap<>();
+            readMap.forEach((readKey, readItem) -> readSafe.put(readKey.toString(), redactEvidence(readItem, readContacts)));
+            return readSafe;
+        }
+        return readValue;
     }
 
     private Object listApplications(Long readUserId, Map<String, Object> readArgs) {

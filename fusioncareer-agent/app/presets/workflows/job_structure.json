@@ -12,31 +12,9 @@
         }
       }
     },
-    "operation": {
-      "skill": "input_text",
-      "inputs": {
-        "text": {
-          "value": "job_structure"
-        }
-      }
-    },
-    "algorithm": {
-      "skill": "upstream_algorithm",
-      "inputs": {
-        "operation": {
-          "from": "operation.text"
-        },
-        "request": {
-          "from": "input.json_obj"
-        }
-      }
-    },
     "result": {
-      "skill": "normalize_job_result",
+      "skill": "native_job_structure",
       "inputs": {
-        "result": {
-          "from": "algorithm.result"
-        },
         "request": {
           "from": "input.json_obj"
         }

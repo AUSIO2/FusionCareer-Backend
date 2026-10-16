@@ -93,6 +93,13 @@ async def lifespan(app: FastAPI):
         return await run_algorithm_workflow(engine, workflow_catalog, "job_structure", body)
 
     set_algorithm_workflow(structure_with_workflow)
+    logger.info(
+        "岗位结构化配置 mode=%s block_max=%d detail_batch=%d max_attempts=%d",
+        settings.job_structure_mode,
+        settings.job_structure_block_max_chars,
+        settings.job_structure_detail_batch_jobs,
+        settings.job_structure_max_attempts,
+    )
     scheduler_service = SchedulerService(
         engine,
         workflow_catalog,

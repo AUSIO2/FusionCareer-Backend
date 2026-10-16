@@ -26,7 +26,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -53,6 +55,10 @@ public class AiChatService {
     private static final int SUMMARY_KEEP_MESSAGES = 6;
     private static final int MAX_SUMMARY_MESSAGES = 40;
     private static final int MAX_SUMMARY_LENGTH = 2_000;
+    private static final int MAX_ACTION_STATES = 100;
+    private static final int MAX_HISTORY_ACTION_IDS = 32;
+    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
+    private static final Pattern ACTION_ID_PATTERN = Pattern.compile("[1-9][0-9]{0,18}");
     private static final Pattern REQUEST_ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
     private final AiSessionMapper sessionMapper;
@@ -62,10 +68,14 @@ public class AiChatService {
     private final UserService userService;
     private final ObjectMapper objectMapper;
     private final JobRecommendationService recommendations;
+    private final ResumeAdvicePresentationService advicePresentations;
     private final jakarta.validation.Validator validator;
 
     @org.springframework.beans.factory.annotation.Value("${ai-chat.run-lease-seconds:240}")
     private long runLeaseSeconds = 240;
+
+    @org.springframework.beans.factory.annotation.Value("${ai-chat.daily-message-limit:100}")
+    private int dailyMessageLimit = 100;
 
     @Transactional(readOnly = true)
     public AiSessionResponse readSession(Long readUserId) {
@@ -113,7 +123,7 @@ public class AiChatService {
             Long readBeforeId) {
         AiSessionEntity readSession = sessionMapper.selectById(readUserId);
         if (readSession == null || !Objects.equals(readSession.getEpoch(), readEpoch)) {
-            return new ChatContext("", List.of());
+            return new ChatContext("", List.of(), List.of());
         }
         LambdaQueryWrapper<AiMessageEntity> readQuery =
                 new LambdaQueryWrapper<AiMessageEntity>()
@@ -141,11 +151,57 @@ public class AiChatService {
         List<ContextMessage> readHistory = readSelected.stream()
                 .map(readMessage -> new ContextMessage(
                         readMessage.getRole() == AiMessageRole.USER ? "user" : "assistant",
-                        readMessage.getContent()))
+                        readMessage.getContent(), readActionIds(readMessage)))
                 .toList();
         return new ChatContext(
                 readSession.getSummary() == null ? "" : readSession.getSummary(),
-                readHistory);
+                readHistory,
+                readActionStates(readUserId, readEpoch));
+    }
+
+    private List<String> readActionIds(AiMessageEntity readMessage) {
+        if (readMessage.getRole() != AiMessageRole.ASSISTANT
+                || !StringUtils.hasText(readMessage.getPresentation())) return List.of();
+        try {
+            var readPresentation = objectMapper.readTree(readMessage.getPresentation());
+            if (readPresentation == null) return List.of();
+            var readIds = readPresentation.path("actionIds");
+            if (!readIds.isArray()) return List.of();
+            Set<String> readSafeIds = new LinkedHashSet<>();
+            for (var readId : readIds) {
+                if (!readId.isTextual() || !ACTION_ID_PATTERN.matcher(readId.asText()).matches()) continue;
+                try {
+                    if (Long.parseLong(readId.asText()) <= 0) continue;
+                } catch (NumberFormatException readInvalidId) {
+                    continue;
+                }
+                readSafeIds.add(readId.asText());
+                if (readSafeIds.size() == MAX_HISTORY_ACTION_IDS) break;
+            }
+            return List.copyOf(readSafeIds);
+        } catch (JsonProcessingException readInvalidPresentation) {
+            return List.of();
+        }
+    }
+
+    private List<ActionState> readActionStates(Long readUserId, Long readEpoch) {
+        // Card decisions change independently of message text and asynchronous summaries.
+        // Send only the current state projection; mutation snapshots remain private.
+        return actionMapper.selectList(new LambdaQueryWrapper<UserChangeActionEntity>()
+                        .select(UserChangeActionEntity::getId, UserChangeActionEntity::getStatus,
+                                UserChangeActionEntity::getToolName)
+                        .eq(UserChangeActionEntity::getUserId, readUserId)
+                        .eq(UserChangeActionEntity::getEpoch, readEpoch)
+                        .orderByDesc(UserChangeActionEntity::getUpdatedAt)
+                        .orderByDesc(UserChangeActionEntity::getId)
+                        .last("LIMIT " + MAX_ACTION_STATES))
+                .stream()
+                .map(readAction -> new ActionState(
+                        readAction.getId().toString(),
+                        readAction.getStatus() == null ? "UNKNOWN" : readAction.getStatus().name(),
+                        readAction.getStatus() == ChangeActionStatus.PENDING,
+                        readAction.getToolName()))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -223,8 +279,28 @@ public class AiChatService {
         String updateContent = validateContent(readRequest.content());
         List<Long> updateFileIds = normalizeFiles(readRequest.fileIds());
         if (!validator.validate(readRequest).isEmpty()) throw buildInvalid("消息参数格式无效");
+        if (readRequest.interaction() != null && "resume_advice".equals(readRequest.interaction().type())) {
+            if (readRequest.jobId() == null) throw buildInvalid("请从当前岗位详情发起简历建议");
+            if ("file".equals(readRequest.interaction().source())) {
+                try {
+                    Long readSelectedFile = Long.valueOf(readRequest.interaction().fileIds().get(0));
+                    if (readSelectedFile <= 0 || !updateFileIds.contains(readSelectedFile)) {
+                        throw buildInvalid("简历文件必须来自本轮选中的附件");
+                    }
+                } catch (NumberFormatException error) { throw buildInvalid("简历文件 ID 无效"); }
+            }
+        }
         Map<String, Object> metadata = new LinkedHashMap<>();
-        if (readRequest.interaction() != null) metadata.put("interaction", readRequest.interaction());
+        if (readRequest.interaction() != null) {
+            var readInteraction = readRequest.interaction();
+            Map<String, Object> writeInteraction = new LinkedHashMap<>();
+            writeInteraction.put("schemaVersion", readInteraction.schemaVersion());
+            writeInteraction.put("type", readInteraction.type());
+            if (readInteraction.preferences() != null) writeInteraction.put("preferences", readInteraction.preferences());
+            if (readInteraction.source() != null) writeInteraction.put("source", readInteraction.source());
+            if (readInteraction.fileIds() != null) writeInteraction.put("fileIds", readInteraction.fileIds());
+            metadata.put("interaction", writeInteraction);
+        }
         if (readRequest.jobId() != null) {
             try {
                 if (recommendations.hydrate(Map.of("jobIds", List.of(readRequest.jobId())))
@@ -238,16 +314,20 @@ public class AiChatService {
         String inputMetadata = writeJson(metadata);
 
         sessionMapper.createSession(updateUserId);
-        AiSessionEntity readSession = sessionMapper.selectById(updateUserId);
+        AiSessionEntity readSession = sessionMapper.selectOne(
+                new LambdaQueryWrapper<AiSessionEntity>()
+                        .eq(AiSessionEntity::getUserId, updateUserId)
+                        .last("FOR UPDATE"));
         recoverLease(readSession);
         AiMessageEntity readUserMessage = findMessage(
                 updateUserId, readSession.getEpoch(), updateRequestId, AiMessageRole.USER);
         if (readUserMessage != null) {
             return reuseRun(readSession, readUserMessage, updateContent, updateFileIds, inputMetadata);
         }
+        consumeDailyQuota(readSession);
         validateFiles(updateUserId, updateFileIds);
         String createRunId = UUID.randomUUID().toString();
-        LocalDateTime updateLease = LocalDateTime.now().plusSeconds(runLeaseSeconds);
+        LocalDateTime updateLease = LocalDateTime.now(SHANGHAI).plusSeconds(runLeaseSeconds);
         if (sessionMapper.acquireRun(
                 updateUserId, readSession.getEpoch(), createRunId, updateLease) != 1) {
             throw buildConflict("已有一轮 AI 对话正在运行");
@@ -272,10 +352,63 @@ public class AiChatService {
                 false);
     }
 
+    private void consumeDailyQuota(AiSessionEntity updateSession) {
+        LocalDateTime readNow = LocalDateTime.now(SHANGHAI);
+        if (updateSession.getAiBannedUntil() != null
+                && updateSession.getAiBannedUntil().isAfter(readNow)) {
+            throw ServiceException.of(ResultCode.TOO_MANY_REQUESTS,
+                    "AI 功能已临时限制，请于 " + updateSession.getAiBannedUntil() + " 后重试");
+        }
+        LocalDate readToday = readNow.toLocalDate();
+        int readCount = Objects.equals(updateSession.getUsageDate(), readToday)
+                ? Objects.requireNonNullElse(updateSession.getDailyUsageCount(), 0) : 0;
+        if (readCount >= dailyMessageLimit) {
+            throw ServiceException.of(ResultCode.TOO_MANY_REQUESTS,
+                    "今日 AI 调用已达到 " + dailyMessageLimit + " 次，请明天再试");
+        }
+        updateSession.setUsageDate(readToday);
+        updateSession.setDailyUsageCount(readCount + 1);
+        if (sessionMapper.updateById(updateSession) != 1) {
+            throw buildConflict("AI 使用额度已发生变化，请重试");
+        }
+    }
+
+    @Transactional
+    public TopicGuardState recordTopicDecision(
+            Long updateUserId, Long readEpoch, String readRunId, boolean isRelevant) {
+        AiSessionEntity updateSession = sessionMapper.selectOne(
+                new LambdaQueryWrapper<AiSessionEntity>()
+                        .eq(AiSessionEntity::getUserId, updateUserId)
+                        .last("FOR UPDATE"));
+        if (updateSession == null || !Objects.equals(updateSession.getEpoch(), readEpoch)
+                || !Objects.equals(updateSession.getActiveRunId(), readRunId)) {
+            throw buildConflict("AI 主题检查对应的运行已失效");
+        }
+        int updateStrikes = Objects.requireNonNullElse(
+                updateSession.getIrrelevantStrikeCount(), 0);
+        if (!isRelevant) updateStrikes++;
+        updateSession.setIrrelevantStrikeCount(updateStrikes);
+        LocalDateTime updateBannedUntil = updateSession.getAiBannedUntil();
+        if (!isRelevant && updateStrikes >= 3) {
+            long readHours = Math.min(168L, 1L << Math.min(updateStrikes - 3, 20));
+            updateBannedUntil = LocalDateTime.now(SHANGHAI).plusHours(readHours);
+            updateSession.setAiBannedUntil(updateBannedUntil);
+        } else if (isRelevant && (updateBannedUntil == null
+                || !updateBannedUntil.isAfter(LocalDateTime.now(SHANGHAI)))) {
+            updateSession.setAiBannedUntil(null);
+            updateBannedUntil = null;
+        }
+        if (sessionMapper.updateById(updateSession) != 1) {
+            throw buildConflict("AI 主题检查状态已发生变化，请重试");
+        }
+        return new TopicGuardState(updateStrikes, updateBannedUntil);
+    }
+
     @Transactional
     public boolean markStreaming(Long updateUserId, Long readEpoch, String readRunId) {
         if (sessionMapper.renewRun(
-                updateUserId, readEpoch, readRunId, LocalDateTime.now().plusSeconds(runLeaseSeconds)) != 1) {
+                updateUserId, readEpoch, readRunId,
+                LocalDateTime.now(SHANGHAI).plusSeconds(runLeaseSeconds)) != 1) {
             return false;
         }
         UpdateWrapper<AiMessageEntity> updateMessage = new UpdateWrapper<>();
@@ -415,11 +548,25 @@ public class AiChatService {
                         .last("FOR UPDATE"));
         if (readSession != null) {
             supersedeActions(updateUserId, readSession.getEpoch());
+            // Usage and topic restrictions belong to the account, not the chat history.
+            // Keep their row while advancing the epoch so old run credentials stay invalid.
+            UpdateWrapper<AiSessionEntity> updateSession = new UpdateWrapper<>();
+            updateSession.eq("user_id", updateUserId)
+                    .eq("epoch", readSession.getEpoch())
+                    .set("epoch", readSession.getEpoch() + 1)
+                    .set("summary", null)
+                    .set("summary_through_message_id", null)
+                    .set("active_run_id", null)
+                    .set("lease_until", null)
+                    .set("last_message_at", null)
+                    .set("updated_at", LocalDateTime.now());
+            if (sessionMapper.update(null, updateSession) != 1) {
+                throw buildConflict("AI Session 已发生变化，请重试");
+            }
         }
         messageMapper.delete(new LambdaQueryWrapper<AiMessageEntity>()
                 .eq(AiMessageEntity::getUserId, updateUserId));
-        sessionMapper.deleteById(updateUserId);
-        return buildSession(null);
+        return buildSession(sessionMapper.selectById(updateUserId));
     }
 
     private RunStart reuseRun(
@@ -453,7 +600,7 @@ public class AiChatService {
     private void recoverLease(AiSessionEntity readSession) {
         if (readSession.getActiveRunId() == null
                 || readSession.getLeaseUntil() == null
-                || !readSession.getLeaseUntil().isBefore(LocalDateTime.now())) {
+                || !readSession.getLeaseUntil().isBefore(LocalDateTime.now(SHANGHAI))) {
             return;
         }
         recoverExpiredRun(
@@ -616,7 +763,7 @@ public class AiChatService {
         }
         boolean hasActiveRun = readSession.getActiveRunId() != null
                 && readSession.getLeaseUntil() != null
-                && readSession.getLeaseUntil().isAfter(LocalDateTime.now());
+                && readSession.getLeaseUntil().isAfter(LocalDateTime.now(SHANGHAI));
         return new AiSessionResponse(
                 true,
                 readSession.getEpoch(),
@@ -647,7 +794,8 @@ public class AiChatService {
                 readMessage.getUpdatedAt(),
                 readJson(readMessage.getInputMetadata()),
                 readMessage.getStatus() == AiMessageStatus.COMPLETED
-                        ? recommendations.hydrate(readJson(readMessage.getPresentation())) : Map.of());
+                        ? advicePresentations.hydrate(readMessage.getUserId(), readMessage.getEpoch(),
+                                readMessage.getRunId(), readJson(readMessage.getPresentation())) : Map.of());
     }
 
     /** Guard all card writes with the same active epoch/run and message state as text. */
@@ -691,6 +839,10 @@ public class AiChatService {
                 var validated = recommendations.validate(objectMapper.convertValue(filters, new TypeReference<>() { }));
                 safe.put("filters", objectMapper.convertValue(validated, new TypeReference<Map<String, Object>>() { }));
             }
+        } else if ("resume_advice".equals(raw.get("type"))) {
+            Map<String, Object> report = advicePresentations.validateReport(raw.get("report"));
+            advicePresentations.validateContext(userId, epoch, runId, report);
+            safe.put("resumeAdvice", report);
         } else if (raw.get("actionId") != null) {
             Long actionId;
             try { actionId = Long.valueOf(raw.get("actionId").toString()); }
@@ -704,8 +856,8 @@ public class AiChatService {
             if (!actionIds.contains(actionId.toString())) actionIds.add(actionId.toString());
             safe.put("actionIds", actionIds);
         } else throw buildInvalid("未知消息展示类型");
-        var hydrated = recommendations.hydrate(safe);
-        // Store IDs, never a stale snapshot of job visibility or arbitrary upstream fields.
+        var hydrated = advicePresentations.hydrate(userId, epoch, runId, safe);
+        // Store bounded advice and IDs, never arbitrary upstream fields or job visibility snapshots.
         var update = new UpdateWrapper<AiMessageEntity>().eq("id", message.getId())
                 .eq("user_id", userId).eq("epoch", epoch).eq("run_id", runId)
                 .in("status", AiMessageStatus.PENDING.getCode(), AiMessageStatus.STREAMING.getCode())
@@ -745,10 +897,24 @@ public class AiChatService {
             boolean reused) {
     }
 
-    public record ChatContext(String summary, List<ContextMessage> history) {
+    public record TopicGuardState(int strikes, LocalDateTime bannedUntil) {
     }
 
-    public record ContextMessage(String role, String content) {
+    public record ChatContext(String summary, List<ContextMessage> history,
+            List<ActionState> actionStates) {
+        public ChatContext(String summary, List<ContextMessage> history) {
+            this(summary, history, List.of());
+        }
+    }
+
+    public record ActionState(String actionId, String status, boolean requiresConfirmation,
+            String toolName) {
+    }
+
+    public record ContextMessage(String role, String content, List<String> actionIds) {
+        public ContextMessage(String role, String content) {
+            this(role, content, List.of());
+        }
     }
 
     public record SummaryWork(

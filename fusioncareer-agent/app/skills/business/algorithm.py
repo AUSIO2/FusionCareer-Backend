@@ -52,7 +52,11 @@ class DownloadResumeSkill(BaseSkill):
         suffix = Path(str(file.get("originalName") or "")).suffix.lower()
         if suffix not in {".pdf", ".docx", ".png", ".jpg", ".jpeg"}:
             raise HTTPException(status_code=422, detail="unsupported resume format")
-        return {"request": {"filename": "resume" + suffix, "file_base64": base64.b64encode(data).decode()}}
+        return {"request": {
+            "filename": "resume" + suffix,
+            "file_base64": base64.b64encode(data).decode(),
+            "actor_id": str(body.userId),
+        }}
 
 
 class NormalizeResumeResultSkill(BaseSkill):
@@ -65,7 +69,16 @@ class NormalizeResumeResultSkill(BaseSkill):
         }
 
     async def execute(self, inputs):
-        return {"result": normalizeResume(inputs["result"]["record"])}
+        readResult = inputs["result"]
+        updateResult = normalizeResume(readResult["record"])
+        readNormalization = (readResult.get("metrics") or {}).get("normalization") or {}
+        readWarnings = [
+            f"261013:{readWarning}"
+            for readWarning in readNormalization.get("normalization_warnings") or []
+            if isinstance(readWarning, str) and readWarning
+        ]
+        updateResult["warnings"] = list(dict.fromkeys([*updateResult["warnings"], *readWarnings]))
+        return {"result": updateResult}
 
 
 class NormalizeJobResultSkill(BaseSkill):

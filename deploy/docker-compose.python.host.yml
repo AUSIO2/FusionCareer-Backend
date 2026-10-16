@@ -18,6 +18,8 @@ services:
       PADDLE_PDX_CACHE_HOME: /data/paddle
       AGENT_PORT: 8900
       OCR_PRELOAD: "true"
+      RESUME_PARSER_VERSION: ${RESUME_PARSER_VERSION:-legacy}
+      RESUME_MODEL_IO_LOG_ENABLED: ${RESUME_MODEL_IO_LOG_ENABLED:-false}
     volumes:
       - agent_runtime:/data/agent
       - wechat_data:/data/wechat

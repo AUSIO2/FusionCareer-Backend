@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -45,7 +46,7 @@ def configure(root: Path, supplied: dict, options: dict) -> dict:
         "upload_timeout_seconds", "bootstrap_article_limit", "daily_mirror_to_dated_folder",
         "daily_folder_suffix", "min_file_size_kb", "delete_small_files",
         "llm_model", "llm_fast_model", "llm_extra_body",
-        "prefilter_enabled", "prefilter_min_hits",
+        "prefilter_enabled", "prefilter_min_hits", "job_record_dedup_enabled",
         "relevance_lexicon", "relevance_titles_csv", "relevance_titles_xlsx",
         "company_score_enabled", "recommend_log_enabled", "recommend_log_dir",
     }
@@ -212,11 +213,40 @@ def resume_file(request: dict, root: Path, temp: Path) -> Path:
 
 
 def resumes(operation: str, request: dict, root: Path, config: dict) -> dict:
-    from resume_parser.llm.deepseek_client import DeepSeekClient
-    from resume_parser.parser import ResumeParser
+    requested_version = str(config.get("resume_parser_version") or "legacy")
+    # Batch parsing predates the bounded single-file transport. Keep it on the
+    # compatible implementation until it has a per-file budget and fixtures.
+    version = requested_version if operation == "resume_parse" else "legacy"
+    if version == "261013":
+        import resume_parser.parser_261013 as parser_module_261013
+        from resume_parser.llm.io_log_261013 import ModelIOLogger261013
+        from resume_parser.parser_261013 import ResumeParser261013
 
-    parser = ResumeParser(api_key=config["llm_api_key"])
-    parser._llm = DeepSeekClient(config["llm_api_key"], config["llm_model"], config["llm_base_url"])
+        from app.algorithms.resume_parser_261013_adapter import adapt_resume_parser_261013
+
+        parser = ResumeParser261013(
+            api_key=config["llm_api_key"],
+            model=config["llm_model"],
+            base_url=config["llm_base_url"],
+            io_logger=ModelIOLogger261013(
+                enabled=bool(config.get("resume_model_io_log_enabled", False)),
+                log_dir=root / "logs/resume_llm_io_261013",
+                include_sensitive=False,
+                max_text_chars=int(config.get("resume_model_io_log_max_text_chars") or 120000),
+            ),
+            actor_hmac_secret=str(config.get("resume_model_io_actor_hmac_secret") or ""),
+        )
+        adapt_resume_parser_261013(parser, parser_module_261013)
+    elif version == "legacy":
+        from resume_parser.llm.deepseek_client import DeepSeekClient
+        from resume_parser.parser import ResumeParser
+
+        parser = ResumeParser(api_key=config["llm_api_key"])
+        parser._llm = DeepSeekClient(
+            config["llm_api_key"], config["llm_model"], config["llm_base_url"],
+        )
+    else:
+        raise ValueError("Unsupported resume parser version")
     if operation == "resume_batch":
         files = [local_path(root, name) for name in request["files"]]
         for path in files:
@@ -225,11 +255,50 @@ def resumes(operation: str, request: dict, root: Path, config: dict) -> dict:
         output.parent.mkdir(parents=True, exist_ok=True)
         parser.parse_batch_to_csv([str(path) for path in files], str(output))
         return {"file": str(output), "count": len(files), "metrics": parser.last_metrics}
-    if "raw_text" in request:
-        result = parser.parse_text(require_text(request, "raw_text"))
-    else:
-        with TemporaryDirectory(prefix="resume-", dir=root) as directory:
-            result = parser.parse(str(resume_file(request, root, Path(directory))))
+    # Adapt only this instance; keep the pinned prompt, JSON repair and normalization.
+    parser._llm._client = parser._llm._client.with_options(max_retries=0)
+    create_completion = parser._llm._client.chat.completions.create
+    deadline = None
+
+    def bounded_completion(**kwargs):
+        nonlocal deadline
+        if deadline is None:
+            deadline = time.monotonic() + float(config.get("llm_timeout_seconds", 60.0))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Resume model processing deadline exceeded")
+        response = create_completion(
+            **kwargs, timeout=remaining, max_tokens=int(config.get("llm_max_tokens", 8192)),
+            extra_body=config.get("llm_extra_body") or None,
+        )
+        if any(choice.finish_reason in {"length", "max_tokens"} for choice in response.choices):
+            raise RuntimeError("Resume model output exceeded the configured token limit")
+        return response
+
+    parser._llm._client.chat.completions.create = bounded_completion
+    parse_kwargs = {}
+    if version == "261013":
+        parse_kwargs = {
+            "actor_id": str(request.get("actor_id") or ""),
+            "request_id": str(request.get("request_id") or ""),
+        }
+    try:
+        if "raw_text" in request:
+            result = parser.parse_text(require_text(request, "raw_text"), **parse_kwargs)
+        else:
+            with TemporaryDirectory(prefix="resume-", dir=root) as directory:
+                result = parser.parse(str(resume_file(request, root, Path(directory))), **parse_kwargs)
+    except RuntimeError as error:
+        # The 261013 client intentionally hides provider exceptions. Preserve the
+        # existing bounded-timeout contract without exposing provider payloads.
+        cause = error.__cause__
+        if version == "261013" and isinstance(cause, TimeoutError):
+            raise RuntimeError(str(cause)) from error
+        cause_name = type(cause).__name__.casefold() if cause is not None else ""
+        cause_message = str(cause).casefold() if cause is not None else ""
+        if version == "261013" and ("timeout" in cause_name or "timed out" in cause_message):
+            raise RuntimeError("Resume model request timed out") from error
+        raise
     return {"record": result, "metrics": parser.last_metrics}
 
 
@@ -325,28 +394,100 @@ def upload(request: dict, root: Path, config: dict) -> dict:
     import requests
     from job_structuring import upload_backend
 
+    from app.algorithms.job_record_dedup import JobDuplicateIndex
     from app.algorithms.job_structuring.normalize import normalizeJob
 
     # Preserve upstream upload dedup/state/batching while using the deployed Java auth contract.
     session = requests.Session()
     session.headers["X-Internal-Token"] = config["internal_service_token"]
     upload_backend.requests = session
+
     def offline(row):
         payload, warnings = normalizeJob(row, row.get("sourceUrl") or "", row.get("sourceType") or "CRAWL")
         return None if warnings else payload
 
     upload_backend.row_to_job_post_payload = offline
+    jsonPath = str(local_path(root, request["json"])) if request.get("json") else None
+    csvPath = str(local_path(root, request["csv"])) if request.get("csv") else None
+    if not config.get("job_record_dedup_enabled", True):
+        try:
+            result = upload_backend.upload_structured_jobs(
+                config, json_path=jsonPath, csv_path=csvPath,
+                dry_run=request.get("dry_run", True), fetch_existing=request.get("fetch_existing"),
+            )
+            if result["failed_batches"]:
+                raise RuntimeError("Upstream upload reported failed batches")
+            return result
+        finally:
+            session.close()
+
+    rows = upload_backend.load_structured_rows(json_path=jsonPath, csv_path=csvPath)
+    dryRun = request.get("dry_run", True)
+    fetchExisting = request.get("fetch_existing")
+    if fetchExisting is None:
+        fetchExisting = bool(config.get("upload_fetch_existing", True))
+
+    existingRows = []
+    fetchedSemantic = False
+    if fetchExisting and not dryRun:
+        try:
+            page = 1
+            size = int(config.get("upload_fetch_page_size") or 200)
+            timeout = int(config.get("upload_timeout_seconds") or 120)
+            while True:
+                response = session.get(
+                    upload_backend.list_job_posts_url(config),
+                    params={"page": page, "size": size}, timeout=timeout,
+                )
+                response.raise_for_status()
+                body = response.json()
+                if body.get("code") != 200:
+                    raise RuntimeError(f"Backend job list failed with code {body.get('code')}")
+                data = body.get("data") or {}
+                items = data.get("list") or []
+                existingRows.extend(item for item in items if isinstance(item, dict))
+                total = int(data.get("total") or 0)
+                if page * size >= total or len(items) < size:
+                    break
+                page += 1
+            fetchedSemantic = True
+        except Exception:
+            # The vendor uploader will retry its existing exact-key fallback.
+            existingRows = []
+
+    semanticIndex = JobDuplicateIndex(existingRows)
+    semanticRows = []
+    semanticSkipped = 0
+    for row in rows:
+        formatted = {**row, **upload_backend.format_position_row(row)}
+        for extendedField in (
+            "workCities", "reqEduLevels", "headcountDisplay", "workTimeRequirement", "careerDirection",
+        ):
+            if row.get(extendedField) not in (None, "", []):
+                formatted[extendedField] = row[extendedField]
+        match = semanticIndex.addIfUnique(formatted)
+        if match is not None:
+            semanticIndex.recordDuplicate(match, formatted)
+            semanticSkipped += 1
+            continue
+        semanticRows.append(formatted)
+
+    semanticInput = local_path(root, "data/output/semantic-upload-input.json")
+    semanticInput.parent.mkdir(parents=True, exist_ok=True)
+    semanticInput.write_text(json.dumps(semanticRows, ensure_ascii=False), encoding="utf-8")
     try:
         result = upload_backend.upload_structured_jobs(
             config,
-            json_path=str(local_path(root, request["json"])) if request.get("json") else None,
-            csv_path=str(local_path(root, request["csv"])) if request.get("csv") else None,
-            dry_run=request.get("dry_run", True), fetch_existing=request.get("fetch_existing"),
+            json_path=str(semanticInput),
+            dry_run=dryRun, fetch_existing=False if fetchedSemantic else fetchExisting,
         )
+        result["total"] = len(rows)
+        result["skipped_dup"] += semanticSkipped
         if result["failed_batches"]:
             raise RuntimeError("Upstream upload reported failed batches")
         return result
     finally:
+        semanticInput.unlink(missing_ok=True)
         session.close()
 
 
@@ -360,7 +501,12 @@ def execute(payload: dict) -> dict:
         from app.algorithms.enhanced_worker import execute_enhanced
         return execute_enhanced(operation, request, root, config, VENDOR)
     if operation == "job_upload":
-        return upload(request, root, config)
+        globalLockPath = root.parents[1] / ".job-write.lock"
+        globalLockPath.parent.mkdir(parents=True, exist_ok=True)
+        with globalLockPath.open("a") as globalLock:
+            os.chmod(globalLockPath, 0o600)
+            fcntl.flock(globalLock, fcntl.LOCK_EX)
+            return upload(request, root, config)
     if operation.startswith("job_"):
         return jobs(operation, request, root, config)
     if operation.startswith("resume_"):

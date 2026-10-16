@@ -1,16 +1,20 @@
 """Typed internal algorithm APIs called by Java."""
 
+import asyncio
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.algorithms.contracts import (
-    JobStructureBody, JobStructureResult, ResumeParseBody, ResumeParseResult,
+    JobStructureBody,
+    JobStructureResult,
+    ResumeParseBody,
+    ResumeParseResult,
 )
+from app.algorithms.workflows import run_algorithm_workflow
 from app.api.deps.internal_auth import requireInternal
 from app.api.routers.admin import _start_structure_drain, _structure_status
-from app.algorithms.workflows import run_algorithm_workflow
-
+from app.config import settings
 
 router = APIRouter(
     prefix="/api/internal",
@@ -47,4 +51,8 @@ async def startStructurePending(readRequest: Request) -> dict[str, Any]:
 
 @router.post("/resume/parse", response_model=ResumeParseResult)
 async def parseResumeFile(readBody: ResumeParseBody, readRequest: Request) -> dict[str, Any]:
-    return await runAlgorithmWorkflow(readRequest, "resume_parse", readBody.model_dump())
+    try:
+        async with asyncio.timeout(settings.resume_parse_timeout_seconds):
+            return await runAlgorithmWorkflow(readRequest, "resume_parse", readBody.model_dump())
+    except TimeoutError as error:
+        raise HTTPException(status_code=504, detail="resume parsing exceeded the processing deadline") from error

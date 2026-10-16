@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.algorithms.upstream import run_algorithm
 from app.api.deps.admin_auth import require_agent_admin
@@ -131,7 +131,9 @@ def _structure_paths() -> CrawlPaths:
 
 def _structure_status(request: Request) -> dict[str, Any]:
     state = dict(request.app.state.structure_drain_state)
-    state["pendingCount"] = CrawlStore(_structure_paths().database_file).countPendingArticles()
+    store = CrawlStore(_structure_paths().database_file)
+    state["pendingCount"] = store.countPendingArticles()
+    state["counts"] = store.readStructureCounts()
     return state
 
 
@@ -311,6 +313,23 @@ async def get_structure_pending(request: Request):
 @router.post("/wechat/structure-pending", status_code=202)
 async def start_structure_pending(request: Request):
     return _start_structure_drain(request)
+
+
+class StructureRequeueBody(BaseModel):
+    urls: list[str] = Field(default_factory=list)
+    allQuarantined: bool = False
+
+
+@router.post("/wechat/structure-requeue")
+async def requeue_structure_articles(body: StructureRequeueBody):
+    if not body.urls and not body.allQuarantined:
+        raise HTTPException(422, "urls or allQuarantined=true is required")
+    if body.urls and body.allQuarantined:
+        raise HTTPException(422, "urls and allQuarantined cannot be combined")
+    if len(body.urls) > 500:
+        raise HTTPException(422, "at most 500 urls can be requeued")
+    store = CrawlStore(_structure_paths().database_file)
+    return {"requeued": store.requeueQuarantined(None if body.allQuarantined else body.urls)}
 
 
 @router.get("/schedules")

@@ -19,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -34,6 +36,7 @@ import java.util.Objects;
 public class AgentContextService {
 
     private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
 
     private final AgentContextProperties readProperties;
     private final AiSessionMapper sessionMapper;
@@ -121,7 +124,7 @@ public class AgentContextService {
                     || !Objects.equals(readSession.getEpoch(), readEpoch)
                     || !Objects.equals(readSession.getActiveRunId(), readRunId)
                     || readSession.getLeaseUntil() == null
-                    || readSession.getLeaseUntil().isBefore(java.time.LocalDateTime.now())) {
+                    || readSession.getLeaseUntil().isBefore(LocalDateTime.now(SHANGHAI))) {
                 throw buildForbidden();
             }
             return new AgentContext(

@@ -301,13 +301,13 @@ public class FudanSsoServiceImpl implements FudanSsoService {
 
     /** 兼容复旦 / OIDC 多种学号字段名 */
     private String resolveFudanUserId(JsonNode userInfo) {
-        return readFudanValue(userInfo, "userId", "sub", "uid", "username", "user_id");
+        return readFudanValue(userInfo, "user_id", "userId", "sub", "uid", "username");
     }
 
     private String readFudanName(JsonNode readInfo, String readStudentId) {
         if (readInfo == null || !readInfo.isObject()) return null;
-        // userName 可能是学工号；跳过标识后继续查找真实姓名。
-        for (String readField : new String[]{"realName", "real_name", "name", "cn", "displayName", "userName", "nickname"}) {
+        // 复旦 v3 实测：user_name 是姓名，user_id 是学工号；其余字段仅兼容旧格式。
+        for (String readField : new String[]{"user_name", "realName", "real_name", "name", "cn", "displayName", "userName", "nickname"}) {
             JsonNode readValue = readInfo.get(readField);
             String readName = PersonNameUtil.readName(
                     readStudentId, readValue != null && readValue.isTextual() ? readValue.asText() : null);

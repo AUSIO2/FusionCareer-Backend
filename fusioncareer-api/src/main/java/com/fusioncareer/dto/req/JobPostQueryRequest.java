@@ -30,4 +30,6 @@ public class JobPostQueryRequest {
     private SourceType sourceType;
     private Boolean internalApply;
     private String keyword;
+    /** 管理员列表可选全文包含匹配；普通岗位查询仍只搜索岗位名和公司。 */
+    private Boolean fullText = false;
 }

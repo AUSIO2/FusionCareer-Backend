@@ -18,6 +18,7 @@ import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 
@@ -99,6 +100,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
+     * 捕获无效 multipart 请求，例如缺少 boundary 的 Content-Type。
+     */
+    @ExceptionHandler(MultipartException.class)
+    public R<Void> handleMultipartException(MultipartException e, HttpServletResponse response) {
+        response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        log.warn("Multipart 请求格式错误: type={}", e.getClass().getSimpleName());
+        return R.failed(ResultCode.VALIDATE_FAILED);
+    }
+
+    /**
      * 兜底异常
      */
     @ExceptionHandler(Exception.class)
@@ -121,7 +132,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private int resolveHttpStatus(int code) {
         return switch (code) {
-            case 400, 401, 403, 404, 409, 500 -> code;
+            case 400, 401, 403, 404, 409, 429, 500 -> code;
             default -> HttpServletResponse.SC_OK;
         };
     }
