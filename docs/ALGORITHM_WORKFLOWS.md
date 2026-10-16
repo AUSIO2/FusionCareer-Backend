@@ -22,6 +22,11 @@ Java /api/internal/resume/parse
 
 job_structure 根据 sourceType 选择管理员短提示词或 Markdown 抽取。
 官网/公众号现有采集工作流的岗位结构化步骤也进入 job_structure。
+结构化结果写 Java 前还会执行岗位级跨来源去重：岗位名必须一致，并以版本化公司别名、职位级 URL，
+或可解析出租户/活动身份的 ATS URL + 招聘周期识别不同高校转载的同一招聘活动；邮箱作为活动级辅助
+证据。全国覆盖文案会规范化，但明确不同届别、部门、职位 ID、专业学历或互斥城市不自动合并；已有
+keeper 缺少的硬证据不会只在内存中补齐后丢失。
+该层不依赖整篇文章相似度，且与文章 MinHash 去重分别提供独立开关。
 共享采集模块位于 `app/skills/business/crawlers/`，官网和公众号分别位于其 `official/`、`wechat/` 子目录；
 目录配置优先使用 CRAWL_CONFIG_ROOT，旧 WECHAT_CONFIG_ROOT 仍兼容。
 Java 接口鉴权、请求和响应格式兼容；简历归属检查仍通过 BackendClient。

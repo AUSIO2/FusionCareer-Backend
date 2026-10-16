@@ -23,7 +23,7 @@ import java.util.*;
 @Service
 @RequiredArgsConstructor
 public class JobRecommendationService {
-    public static final String ALGORITHM_VERSION = "1f3d8a7";
+    public static final String ALGORITHM_VERSION = "216e405";
 
     private final JobPostMapper jobs;
     private final UserProfileService profiles;

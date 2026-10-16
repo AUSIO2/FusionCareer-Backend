@@ -15,6 +15,7 @@ public record AiAssistantCapabilitiesResponse(
             int maxMessageChars,
             int maxAttachments,
             int maxHistoryMessages,
-            int maxContextChars) {
+            int maxContextChars,
+            int dailyMessageLimit) {
     }
 }

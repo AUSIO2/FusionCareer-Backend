@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.api.routers import admin as admin_router
 from app.config import settings
 from app.main import app
+from app.skills.business.crawlers.store import CrawlStore
 
 
 @pytest.fixture
@@ -54,3 +55,29 @@ def testManualDrainRunsOnceAndReportsStatus(
     assert status.json()["status"] == "COMPLETED"
     assert status.json()["result"]["articleCount"] == 3
     assert len(readCalls) == 1
+
+
+def testRequeueRequiresExplicitScope(client: TestClient, tmp_path: Path):
+    store = CrawlStore(admin_router._structure_paths().database_file)
+    store.saveAccount("source", "Source", True)
+    markdown = tmp_path / "job.md"
+    markdown.write_text("# 招聘", encoding="utf-8")
+    url = "https://example.test/quarantined"
+    store.saveArticle("source", {"title": "招聘", "link": url, "create_time": 1}, markdown, "hash")
+    with store.openDatabase() as database:
+        database.execute(
+            "UPDATE articles SET structure_status='QUARANTINED', structure_attempts=3 WHERE url=?",
+            (url,),
+        )
+
+    empty = client.post(
+        "/api/admin/wechat/structure-requeue", headers=readHeaders(), json={}
+    )
+    response = client.post(
+        "/api/admin/wechat/structure-requeue", headers=readHeaders(), json={"urls": [url]}
+    )
+
+    assert empty.status_code == 422
+    assert response.status_code == 200
+    assert response.json() == {"requeued": 1}
+    assert store.readStructureCounts()["PENDING"] == 1

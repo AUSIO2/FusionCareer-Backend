@@ -15,6 +15,11 @@ def test_named_timeouts_override_category_defaults(monkeypatch):
     assert config.tool_timeout("propose_profile_patch", write=True) == 15
 
 
+def test_read_only_resume_analysis_uses_parse_timeout():
+    config = Settings(_env_file=None, ai_chat_parse_timeout_seconds=87)
+    assert config.tool_timeout("analyze_resume_file") == 87
+
+
 @pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
 def test_bad_timeout_rejected_at_configuration_load(value):
     with pytest.raises(ValidationError):

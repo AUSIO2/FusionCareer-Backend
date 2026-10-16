@@ -6,14 +6,18 @@ import re
 from datetime import date
 from typing import Any
 
+from app.algorithms.job_record_dedup import deduplicateJobRecords
+from app.config import settings
+
 
 JOB_FIELDS = (
     "sourceType", "sourceUrl", "companyName", "department", "positionName",
-    "jobCategory", "jobSubCategory", "recruitType", "headcount",
-    "workStartDate", "workEndDate", "applicationDeadline", "workDaysPerWeek", "workDurationType",
-    "workPeriodType", "workMode", "workCity", "workProvince", "workLocation",
+    "jobCategory", "jobSubCategory", "recruitType", "headcount", "headcountDisplay",
+    "workStartDate", "workEndDate", "applicationDeadline", "workDaysPerWeek", "workTimeRequirement",
+    "workDurationType", "workPeriodType", "workMode", "workCity", "workCities", "workProvince", "workLocation",
     "salaryMin", "salaryMax", "salaryDisplay", "jobDesc", "reqEduLevel",
-    "reqMajor", "reqGradYear", "reqSkills", "reqOther", "recommended", "status",
+    "reqEduLevels", "reqMajor", "reqGradYear", "reqSkills", "reqOther", "careerDirection",
+    "recommended", "status",
 )
 ZH_FIELDS = {
     "来源类型": "sourceType", "来源链接": "sourceUrl", "单位名称": "companyName",
@@ -86,10 +90,15 @@ TEXT_LIMITS = {
     "workProvince": 32,
     "workLocation": 128,
     "salaryDisplay": 64,
+    "headcountDisplay": 64,
     "reqMajor": 256,
     "reqGradYear": 16,
     "reqSkills": 512,
-    "reqOther": 512,
+    "workTimeRequirement": 2048,
+    "careerDirection": 2048,
+    # req_other is TEXT in Java/MySQL.  Keeping only 512 characters could cut
+    # off the application URL/email that identifies a cross-source repost.
+    "reqOther": 8192,
 }
 
 
@@ -162,6 +171,24 @@ def normalizeJob(
             createJob[readField] = normalizeDate(readText) or None
             if readText and createJob[readField] is None:
                 readWarnings.append(f"invalid {readField}: {readText}")
+        elif readField == "workCities":
+            values = readValue if isinstance(readValue, list) else [readValue]
+            createJob[readField] = list(dict.fromkeys(
+                normalizeText(value)[:TEXT_LIMITS["workCity"]]
+                for value in values if normalizeText(value)
+            )) or None
+        elif readField == "reqEduLevels":
+            values = readValue if isinstance(readValue, list) else [readValue]
+            mapped = []
+            for value in values:
+                text = normalizeText(value)
+                if text in ENUM_MAPS["reqEduLevel"].values():
+                    mapped.append(text)
+                elif text in ENUM_MAPS["reqEduLevel"]:
+                    mapped.append(ENUM_MAPS["reqEduLevel"][text])
+                elif text:
+                    readWarnings.append(f"invalid reqEduLevels: {text}")
+            createJob[readField] = list(dict.fromkeys(mapped)) or None
         elif readField == "recommended":
             createJob[readField] = bool(readValue) if readValue is not None else False
         else:
@@ -195,16 +222,7 @@ def normalizeJob(
 
 
 def deduplicateJobs(readJobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    readKeys: set[tuple[str, str, str]] = set()
-    readUnique = []
-    for readJob in readJobs:
-        readKey = (
-            normalizeText(readJob.get("sourceUrl")).casefold(),
-            normalizeText(readJob.get("companyName")).casefold(),
-            normalizeText(readJob.get("positionName")).casefold(),
-        )
-        if readKey in readKeys:
-            continue
-        readKeys.add(readKey)
-        readUnique.append(readJob)
-    return readUnique
+    return deduplicateJobRecords(
+        readJobs,
+        crossSource=getattr(settings, "job_record_dedup_enabled", True),
+    )

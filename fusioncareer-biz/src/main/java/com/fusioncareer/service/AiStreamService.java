@@ -133,7 +133,7 @@ public class AiStreamService {
                 readMemoryValues.put(readKey, readEntry.value()));
         List<AgentStreamClient.HistoryMessage> readHistory = readContext.history().stream()
                 .map(readMessage -> new AgentStreamClient.HistoryMessage(
-                        readMessage.role(), readMessage.content()))
+                        readMessage.role(), readMessage.content(), readMessage.actionIds()))
                 .toList();
         return new AgentStreamClient.StreamRequest(
                 readRun.assistantMessage().runId(),
@@ -147,7 +147,8 @@ public class AiStreamService {
                 readContext.summary(),
                 readHistory,
                 readRun.userMessage().inputMetadata().get("interaction"),
-                (String) readRun.userMessage().inputMetadata().get("jobId"));
+                (String) readRun.userMessage().inputMetadata().get("jobId"),
+                readContext.actionStates());
     }
 
     private List<String> agentScopes() {
@@ -177,12 +178,12 @@ public class AiStreamService {
             sendEvent(updateStream.emitter(), "ping", readEvent.data());
             return;
         }
-        if ("job_results".equals(readEvent.name())) {
+        if ("job_results".equals(readEvent.name()) || "resume_advice".equals(readEvent.name())) {
             Map<String, Object> presentation = manageChat.savePresentation(updateStream.userId(),
                     updateStream.run().session().epoch(), updateStream.run().assistantMessage().runId(),
                     objectMapper.convertValue(readEvent.data(), Map.class));
             if (presentation != null) {
-                sendEvent(updateStream.emitter(), "job_results", Map.of("runId",
+                sendEvent(updateStream.emitter(), readEvent.name(), Map.of("runId",
                         updateStream.run().assistantMessage().runId(), "presentation", presentation));
             }
             return;
@@ -263,6 +264,23 @@ public class AiStreamService {
                         updateStream.run().assistantMessage().runId(), Map.of("actionId", readActionId)) != null) {
                     sendEvent(updateStream.emitter(), "action_proposed", sendAction);
                 }
+            }
+            return;
+        }
+        if ("topic_check".equals(readEvent.name())) {
+            boolean isRelevant = readEvent.data().path("relevant").asBoolean(false);
+            AiChatService.TopicGuardState readState = manageChat.recordTopicDecision(
+                    updateStream.userId(), updateStream.run().session().epoch(),
+                    updateStream.run().assistantMessage().runId(), isRelevant);
+            if (!isRelevant) {
+                Map<String, Object> sendWarning = new LinkedHashMap<>();
+                sendWarning.put("runId", updateStream.run().assistantMessage().runId());
+                sendWarning.put("reason", readEvent.data().path("reason").asText("主题不相关"));
+                sendWarning.put("strikes", readState.strikes());
+                if (readState.bannedUntil() != null) {
+                    sendWarning.put("bannedUntil", readState.bannedUntil().toString());
+                }
+                sendEvent(updateStream.emitter(), "topic_warning", sendWarning);
             }
             return;
         }
@@ -347,8 +365,15 @@ public class AiStreamService {
         AiMessageResponse readMessage = updateStream.run().assistantMessage();
         updateStream.terminal().set(true);
         if (readMessage.status() == AiMessageStatus.COMPLETED) {
-            if (!readMessage.presentation().isEmpty()) sendEvent(updateStream.emitter(), "job_results",
-                    Map.of("runId", readMessage.runId(), "presentation", readMessage.presentation()));
+            if (readMessage.presentation().containsKey("jobIds")
+                    || readMessage.presentation().containsKey("actionIds")) {
+                sendEvent(updateStream.emitter(), "job_results",
+                        Map.of("runId", readMessage.runId(), "presentation", readMessage.presentation()));
+            }
+            if (readMessage.presentation().get("resumeAdvice") instanceof Map<?, ?>) {
+                sendEvent(updateStream.emitter(), "resume_advice",
+                        Map.of("runId", readMessage.runId(), "presentation", readMessage.presentation()));
+            }
             Map<String, Object> sendDelta = new LinkedHashMap<>();
             sendDelta.put("runId", readMessage.runId());
             sendDelta.put("seq", 1);

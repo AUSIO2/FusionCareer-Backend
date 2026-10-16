@@ -4,6 +4,7 @@ import ast
 import json
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -11,6 +12,29 @@ from openai import AsyncOpenAI
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class LLMCompletion:
+    content: str
+    model: str
+    finishReason: str
+    promptTokens: int | None = None
+    completionTokens: int | None = None
+    totalTokens: int | None = None
+
+
+class LLMOutputTruncatedError(RuntimeError):
+    def __init__(self, completion: LLMCompletion):
+        super().__init__(f"LLM output truncated: finish_reason={completion.finishReason}")
+        self.completion = completion
+
+
+class LLMInvalidJsonError(ValueError):
+    def __init__(self, completion: LLMCompletion, cause: json.JSONDecodeError):
+        super().__init__(f"LLM returned invalid JSON: {cause.msg}")
+        self.completion = completion
+        self.__cause__ = cause
 
 
 def extractObject(readText: str) -> str:
@@ -133,6 +157,26 @@ class LLMClient:
         Returns:
             模型生成的文本内容
         """
+        completion = await self.chat_with_meta(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+        )
+        return completion.content
+
+    async def chat_with_meta(
+        self,
+        user_message: str,
+        system_prompt: str = "",
+        model: str | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+        response_format: dict | None = None,
+        operation: str = "chat",
+    ) -> LLMCompletion:
         client = self._ensure_client()
         model = model or settings.llm_model
 
@@ -153,11 +197,54 @@ class LLMClient:
             if model.startswith("deepseek-v4"):
                 kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
-        logger.info(f"LLM 请求: model={model}, msg_len={len(user_message)}")
+        logger.info("LLM 请求: operation=%s model=%s msg_len=%d", operation, model, len(user_message))
         response = await client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
-        logger.info("LLM 响应: %d chars, finish_reason=%s", len(content), response.choices[0].finish_reason)
-        return content
+        finish_reason = response.choices[0].finish_reason or "stop"
+        usage = getattr(response, "usage", None)
+        completion = LLMCompletion(
+            content=content,
+            model=model,
+            finishReason=finish_reason,
+            promptTokens=getattr(usage, "prompt_tokens", None),
+            completionTokens=getattr(usage, "completion_tokens", None),
+            totalTokens=getattr(usage, "total_tokens", None),
+        )
+        logger.info(
+            "LLM 响应: operation=%s chars=%d finish_reason=%s prompt_tokens=%s completion_tokens=%s",
+            operation,
+            len(content),
+            finish_reason,
+            completion.promptTokens,
+            completion.completionTokens,
+        )
+        return completion
+
+    async def chat_json_with_meta(
+        self,
+        user_message: str,
+        system_prompt: str = "",
+        model: str | None = None,
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+        operation: str = "json",
+    ) -> tuple[dict, LLMCompletion]:
+        completion = await self.chat_with_meta(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            operation=operation,
+        )
+        if completion.finishReason in {"length", "max_tokens"} \
+                or completion.completionTokens is not None and completion.completionTokens >= max_tokens:
+            raise LLMOutputTruncatedError(completion)
+        try:
+            return parseJson(completion.content), completion
+        except json.JSONDecodeError as error:
+            raise LLMInvalidJsonError(completion, error) from error
 
     async def chat_json(
         self,

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
+import com.fusioncareer.dto.req.JobPostEvidenceMergeRequest;
 import com.fusioncareer.dto.req.JobRecycleRequest;
 import com.fusioncareer.dto.res.JobPostAdminResponse;
 import com.fusioncareer.dto.res.JobPostResponse;
@@ -29,11 +30,13 @@ public interface JobPostService extends IService<JobPostEntity> {
 
     PageResult<JobPostAdminResponse> listAdminJobPosts(JobPostQueryRequest query);
 
-    PageResult<JobPostResponse> listJobs(JobPostQueryRequest query);
+    PageResult<JobPostAdminResponse> listJobs(JobPostQueryRequest query);
 
     PageResult<JobPostResponse> listPublishedJobPosts(JobPostQueryRequest query);
 
     void updateJobPost(Long id, JobPostRequest request);
+
+    JobPostAdminResponse mergeJobPostEvidence(Long id, JobPostEvidenceMergeRequest request);
 
     void recycleJob(Long id, String reason);
 

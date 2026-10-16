@@ -19,6 +19,7 @@ import com.fusioncareer.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanWrapper;
 import org.springframework.beans.PropertyAccessorFactory;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClientException;
@@ -45,9 +46,14 @@ public class ResumeParseServiceImpl implements ResumeParseService {
     public ParsedPatches parseForProposal(Long userId, Long fileId) {
         readFileService.getOwnFile(userId, fileId);
         ResumeParseResponse readResponse;
+        long readStarted = System.nanoTime();
         try {
             readResponse = readPythonClient.parseResume(new ResumeParseRequest(userId, fileId));
         } catch (RestClientException readError) {
+            log.warn("只读简历解析调用失败: type={}, causeType={}, elapsedMs={}",
+                    readError.getClass().getSimpleName(),
+                    NestedExceptionUtils.getMostSpecificCause(readError).getClass().getSimpleName(),
+                    (System.nanoTime() - readStarted) / 1_000_000);
             throw ServiceException.of(ResultCode.INTERNAL_SERVER_ERROR, "简历解析服务暂时不可用");
         }
         if (readResponse == null) {

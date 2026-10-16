@@ -45,6 +45,8 @@ agent-context:
 
 # 写 Tool 仅创建 PENDING 提案；生产灰度时显式开启。
 ai-chat:
+  daily-message-limit: ${AI_CHAT_DAILY_MESSAGE_LIMIT:100}
+  resume-advice-enabled: ${AI_CHAT_RESUME_ADVICE_ENABLED:true}
   write-enabled: ${AI_CHAT_WRITE_ENABLED:false}
   recommend-enabled: ${AI_CHAT_RECOMMEND_ENABLED:true}
   stream-timeout-ms: ${AI_CHAT_STREAM_TIMEOUT_MS:200000}

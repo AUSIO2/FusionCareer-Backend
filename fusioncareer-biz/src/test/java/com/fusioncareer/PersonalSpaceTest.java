@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
@@ -54,12 +55,15 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -130,6 +134,69 @@ class PersonalSpaceTest {
     void rejectGuest() throws Exception {
         readMvc.perform(get("/personal-space"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void allowPreflight() throws Exception {
+        for (String readPath : List.of("/personal-space/profile", "/personal-space/resume")) {
+            readMvc.perform(options(readPath)
+                            .header(HttpHeaders.ORIGIN, "https://student.example.test")
+                            .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
+                            .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Fusion-Token, Content-Type"))
+                    .andExpect(status().isOk())
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                            "https://student.example.test"))
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS,
+                            containsString("PATCH")))
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS,
+                            containsString("Fusion-Token")))
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+        }
+    }
+
+    @Test
+    void rejectCrossOrigin() throws Exception {
+        for (String readPath : List.of("/personal-space/profile", "/personal-space/resume")) {
+            readMvc.perform(patch(readPath)
+                            .header(HttpHeaders.ORIGIN, "https://student.example.test")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"expectedVersion\":0,\"set\":{\"major\":\"新闻传播学\"}}"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.code").value(401))
+                    .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                            "https://student.example.test"));
+        }
+    }
+
+    @Test
+    void patchCrossOrigin() throws Exception {
+        readMvc.perform(patch("/personal-space/profile")
+                        .header(HttpHeaders.ORIGIN, "https://student.example.test")
+                        .header("Fusion-Token", createToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0,\"set\":{\"major\":\"新闻传播学\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.major").value("新闻传播学"))
+                .andExpect(jsonPath("$.data.version").value("1"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                        "https://student.example.test"));
+        assertThat(readProfiles.getById(createUser.getId()))
+                .extracting("major", "version")
+                .containsExactly("新闻传播学", 1L);
+
+        readMvc.perform(patch("/personal-space/resume")
+                        .header(HttpHeaders.ORIGIN, "https://student.example.test")
+                        .header("Fusion-Token", createToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0,\"set\":{\"education\":\"复旦大学新闻学院\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.education").value("复旦大学新闻学院"))
+                .andExpect(jsonPath("$.data.version").value("1"))
+                .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN,
+                        "https://student.example.test"));
+        assertThat(readResumes.getById(createUser.getId()))
+                .extracting("education", "version")
+                .containsExactly("复旦大学新闻学院", 1L);
     }
 
     @Test

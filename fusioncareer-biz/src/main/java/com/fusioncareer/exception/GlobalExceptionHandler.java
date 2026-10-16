@@ -121,7 +121,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private int resolveHttpStatus(int code) {
         return switch (code) {
-            case 400, 401, 403, 404, 409, 500 -> code;
+            case 400, 401, 403, 404, 409, 429, 500 -> code;
             default -> HttpServletResponse.SC_OK;
         };
     }

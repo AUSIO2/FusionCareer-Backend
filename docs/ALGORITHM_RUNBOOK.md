@@ -100,6 +100,82 @@ docker compose -f deploy/docker-compose.agent.yml \
 - 401/403：核对两机 `INTERNAL_SERVICE_TOKEN` 是否一致，以及请求是否走内网路径；不要临时取消鉴权。
 - OCR 首次慢：检查 `paddle_cache` 是否挂载、磁盘是否充足；不要把模型缓存打进 Git。
 
+### 长招聘文章结构化
+
+生产使用 `JOB_STRUCTURE_MODE=chunked`。长文先按 Markdown 语义块识别岗位目录，再按最多 4 个岗位和
+12,000 字上下文抽取详情；模型返回截断时自动缩小批次。旧的单次全文抽取仅用于紧急回滚：
+
+```bash
+JOB_STRUCTURE_MODE=legacy
+```
+
+更新镜像时还要同步持久卷中的 `/data/agent/runtime/workflows/job_structure.json`；仅修改镜像内 preset
+不会覆盖已经存在的 runtime workflow。reload 后在管理员工作流列表中确认 `job_structure` 使用
+`native_job_structure`。
+
+结构化状态可通过管理员接口查看：
+
+```bash
+curl -fsS -H "X-Agent-Admin-Token: $AGENT_ADMIN_TOKEN" \
+  http://127.0.0.1:8900/api/admin/wechat/structure-pending
+```
+
+失败文章按 1 小时、6 小时、24 小时退避，第三次失败进入 `QUARANTINED`。修复原因后，只重新入队明确
+的 URL；批量重新入队全部隔离项必须显式传 `allQuarantined=true`：
+
+```bash
+curl -fsS -X POST \
+  -H "X-Agent-Admin-Token: $AGENT_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"urls":["https://example.invalid/job"]}' \
+  http://127.0.0.1:8900/api/admin/wechat/structure-requeue
+```
+
+排查调用量时关注容器日志中的 `operation=job_index|job_detail|job_single`、`finish_reason`、
+`prompt_tokens` 和 `completion_tokens`。不得将完整提示词、文章正文或 API key 输出到普通运维日志。
+
+### 跨来源岗位去重
+
+`JOB_RECORD_DEDUP_ENABLED=true` 控制抽岗后的岗位级去重，和整篇 Markdown 的
+`ARTICLE_DEDUP_ENABLED` 相互独立。岗位级去重先保留原有
+`sourceUrl + companyName + positionName` 精确键，再识别括号中的品牌/法定主体别名、规范化投递 URL
+与邮箱。显式品牌—法人映射维护在 `app/algorithms/job_structuring/company_aliases.json`；删除法律后缀
+得到的弱名称和“国有企业”等括号描述不能触发自动去重。只有岗位名、公司身份相同，活动年份、季节、
+招聘类型、部门、城市、人数、薪资与工作形式兼容，并满足以下任一强锚点时才跨来源自动去重：同职位级
+投递 URL；同活动级 URL + 同邮箱；或可解析出租户/活动身份的 ATS URL + 同招聘届别/类型。51job、
+猎聘等公共列表页和飞书搜索页不属于租户活动锚点，邮箱本身也不能单独触发。每个新成员还必须与候选
+簇内全部直接证据兼容，缺失字段不能作为桥梁，把北京和上海等互相冲突的记录传递合并。
+
+不同高校转载 URL、系统默认截止日期相差一两天不再造成重复。明确不同届别/春秋招、不同部门、互不
+相交的城市或职位 ID 仍保留为不同岗位；“全国”“全国主要城市”“全国 100 多个城市”等明确覆盖
+范围会归一为同一全国覆盖证据，但不会成为北京/上海的通配符。只有门牌、楼栋、园区、校区或带行政
+区划的道路信息才作为具体地址；薪资福利构成的标点差异不构成冲突，面议与明确数额仍冲突。同一待写
+批次内的兼容重复会补齐城市及包含关系下的更完整描述。命中 Java 已有 keeper 时，必须走
+`PUT /internal/job-post/{id}/merge-evidence`：Java 在行锁和版本前置条件下单调合并字段，并在同一事务
+保存原 keeper 与每个 incoming 的隐藏 `RECYCLED` 证据快照。Agent 重启后按这些原始成员重建
+complete-link 簇，不能把城市并集、最晚截止日或不同成员各自提供的 URL/邮箱拼成新的传递桥梁。
+确定性字段冲突保留 incoming 为独立岗位；超时或 5xx 结果不明时熔断后续写入并重试。管理员编辑已
+合并岗位必须携带 `expectedUpdatedAt`，旧版本返回 409，避免旧表单覆盖刚合入的证据。存量清理仍须
+先生成审计计划、保存 keeper-before 快照并核对引用后执行。
+LLM 抽取继续并发，最终的“匹配 → Java 写入 → 索引登记”在单次任务内串行，进程级锁和持久卷文件锁
+又避免 Scheduler、管理员 drain 与一次性 runner 并行写入。Java 响应超时后会在锁内重新读取后端，
+确认是否已提交；未确认的写入不占用去重键并保留文章重试。
+
+以上保证以当前单 Agent、单 Uvicorn worker、共享同一持久卷为边界。扩展为多主机副本，或允许 Excel/
+其他 Java 写入口与采集并行前，必须增加 Java 幂等 batch-upsert 和 MySQL 可空语义键唯一索引作为最终
+兜底；不能把 Python 内存/文件锁当作跨主机数据库约束。
+
+发布前至少运行：
+
+```bash
+cd fusioncareer-agent
+pytest -q tests/algorithms/test_job_record_dedup.py \
+  tests/skills/crawlers/test_structure_articles.py
+```
+
+若误判需要紧急回滚，可只设置 `JOB_RECORD_DEDUP_ENABLED=false`，此时仍保留原有精确三元组去重与
+文章近重复去重。该开关不处理存量记录；存量清理必须先生成 dry-run keeper/loser 计划并核对引用。
+
 ## 7. 回滚
 
 1. 先禁用 Scheduler，避免回滚期间继续抓取。

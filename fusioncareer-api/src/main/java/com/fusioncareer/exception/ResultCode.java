@@ -16,6 +16,7 @@ public enum ResultCode implements IErrorCode {
     FORBIDDEN(403, "没有操作权限"),
     NOT_FOUND(404, "请求的资源不存在"),
     CONFLICT(409, "请求状态冲突"),
+    TOO_MANY_REQUESTS(429, "请求过于频繁"),
     VALIDATE_FAILED(400, "参数检验失败"),
     INTERNAL_SERVER_ERROR(500, "系统内部发生错误，请联系管理员");
 

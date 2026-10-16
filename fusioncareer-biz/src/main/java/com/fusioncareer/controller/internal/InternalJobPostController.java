@@ -4,7 +4,9 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
+import com.fusioncareer.dto.req.JobPostEvidenceMergeRequest;
 import com.fusioncareer.dto.req.JobRecycleRequest;
+import com.fusioncareer.dto.res.JobPostAdminResponse;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.service.JobPostService;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +50,7 @@ public class InternalJobPostController {
 
     @GetMapping("/list")
     @Operation(summary = "分页查询岗位列表")
-    public R<PageResult<JobPostResponse>> list(JobPostQueryRequest query) {
+    public R<PageResult<JobPostAdminResponse>> list(JobPostQueryRequest query) {
         return R.success(jobPostService.listJobs(query));
     }
 
@@ -57,6 +59,14 @@ public class InternalJobPostController {
     public R<Void> update(@PathVariable Long id, @RequestBody JobPostRequest request) {
         jobPostService.updateJobPost(id, request);
         return R.success();
+    }
+
+    @PutMapping("/{id}/merge-evidence")
+    @Operation(summary = "将兼容的重复岗位证据合并到已存在岗位")
+    public R<JobPostAdminResponse> mergeEvidence(
+            @PathVariable Long id,
+            @RequestBody JobPostEvidenceMergeRequest request) {
+        return R.success(jobPostService.mergeJobPostEvidence(id, request));
     }
 
     @DeleteMapping("/{id}")

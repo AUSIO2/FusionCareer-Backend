@@ -1,5 +1,6 @@
 """官网抓取编排与工作流 Skill 入口。"""
 
+import asyncio
 import json
 import time
 from datetime import datetime, timedelta
@@ -78,4 +79,7 @@ class OfficialCrawlSitesSkill(BaseSkill):
         readDays = int(readConfig.get("official_lookback_days", 3))
         readEnd = datetime.now(BEIJING_TZ) + timedelta(days=1)
         readStart = readEnd - timedelta(days=readDays + 1)
-        return {"json_obj": crawlSites(readPaths, int(readStart.timestamp()), int(readEnd.timestamp()))}
+        result = await asyncio.to_thread(
+            crawlSites, readPaths, int(readStart.timestamp()), int(readEnd.timestamp())
+        )
+        return {"json_obj": result}

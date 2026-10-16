@@ -4,6 +4,7 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.dto.req.JobPostRequest;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.QuestionnaireSubmitRequest;
+import com.fusioncareer.dto.res.JobPostAdminResponse;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.entity.JobPostEntity;
 import com.fusioncareer.entity.QuestionnaireAnswerEntity;
@@ -18,6 +19,9 @@ import com.fusioncareer.service.JobPostQuestionService;
 import com.fusioncareer.service.QuestionnaireAnswerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -155,7 +159,7 @@ class JobPostQueryTest {
     }
 
     @Test
-    void defaultApplicationDeadline() {
+    void missingApplicationDeadlineRemainsUnknown() {
         JobPostRequest createJob = new JobPostRequest();
         createJob.setCompanyName("deadline-company");
         createJob.setPositionName("deadline-position");
@@ -165,7 +169,7 @@ class JobPostQueryTest {
 
         JobPostResponse readCreated = readJobService.createJobPost(createJob);
 
-        assertThat(readCreated.getApplicationDeadline()).isEqualTo(LocalDate.now().plusMonths(1));
+        assertThat(readCreated.getApplicationDeadline()).isNull();
         assertThat(readQuestionService.listByJobPostId(readCreated.getId())).singleElement()
                 .satisfies(readQuestion -> {
                     assertThat(readQuestion.getId()).isZero();
@@ -280,6 +284,173 @@ class JobPostQueryTest {
         assertThat(readRestored.getStatus()).isEqualTo(JobPostStatus.OFFLINE);
         assertThat(readRestored.getRecycleReason()).isNull();
         assertThat(readRestored.getRecycledAt()).isNull();
+    }
+
+    @Test
+    void adminFullTextSearchesDraftBodyRemarkAndSourceWithoutOtherStatuses() {
+        JobPostEntity createBody = createSearchJob("body-draft", JobPostStatus.OFFLINE);
+        createBody.setJobDesc("负责校园调研采访和报道");
+        JobPostEntity createRemark = createSearchJob("remark-draft", JobPostStatus.OFFLINE);
+        createRemark.setInternalRemark("校园调研：等待老师确认");
+        JobPostEntity createSource = createSearchJob("source-draft", JobPostStatus.OFFLINE);
+        createSource.setSourceUrl("https://example.test/校园调研/source");
+        JobPostEntity createPublished = createSearchJob("body-published", JobPostStatus.PUBLISHED);
+        createPublished.setJobDesc("校园调研");
+        JobPostEntity createRecycled = createSearchJob("source-recycled", JobPostStatus.RECYCLED);
+        createRecycled.setSourceUrl("https://example.test/校园调研/recycled");
+        readJobService.saveBatch(List.of(createBody, createRemark, createSource,
+                createPublished, createRecycled));
+
+        PageResult<JobPostAdminResponse> readResult = readJobService.listAdminJobPosts(
+                draftFullTextQuery("校园调研"));
+
+        assertThat(readResult.getTotal()).isEqualTo(3);
+        assertThat(readResult.getList()).extracting(JobPostAdminResponse::getPositionName)
+                .containsExactlyInAnyOrder("body-draft", "remark-draft", "source-draft");
+    }
+
+    @Test
+    void adminFullTextUsesTrimmedCompletePhraseAndCombinesExistingFilters() {
+        JobPostEntity createMatch = createSearchJob("phrase-draft", JobPostStatus.OFFLINE);
+        createMatch.setReqSkills("熟悉数据 新闻制作");
+        createMatch.setWorkCity("上海");
+        JobPostEntity createSeparated = createSearchJob("separated-draft", JobPostStatus.OFFLINE);
+        createSeparated.setReqSkills("熟悉数据采集和新闻制作");
+        createSeparated.setWorkCity("上海");
+        JobPostEntity createOtherCategory = createSearchJob("category-draft", JobPostStatus.OFFLINE);
+        createOtherCategory.setReqSkills("熟悉数据 新闻制作");
+        createOtherCategory.setWorkCity("上海");
+        createOtherCategory.setJobCategory(JobCategory.ENTERPRISE);
+        JobPostEntity createOtherCity = createSearchJob("city-draft", JobPostStatus.OFFLINE);
+        createOtherCity.setReqSkills("熟悉数据 新闻制作");
+        createOtherCity.setWorkCity("北京");
+        readJobService.saveBatch(List.of(createMatch, createSeparated, createOtherCategory, createOtherCity));
+        JobPostQueryRequest readQuery = draftFullTextQuery("  数据 新闻  ");
+        readQuery.setJobCategory(JobCategory.MEDIA);
+        readQuery.setWorkCity("上海");
+
+        assertThat(readJobService.listAdminJobPosts(readQuery).getList())
+                .extracting(JobPostAdminResponse::getPositionName).containsExactly("phrase-draft");
+    }
+
+    @Test
+    void adminFullTextPreservesPagingAndFilteredTotal() {
+        for (int createIndex = 0; createIndex < 3; createIndex++) {
+            JobPostEntity createMatch = createSearchJob("paged-draft-" + createIndex, JobPostStatus.OFFLINE);
+            createMatch.setJobDesc("短视频拍摄");
+            createMatch.setCreatedAt(LocalDateTime.of(2026, 8, 5, 8, createIndex));
+            readJobService.save(createMatch);
+        }
+        readJobService.save(createSearchJob("unmatched-draft", JobPostStatus.OFFLINE));
+        JobPostQueryRequest readQuery = draftFullTextQuery("短视频");
+        readQuery.setSize(2);
+
+        PageResult<JobPostAdminResponse> readFirst = readJobService.listAdminJobPosts(readQuery);
+        readQuery.setPage(2);
+        PageResult<JobPostAdminResponse> readSecond = readJobService.listAdminJobPosts(readQuery);
+
+        assertThat(readFirst.getTotal()).isEqualTo(3);
+        assertThat(readFirst.getList()).extracting(JobPostAdminResponse::getPositionName)
+                .containsExactly("paged-draft-2", "paged-draft-1");
+        assertThat(readSecond.getTotal()).isEqualTo(3);
+        assertThat(readSecond.getList()).extracting(JobPostAdminResponse::getPositionName)
+                .containsExactly("paged-draft-0");
+    }
+
+    @Test
+    void adminFullTextPagingUsesIdToBreakEqualCreationTimeTies() {
+        for (long createId = 81001; createId <= 81003; createId++) {
+            JobPostEntity createMatch = createSearchJob("tied-draft-" + createId, JobPostStatus.OFFLINE);
+            createMatch.setId(createId);
+            createMatch.setJobDesc("同批导入岗位");
+            readJobService.save(createMatch);
+        }
+        JobPostQueryRequest readQuery = draftFullTextQuery("同批导入");
+        readQuery.setSize(1);
+
+        for (int readPage = 1; readPage <= 3; readPage++) {
+            readQuery.setPage(readPage);
+            PageResult<JobPostAdminResponse> readResult = readJobService.listAdminJobPosts(readQuery);
+            assertThat(readResult.getTotal()).isEqualTo(3);
+            assertThat(readResult.getList()).extracting(JobPostAdminResponse::getId)
+                    .containsExactly(81004L - readPage);
+        }
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"  \t  "})
+    void adminFullTextBlankKeywordListsDraftsNormally(String readKeyword) {
+        readJobService.saveBatch(List.of(createSearchJob("blank-draft-1", JobPostStatus.OFFLINE),
+                createSearchJob("blank-draft-2", JobPostStatus.OFFLINE)));
+
+        PageResult<JobPostAdminResponse> readResult = readJobService.listAdminJobPosts(
+                draftFullTextQuery(readKeyword));
+
+        assertThat(readResult.getTotal()).isEqualTo(2);
+        assertThat(readResult.getList()).extracting(JobPostAdminResponse::getPositionName)
+                .containsExactlyInAnyOrder("blank-draft-1", "blank-draft-2");
+    }
+
+    @Test
+    void fullTextRequiresAdminOptInAndPublicQueriesNeverSearchPrivateFields() {
+        JobPostEntity createDraft = createSearchJob("default-draft", JobPostStatus.OFFLINE);
+        createDraft.setJobDesc("深度采访");
+        createDraft.setInternalRemark("秘密审核意见");
+        JobPostEntity createPublished = createSearchJob("default-published", JobPostStatus.PUBLISHED);
+        createPublished.setJobDesc("深度采访");
+        createPublished.setInternalRemark("秘密审核意见");
+        readJobService.saveBatch(List.of(createDraft, createPublished));
+        JobPostQueryRequest readQuery = new JobPostQueryRequest();
+        readQuery.setKeyword("深度采访");
+
+        assertThat(readQuery.getFullText()).isFalse();
+        assertThat(readJobService.listAdminJobPosts(readQuery).getTotal()).isZero();
+        readQuery.setFullText(true);
+        assertThat(readJobService.listAdminJobPosts(readQuery).getTotal()).isEqualTo(2);
+        assertThat(readJobService.listJobPosts(readQuery).getTotal()).isZero();
+        assertThat(readJobService.listJobs(readQuery).getTotal()).isZero();
+        assertThat(readJobService.listPublishedJobPosts(readQuery).getTotal()).isZero();
+        readQuery.setKeyword("秘密审核意见");
+        assertThat(readJobService.listPublishedJobPosts(readQuery).getTotal()).isZero();
+        readQuery.setFullText(null);
+        assertThat(readJobService.listAdminJobPosts(readQuery).getTotal()).isZero();
+        readQuery.setKeyword("default-draft");
+        assertThat(readJobService.listAdminJobPosts(readQuery).getList())
+                .extracting(JobPostAdminResponse::getPositionName).containsExactly("default-draft");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"100%", "path_name", "C:\\", "news!desk", "%' OR 1=1 --"})
+    void adminFullTextTreatsWildcardsEscapesAndSqlAsLiteralText(String readKeyword) {
+        JobPostEntity createLiteral = createSearchJob("literal-draft", JobPostStatus.OFFLINE);
+        createLiteral.setJobDesc("prefix " + readKeyword + " suffix");
+        JobPostEntity createOther = createSearchJob("different-draft", JobPostStatus.OFFLINE);
+        createOther.setJobDesc("100 dollars, pathXname, C:folder, newsdesk");
+        readJobService.saveBatch(List.of(createLiteral, createOther));
+
+        assertThat(readJobService.listAdminJobPosts(draftFullTextQuery(readKeyword)).getList())
+                .extracting(JobPostAdminResponse::getPositionName).containsExactly("literal-draft");
+    }
+
+    private JobPostQueryRequest draftFullTextQuery(String readKeyword) {
+        JobPostQueryRequest readQuery = new JobPostQueryRequest();
+        readQuery.setStatus(JobPostStatus.OFFLINE);
+        readQuery.setFullText(true);
+        readQuery.setKeyword(readKeyword);
+        return readQuery;
+    }
+
+    private JobPostEntity createSearchJob(String createName, JobPostStatus createStatus) {
+        JobPostEntity createJob = new JobPostEntity();
+        createJob.setCompanyName("search-company");
+        createJob.setPositionName(createName);
+        createJob.setJobCategory(JobCategory.MEDIA);
+        createJob.setRecruitType(RecruitType.DAILY_INTERNSHIP);
+        createJob.setStatus(createStatus);
+        createJob.setApplicationDeadline(LocalDate.now().plusDays(30));
+        createJob.setCreatedAt(LocalDateTime.of(2026, 8, 5, 8, 0));
+        return createJob;
     }
 
     private void createJob(String createName, String createProvince, String createCity,

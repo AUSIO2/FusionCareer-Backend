@@ -1,11 +1,18 @@
-"""Job extraction prompt adapted from FusionCareer-Algorithm@4dc2086."""
+"""Job extraction prompts and bounded request builders."""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+
+from app.algorithms.job_structuring.models import ArticleBlock, ArticleContext, DetailBatch, JobTarget
 
 JOB_INDEX_PROMPT = """你是校园招聘岗位目录识别助手。只识别原文中明确出现的独立岗位名称，不抽取岗位详情。
 
-只返回 JSON：{"count": 2, "jobs": [{"companyName": "单位", "positionName": "岗位"}]}。
+只返回 JSON：{"count": 2, "jobs": [{"companyName": "单位", "positionName": "岗位", "evidenceBlockIds": ["block-id"]}]}。
 同名岗位去重；只要原文为不同岗位分别提供了职责或要求，就必须逐个列出，不能合并成“招聘岗位汇总”；
 只有没有岗位详情的招聘会参会单位大名单才按“单位 + 招聘岗位汇总”列出；非招聘内容返回 {"count": 0, "jobs": []}。
-count 必须等于 jobs 数组长度，禁止编造原文没有的单位或岗位。"""
+count 必须等于 jobs 数组长度，evidenceBlockIds 只能使用用户消息中的 BLOCK_ID，禁止编造原文没有的单位或岗位。"""
 
 JOB_PROMPT = """你是校园招聘结构化抽取助手。阅读用户提供的招聘原文，识别每一个独立岗位。
 
@@ -42,3 +49,53 @@ JOB_PROMPT = """你是校园招聘结构化抽取助手。阅读用户提供的�
   岗位名称填写“招聘岗位汇总”，清单保留在岗位描述中。
 
 数字字段使用 JSON 数字；日期使用 YYYY-MM-DD。只抽取原文事实。"""
+
+JOB_DETAIL_PROMPT = JOB_PROMPT + """
+
+本轮只抽取 TARGET_JOBS_JSON 中的岗位，禁止输出其他岗位。
+每条岗位必须原样返回对应的 targetId；输出格式为 {"jobs": [{"targetId": "...", ...}], "warnings": []}。
+如果证据不足，仍返回 targetId，并在 warnings 中说明，禁止编造字段。"""
+
+JOB_SINGLE_PROMPT = JOB_PROMPT
+
+
+def buildIndexUserMessage(readBlock: ArticleBlock, readContext: ArticleContext) -> str:
+    return (
+        f"文章标题：{readContext.title}\n"
+        f"来源链接：{readContext.sourceUrl}\n"
+        f"BLOCK_ID={readBlock.blockId}\n"
+        f"标题路径：{' > '.join(readBlock.headingPath)}\n\n"
+        f"正文块：\n{readBlock.text}"
+    )
+
+
+def buildDetailSystemPrompt(readTargets: list[JobTarget]) -> str:
+    payload = [
+        {
+            "targetId": target.targetId,
+            "companyName": target.companyName,
+            "positionName": target.positionName,
+        }
+        for target in readTargets
+    ]
+    return f"{JOB_DETAIL_PROMPT}\nTARGET_JOBS_JSON={json.dumps(payload, ensure_ascii=False)}"
+
+
+def buildDetailUserMessage(readBatch: DetailBatch, readContext: ArticleContext) -> str:
+    blocks = "\n\n".join(
+        f"BLOCK_ID={block.blockId}\n标题路径：{' > '.join(block.headingPath)}\n{block.text}"
+        for block in readBatch.blocks
+    )
+    return (
+        f"当前日期：{date.today().isoformat()}\n"
+        f"文章标题：{readContext.title}\n来源链接：{readContext.sourceUrl}\n"
+        f"文章通用信息：\n{readContext.commonText}\n\n相关正文块：\n{blocks}"
+    )
+
+
+def buildSingleUserMessage(readText: str, readContext: ArticleContext) -> str:
+    return (
+        f"当前日期：{date.today().isoformat()}\n"
+        f"文章标题：{readContext.title}\n来源链接：{readContext.sourceUrl}\n\n"
+        f"招聘原文：\n{readText}"
+    )

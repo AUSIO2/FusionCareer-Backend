@@ -4,10 +4,13 @@ import com.fusioncareer.enums.*;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
 public class JobPostRequest {
+    /** Optional optimistic version used by administrative updates. */
+    private LocalDateTime expectedUpdatedAt;
     private SourceType sourceType;
     private String sourceUrl;
     private String companyName;

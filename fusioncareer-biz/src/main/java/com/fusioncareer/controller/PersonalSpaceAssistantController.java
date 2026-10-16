@@ -51,8 +51,8 @@ public class PersonalSpaceAssistantController {
                 writeEnabled,
                 readTools.readToolNames(),
                 writeEnabled ? readTools.writeToolNames() : java.util.List.of(),
-                new AiAssistantCapabilitiesResponse.Limits(8000, 5, 12, 20000),
-                java.util.List.of("job_results", "action_reference")));
+                new AiAssistantCapabilitiesResponse.Limits(8000, 5, 12, 20000, 100),
+                java.util.List.of("job_results", "action_reference", "resume_advice")));
     }
 
     @GetMapping("/session")
