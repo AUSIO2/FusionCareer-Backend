@@ -20,7 +20,6 @@ import com.fusioncareer.service.QuestionnaireAnswerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -252,6 +251,7 @@ class JobPostQueryTest {
                 .update();
         JobPostQueryRequest readQuery = new JobPostQueryRequest();
         readQuery.setInternalApply(true);
+        readQuery.setKeyword("query-company");
 
         PageResult<JobPostResponse> readJobs = readJobService.listJobPosts(readQuery);
 
@@ -377,19 +377,18 @@ class JobPostQueryTest {
         }
     }
 
-    @ParameterizedTest
-    @NullAndEmptySource
-    @ValueSource(strings = {"  \t  "})
-    void adminFullTextBlankKeywordListsDraftsNormally(String readKeyword) {
+    @Test
+    void adminFullTextBlankKeywordListsDraftsNormally() {
         readJobService.saveBatch(List.of(createSearchJob("blank-draft-1", JobPostStatus.OFFLINE),
                 createSearchJob("blank-draft-2", JobPostStatus.OFFLINE)));
 
-        PageResult<JobPostAdminResponse> readResult = readJobService.listAdminJobPosts(
-                draftFullTextQuery(readKeyword));
-
-        assertThat(readResult.getTotal()).isEqualTo(2);
-        assertThat(readResult.getList()).extracting(JobPostAdminResponse::getPositionName)
-                .containsExactlyInAnyOrder("blank-draft-1", "blank-draft-2");
+        for (String readKeyword : new String[] {null, "", "  \t  "}) {
+            PageResult<JobPostAdminResponse> readResult = readJobService.listAdminJobPosts(
+                    draftFullTextQuery(readKeyword));
+            assertThat(readResult.getTotal()).isEqualTo(2);
+            assertThat(readResult.getList()).extracting(JobPostAdminResponse::getPositionName)
+                    .containsExactlyInAnyOrder("blank-draft-1", "blank-draft-2");
+        }
     }
 
     @Test
