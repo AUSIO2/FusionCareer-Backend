@@ -18,6 +18,7 @@ import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 
@@ -96,6 +97,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         log.warn("鉴权失败 - 缺少权限: permission={}", e.getPermission());
         return new R<>(ResultCode.FORBIDDEN.getCode(), "缺少权限: " + e.getPermission(), null);
+    }
+
+    /**
+     * 捕获无效 multipart 请求，例如缺少 boundary 的 Content-Type。
+     */
+    @ExceptionHandler(MultipartException.class)
+    public R<Void> handleMultipartException(MultipartException e, HttpServletResponse response) {
+        response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        log.warn("Multipart 请求格式错误: type={}", e.getClass().getSimpleName());
+        return R.failed(ResultCode.VALIDATE_FAILED);
     }
 
     /**
