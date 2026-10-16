@@ -1,0 +1,34 @@
+{
+  "name": "algorithm_wechat_sync_session",
+  "nodes": {
+    "input": {
+      "skill": "input_json_obj",
+      "inputs": {
+        "json_obj": {
+          "value": {
+            "workspace": "default"
+          }
+        }
+      }
+    },
+    "operation": {
+      "skill": "input_text",
+      "inputs": {
+        "text": {
+          "value": "wechat_sync_session"
+        }
+      }
+    },
+    "result": {
+      "skill": "upstream_algorithm",
+      "inputs": {
+        "operation": {
+          "from": "operation.text"
+        },
+        "request": {
+          "from": "input.json_obj"
+        }
+      }
+    }
+  }
+}

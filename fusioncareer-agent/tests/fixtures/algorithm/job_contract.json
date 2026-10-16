@@ -1,0 +1,33 @@
+{
+  "jobs": [
+    {
+      "sourceType": "PLATFORM",
+      "sourceUrl": "https://example.test/jobs/2026-campus",
+      "companyName": "示例科技有限公司",
+      "positionName": "后端开发工程师",
+      "jobCategory": "ENTERPRISE",
+      "jobSubCategory": "PRIVATE_ENTERPRISE",
+      "recruitType": "CAMPUS_RECRUITMENT",
+      "workProvince": "上海",
+      "workCity": "上海",
+      "reqEduLevel": "ACADEMIC_MASTER",
+      "reqSkills": "Java; SQL",
+      "status": "OFFLINE"
+    },
+    {
+      "sourceType": "PLATFORM",
+      "sourceUrl": "https://example.test/jobs/2026-campus",
+      "companyName": "示例科技有限公司",
+      "positionName": "内容运营实习生",
+      "jobCategory": "ENTERPRISE",
+      "jobSubCategory": "PRIVATE_ENTERPRISE",
+      "recruitType": "DAILY_INTERNSHIP",
+      "workProvince": "北京",
+      "workCity": "北京",
+      "workDurationType": "THREE_TO_FOUR_DAYS",
+      "workPeriodType": "THREE_TO_SIX_MONTHS",
+      "status": "OFFLINE"
+    }
+  ],
+  "warnings": []
+}

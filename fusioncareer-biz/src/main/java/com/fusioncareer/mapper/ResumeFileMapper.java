@@ -16,6 +16,7 @@ public interface ResumeFileMapper extends BaseMapper<ResumeFileEntity> {
     /**
      * 统计某用户当前已用存储空间（字节）
      */
-    @Select("SELECT COALESCE(SUM(file_size), 0) FROM fc_resume_file WHERE user_id = #{userId}")
+    @Select("SELECT COALESCE(SUM(file_size), 0) FROM fc_resume_file "
+            + "WHERE user_id = #{userId} AND deleted_at IS NULL")
     long sumFileSizeByUserId(Long userId);
 }

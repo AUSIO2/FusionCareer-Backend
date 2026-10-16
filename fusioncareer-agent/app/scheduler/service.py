@@ -12,6 +12,8 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.catalog.workflow_catalog import WorkflowCatalog
+from app.core.registry import SkillRegistry
+from app.engine.loop_runner import LoopControl, run_with_loop, validate_loop
 from app.engine.runner import WorkflowEngine, WorkflowNodeError
 from app.runtime.paths import RuntimePaths
 from app.scheduler.models import ScheduleBody, ScheduleTrigger
@@ -26,12 +28,15 @@ class SchedulerService:
         engine: WorkflowEngine,
         workflow_catalog: WorkflowCatalog,
         paths: RuntimePaths,
+        registry: SkillRegistry,
         *,
         timezone: str = "Asia/Shanghai",
     ) -> None:
         self._engine = engine
         self._workflow_catalog = workflow_catalog
+        self._registry = registry
         self._store = ScheduleStore(paths)
+        self._timezone = timezone
         self._scheduler = AsyncIOScheduler(timezone=timezone)
         self._last_errors: dict[str, str] = {}
 
@@ -85,7 +90,7 @@ class SchedulerService:
         return f"schedule:{schedule_id}"
 
     def _register_job(self, record: ScheduleBody) -> None:
-        trigger = self._build_trigger(record.trigger)
+        trigger = self._build_trigger(record.trigger, self._timezone)
         self._scheduler.add_job(
             self._run_scheduled,
             trigger=trigger,
@@ -95,15 +100,15 @@ class SchedulerService:
         )
 
     @staticmethod
-    def _build_trigger(spec: ScheduleTrigger):
+    def _build_trigger(spec: ScheduleTrigger, timezone: str = "Asia/Shanghai"):
         if spec.type == "cron":
-            return CronTrigger.from_crontab(spec.cron or "")
+            return CronTrigger.from_crontab(spec.cron or "", timezone=timezone)
         kwargs: dict[str, Any] = {}
         if spec.minutes is not None:
             kwargs["minutes"] = spec.minutes
         if spec.seconds is not None:
             kwargs["seconds"] = spec.seconds
-        return IntervalTrigger(**kwargs)
+        return IntervalTrigger(timezone=timezone, **kwargs)
 
     async def _run_scheduled(self, schedule_id: str) -> None:
         try:
@@ -124,13 +129,26 @@ class SchedulerService:
                     node["inputs"][slot] = {"value": val}
 
             errors = self._engine.validate(workflow, allow_source_literals_only=True)
-            if errors:
-                msg = "; ".join(errors[:5])
+            loop_errors: list[str] = []
+            loop_ctrl: LoopControl | None = None
+            if record.loop:
+                loop_ctrl = LoopControl(**record.loop)
+                loop_errors = validate_loop(self._registry, loop_ctrl)
+            if errors or loop_errors:
+                msg = "; ".join((errors + loop_errors)[:5])
                 self._last_errors[schedule_id] = msg
                 logger.error("定时任务 %s 校验失败: %s", schedule_id, msg)
                 return
 
-            await self._engine.run(workflow)
+            if loop_ctrl is not None:
+                await run_with_loop(
+                    self._registry,
+                    record.workflow,
+                    workflow,
+                    loop_ctrl,
+                )
+            else:
+                await self._engine.run(workflow)
             self._last_errors.pop(schedule_id, None)
             logger.info("定时任务 %s 执行完成 workflow=%s", schedule_id, record.workflow)
         except WorkflowNodeError as e:

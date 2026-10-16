@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 public class UserResponse {
     private Long id;
     private String username;
+    private String realName;
     private String studentId;
     private UserRole role;
     private UserStatus status;

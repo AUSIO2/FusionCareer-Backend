@@ -2,6 +2,7 @@ package com.fusioncareer.entity;
 
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import lombok.Data;
 
 import java.io.Serial;
@@ -31,6 +32,8 @@ public class ResumeEntity implements Serializable {
     private String skills;
     private String portfolio;
     private String remark;
+    @Version
+    private Long version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

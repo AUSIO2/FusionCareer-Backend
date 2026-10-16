@@ -1,5 +1,6 @@
 package com.fusioncareer.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fusioncareer.dto.req.JobPostQuestionRequest;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -42,21 +44,36 @@ public class JobPostQuestionServiceImpl extends ServiceImpl<JobPostQuestionMappe
 
         // 2. 批量插入新问题
         List<JobPostQuestionEntity> entities = questions.stream().map(q -> {
-            JobPostQuestionEntity entity = new JobPostQuestionEntity();
+            JobPostQuestionEntity entity = BeanUtil.copyProperties(q, JobPostQuestionEntity.class, "options");
             entity.setJobPostId(jobPostId);
             entity.setSortOrder(q.getSortOrder() != null ? q.getSortOrder() : 0);
-            entity.setTitle(q.getTitle());
-            entity.setQuestionType(q.getQuestionType());
             entity.setOptions(serializeOptions(q.getOptions()));
             entity.setRequired(q.getRequired() != null ? q.getRequired() : true);
-            entity.setPlaceholder(q.getPlaceholder());
             return entity;
         }).toList();
 
-        saveBatch(entities);
+        entities.forEach(this::save);
         log.info("岗位 {} 问卷已更新，共 {} 道题", jobPostId, entities.size());
 
-        return entities.stream().map(this::toResponse).toList();
+        return withResumeQuestion(jobPostId, entities.stream().map(this::toResponse).toList());
+    }
+
+    private List<JobPostQuestionResponse> withResumeQuestion(
+            Long jobPostId, List<JobPostQuestionResponse> questions) {
+        List<JobPostQuestionResponse> readQuestions = new ArrayList<>(questions);
+        if (readQuestions.stream().noneMatch(readQuestion ->
+                readQuestion.getQuestionType() == QuestionType.FILE_UPLOAD)) {
+            JobPostQuestionResponse createResumeQuestion = new JobPostQuestionResponse();
+            createResumeQuestion.setId(0L);
+            createResumeQuestion.setJobPostId(jobPostId);
+            createResumeQuestion.setSortOrder(readQuestions.size() + 1);
+            createResumeQuestion.setTitle("个人简历");
+            createResumeQuestion.setQuestionType(QuestionType.FILE_UPLOAD);
+            createResumeQuestion.setOptions(Collections.emptyList());
+            createResumeQuestion.setRequired(true);
+            readQuestions.add(createResumeQuestion);
+        }
+        return readQuestions;
     }
 
     @Override
@@ -66,7 +83,7 @@ public class JobPostQuestionServiceImpl extends ServiceImpl<JobPostQuestionMappe
                         .eq(JobPostQuestionEntity::getJobPostId, jobPostId)
                         .orderByAsc(JobPostQuestionEntity::getSortOrder)
         );
-        return entities.stream().map(this::toResponse).toList();
+        return withResumeQuestion(jobPostId, entities.stream().map(this::toResponse).toList());
     }
 
     @Transactional
@@ -105,17 +122,8 @@ public class JobPostQuestionServiceImpl extends ServiceImpl<JobPostQuestionMappe
     }
 
     private JobPostQuestionResponse toResponse(JobPostQuestionEntity entity) {
-        JobPostQuestionResponse resp = new JobPostQuestionResponse();
-        resp.setId(entity.getId());
-        resp.setJobPostId(entity.getJobPostId());
-        resp.setSortOrder(entity.getSortOrder());
-        resp.setTitle(entity.getTitle());
-        resp.setQuestionType(entity.getQuestionType());
+        JobPostQuestionResponse resp = BeanUtil.copyProperties(entity, JobPostQuestionResponse.class, "options");
         resp.setOptions(deserializeOptions(entity.getOptions()));
-        resp.setRequired(entity.getRequired());
-        resp.setPlaceholder(entity.getPlaceholder());
-        resp.setCreatedAt(entity.getCreatedAt());
-        resp.setUpdatedAt(entity.getUpdatedAt());
         return resp;
     }
 }

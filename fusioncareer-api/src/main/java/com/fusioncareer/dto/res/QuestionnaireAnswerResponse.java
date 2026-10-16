@@ -22,8 +22,11 @@ public class QuestionnaireAnswerResponse {
     /** 学生用户ID */
     private Long userId;
 
-    /** 学生姓名（冗余展示，来自 fc_user.username） */
+    /** 账号用户名（兼容旧客户端） */
     private String username;
+
+    /** 展示姓名，优先用户资料；缺失或为学工号时返回 null */
+    private String realName;
 
     /** 学工号（冗余展示，来自 fc_user.student_id） */
     private String studentId;
@@ -43,4 +46,5 @@ public class QuestionnaireAnswerResponse {
     /** 审阅是否通过 */
     private Boolean reviewPassed;
     private String reviewComments;
+    private Long version;
 }

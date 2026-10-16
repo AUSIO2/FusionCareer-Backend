@@ -16,6 +16,7 @@ public class ResumeResponse {
     private String skills;
     private String portfolio;
     private String remark;
+    private Long version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

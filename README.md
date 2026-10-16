@@ -68,7 +68,7 @@ FusionCareer-Backend/
 
 ---
 
-## API 接口总览（47 个）
+## API 接口总览
 
 > 详细文档（含请求体/响应体示例、枚举值参考）见 [`docs/API_README.md`](docs/API_README.md)
 
@@ -78,11 +78,60 @@ FusionCareer-Backend/
 |------|------|------|------|
 | GET | `/sys/health` | 健康检查 | ❌ |
 | GET | `/fudan/login` | 重定向至复旦 SSO 登录 | ❌ |
-| GET | `/fudan/callback?code=xxx` | SSO 回调 | ❌ |
+| GET | `/fudan/callback?code=xxx&state=xxx` | SSO 回调 | ❌ |
 | GET | `/fudan/logout` | 主动注销 | ❌ |
+| POST | `/fudan/logout` | 注销并返回 UIS 退出地址 | ✅ |
 | GET | `/fudan/slo?token=xxx` | 被动注销回调 | ❌ |
+| GET | `/user/me` | 当前用户、角色与状态 | ✅ |
 
 ### 用户端接口（需要 `Fusion-Token` 认证）
+
+#### 个人空间
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/personal-space` | 获取当前用户个人空间总览 |
+| GET | `/personal-space/profile` | 获取个人空间资料 |
+| PATCH | `/personal-space/profile` | 使用 SET/CLEAR 和版本号修改资料 |
+| GET | `/personal-space/resume` | 获取个人空间结构化简历 |
+| PATCH | `/personal-space/resume` | 使用 SET/CLEAR 和版本号修改结构化简历 |
+| GET | `/personal-space/documents` | 获取个人空间文件与配额 |
+| GET | `/personal-space/documents/deleted` | 获取个人空间回收站文件 |
+| DELETE | `/personal-space/documents/{fileId}` | 将个人空间文件移入回收站 |
+| POST | `/personal-space/documents/{fileId}/restore` | 恢复回收站文件 |
+| GET | `/personal-space/applications` | 分页获取个人空间投递 |
+| GET | `/personal-space/memory` | 获取轻量长期记忆 |
+| PUT | `/personal-space/memory/{key}` | 设置一个长期记忆项 |
+| DELETE | `/personal-space/memory/{key}` | 删除一个长期记忆项 |
+| DELETE | `/personal-space/memory` | 清空长期记忆 |
+| GET | `/personal-space/actions` | 分页获取安全变更历史 |
+| GET | `/personal-space/actions/{actionId}` | 获取一条变更的安全详情 |
+| GET | `/personal-space/actions/{actionId}/confirmation` | 获取脱敏 before/after 确认卡 |
+| POST | `/personal-space/actions/{actionId}/revert` | 创建三方比较回退提案 |
+| POST | `/personal-space/actions/{actionId}/revert/resolve` | 显式选择冲突字段并创建回退提案 |
+| POST | `/personal-space/actions/{actionId}/confirm` | 确认并执行写入或回退提案 |
+| POST | `/personal-space/actions/{actionId}/reject` | 拒绝写入或回退提案 |
+| GET | `/personal-space/assistant/session` | 获取当前用户唯一 AI Session 状态 |
+| GET | `/personal-space/assistant/capabilities` | 获取灰度开关、Tool 清单与输入上限 |
+| GET | `/personal-space/assistant/messages` | 分页获取当前 epoch 消息 |
+| POST | `/personal-space/assistant/messages/stream` | 发送消息并获取 SSE 文本流 |
+| POST | `/personal-space/assistant/run/cancel` | 取消当前 AI 运行 |
+| POST | `/personal-space/assistant/session/clear` | 清空对话并保留 Memory |
+| DELETE | `/personal-space/assistant/session` | 重置 Session 并保留 Memory 与历史 |
+
+Profile、Resume、Memory、文件上传/回收站和问卷写入会在同一事务中记录不可变 Action/Item。用户显式上传文件会立即形成 `APPLIED CREATE` Action；Revert 只软删除元数据并保留 blob，再次 Revert 可恢复同一文件。实际修改字段的 before/after 使用 AES-256-GCM 加密；任意 APPLIED 操作均可创建永久回退提案。生产部署必须配置 `USER_CHANGE_KEY`（可用 `openssl rand -base64 32` 生成）和 `USER_CHANGE_KEY_VERSION`。
+
+AI 当前开放 15 个固定只读 Tool。设置 `AI_CHAT_WRITE_ENABLED=true` 后额外开放 Profile、Resume、Memory、文件删除/恢复、问卷草稿、问卷提交和简历解析共 8 个提案 Tool；它们只创建 `PENDING` Action，业务数据必须由登录用户通过确认接口应用。`parse_resume_file` 在一个 Action 中原子修改 Profile + Resume，任一版本冲突都会整体回滚。文件操作只切换回收站状态，问卷已审核后的撤回使用 `WITHDRAWN` 并保留审核信息，所有已应用操作均可继续 Revert。Tool Schema 不包含 userId，Java 使用 5 分钟 HMAC AgentContext 重新校验用户、run、epoch 和 scope；生产部署需额外配置独立的 `AGENT_CONTEXT_SECRET`。
+
+Agent 运行时默认最多调用 4 个 Tool、查询 Tool 3 秒超时、整轮 120 秒超时，并使用有界并发。Tool 业务错误只以稳定安全码进入模型上下文，堆栈、SQL、Header 和内部响应不会进入 SSE 或 Prompt。
+
+Java 与 Python 必须共享 `INTERNAL_SERVICE_TOKEN`；Java 通过 `PYTHON_SERVICE_BASE_URL` 调 Agent，Python 通过 `BACKEND_BASE_URL` 回调固定 Internal Tool API。根目录 Compose 已预接 `backend:9100 ↔ agent:8900`，Nginx 的 `/api/` 读取超时为 300 秒以支持 SSE。
+
+单 Session 上下文固定最多 12 条、20K 字符。累计 10 个完整轮次或超过字符预算后，Java 异步调用无 Tool 摘要接口，并用 `epoch + summaryThroughMessageId` CAS 写回；摘要失败不阻塞当前回复，也不会把 Tool 结果写入长期摘要。
+
+Java 每分钟扫描过期运行租约：使用条件更新释放匹配的 `activeRunId`，将未完成助手消息标记为 `FAILED/LEASE_EXPIRED`，并拒绝该运行产生的未确认 Action。多实例同时扫描时只有一个实例能成功回收。
+
+普通 Revert 遇到后来修改过的同字段时返回冲突，绝不静默覆盖。用户可通过 `/revert/resolve` 明确选择要恢复的冲突字段或资源状态；系统再生成一张 current→before 的 PENDING 确认卡，因此历史操作不会因时间或后续编辑而永久失去回退能力。
 
 #### 个人资料 & 简历
 
@@ -100,7 +149,7 @@ FusionCareer-Backend/
 | POST | `/user/resume/file/upload` | 上传简历文件（multipart） |
 | GET | `/user/resume/file/list` | 获取文件列表 |
 | GET | `/user/resume/file/{fileId}/download` | 下载文件 |
-| DELETE | `/user/resume/file/{fileId}` | 删除文件 |
+| DELETE | `/user/resume/file/{fileId}` | 将文件移入回收站 |
 | GET | `/user/resume/file/quota` | 查询存储配额 |
 
 #### 岗位浏览
@@ -109,6 +158,9 @@ FusionCareer-Backend/
 |------|------|------|
 | GET | `/job/{id}` | 岗位详情 |
 | GET | `/job/list?page=1&size=10&keyword=xxx` | 分页搜索岗位 |
+
+管理员可通过 `GET /admin/job-post/import-template` 下载岗位模板，并将填写后的文件上传到
+`POST /admin/job-post/import`（multipart 字段 `file`）批量创建并发布岗位。
 
 #### 岗位投递问卷
 
@@ -119,9 +171,20 @@ FusionCareer-Backend/
 | GET | `/questionnaire/my/{jobPostId}` | 查看我的作答 |
 | POST | `/questionnaire/upload` | 上传问卷附件（multipart） |
 
-### 内部管理接口（`/internal/**`，无需认证）
+### 内部服务接口（`/internal/**`，无需认证）
 
-> 供管理后台和 Python 算法服务直接调用。
+> 仅供 Python 等内网服务直连 Java。
+
+浏览器管理后台改用受 `ADMIN` 角色保护的路径：
+
+| 资源 | 路径 |
+|------|------|
+| 用户管理 | `/admin/user/**` |
+| 岗位管理 | `/admin/job-post/**` |
+| 问卷与投递审核 | `/admin/questionnaire/**` |
+
+`/internal/**` 仅供内网服务直连 Java，公网 Nginx 对 `/api/internal/**` 返回 404。
+管理员可通过 `/admin/questionnaire/answers/job/{jobPostId}/export?format=csv|zip` 导出投递。
 
 #### 用户管理 `/internal/user`
 

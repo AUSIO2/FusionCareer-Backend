@@ -1,0 +1,91 @@
+{
+  "name": "岗位批量抽取 → 去重 → JSON → Excel",
+  "nodes": {
+    "input": {
+      "skill": "input_json_obj",
+      "inputs": {
+        "json_obj": {
+          "value": {
+            "workspace": "default"
+          }
+        }
+      }
+    },
+    "op_0": {
+      "skill": "input_text",
+      "inputs": {
+        "text": {
+          "value": "job_batch"
+        }
+      }
+    },
+    "step_0": {
+      "skill": "upstream_algorithm",
+      "inputs": {
+        "operation": {
+          "from": "op_0.text"
+        },
+        "request": {
+          "from": "input.json_obj"
+        }
+      }
+    },
+    "op_1": {
+      "skill": "input_text",
+      "inputs": {
+        "text": {
+          "value": "job_deduplicate"
+        }
+      }
+    },
+    "step_1": {
+      "skill": "upstream_algorithm",
+      "inputs": {
+        "operation": {
+          "from": "op_1.text"
+        },
+        "request": {
+          "from": "step_0.result"
+        }
+      }
+    },
+    "op_2": {
+      "skill": "input_text",
+      "inputs": {
+        "text": {
+          "value": "job_export_json"
+        }
+      }
+    },
+    "step_2": {
+      "skill": "upstream_algorithm",
+      "inputs": {
+        "operation": {
+          "from": "op_2.text"
+        },
+        "request": {
+          "from": "step_1.result"
+        }
+      }
+    },
+    "op_3": {
+      "skill": "input_text",
+      "inputs": {
+        "text": {
+          "value": "job_export_xlsx"
+        }
+      }
+    },
+    "result": {
+      "skill": "upstream_algorithm",
+      "inputs": {
+        "operation": {
+          "from": "op_3.text"
+        },
+        "request": {
+          "from": "step_2.result"
+        }
+      }
+    }
+  }
+}

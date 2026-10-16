@@ -1,0 +1,2 @@
+ALTER TABLE `fc_resume_file`
+    MODIFY COLUMN `mime_type` VARCHAR(128) NOT NULL COMMENT 'MIME类型：PDF / DOCX / JPEG / PNG';

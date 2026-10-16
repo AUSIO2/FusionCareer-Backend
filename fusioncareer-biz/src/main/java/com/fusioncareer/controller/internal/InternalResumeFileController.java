@@ -74,7 +74,10 @@ public class InternalResumeFileController {
             @Parameter(description = "文件ID", required = true) @PathVariable Long fileId) {
 
         // internal 接口跳过用户归属校验，直接按 ID 查询
-        ResumeFileEntity entity = resumeFileService.getById(fileId);
+        ResumeFileEntity entity = resumeFileService.lambdaQuery()
+                .eq(ResumeFileEntity::getId, fileId)
+                .isNull(ResumeFileEntity::getDeletedAt)
+                .one();
         if (entity == null) {
             return ResponseEntity.notFound().build();
         }

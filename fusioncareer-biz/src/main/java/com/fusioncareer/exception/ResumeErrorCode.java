@@ -18,10 +18,10 @@ public enum ResumeErrorCode implements IErrorCode {
     // ── 文件格式校验 ──────────────────────────────────────────────────────────
 
     /** 扩展名不在允许列表内 */
-    UNSUPPORTED_FILE_FORMAT(41001, "不支持的文件格式，仅支持 PDF、JPG、PNG"),
+    UNSUPPORTED_FILE_FORMAT(41001, "不支持的文件格式，仅支持 PDF、DOCX、JPG、PNG"),
 
     /** Content-Type（MIME）与允许类型不符 */
-    INVALID_MIME_TYPE(41002, "文件类型不合法，仅支持 PDF、JPG、PNG"),
+    INVALID_MIME_TYPE(41002, "文件类型不合法，仅支持 PDF、DOCX、JPG、PNG"),
 
     /** 单文件超过 20MB 硬限制 */
     FILE_TOO_LARGE(41003, "单文件不能超过 20MB"),

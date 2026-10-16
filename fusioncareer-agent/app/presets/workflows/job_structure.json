@@ -1,0 +1,24 @@
+{
+  "name": "job_structure",
+  "nodes": {
+    "input": {
+      "skill": "input_json_obj",
+      "inputs": {
+        "json_obj": {
+          "value": {
+            "text": "",
+            "sourceType": "PLATFORM"
+          }
+        }
+      }
+    },
+    "result": {
+      "skill": "native_job_structure",
+      "inputs": {
+        "request": {
+          "from": "input.json_obj"
+        }
+      }
+    }
+  }
+}

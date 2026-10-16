@@ -1,21 +1,32 @@
 package com.fusioncareer.service;
 
+import com.fusioncareer.enums.UserRole;
+
 public interface FudanSsoService {
+
+    String createState();
+
+    boolean useMockLogin();
+
+    void verifyState(String readExpected, String readActual);
 
     /**
      * 构建复旦 SSO 统一认证的跳转地址
      *
      * @return SSO 登录页面地址
      */
-    String buildLoginUrl();
+    String buildLoginUrl(String readState);
 
     /**
      * 处理复旦 SSO 回调，进行系统内自动注册与登录
      *
      * @param code SSO 返回的授权码
+     * @param openAdmin 是否请求进入管理端
      * @return 系统内登录成功后的前端跳转地址
      */
-    String processCallback(String code);
+    String processCallback(String code, boolean openAdmin);
+
+    String loginMock(UserRole readRole, boolean openAdmin);
 
     /**
      * 主动发起退出：注销本地会话并构建 Fudan 统一退出地址

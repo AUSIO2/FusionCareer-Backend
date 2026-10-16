@@ -15,7 +15,8 @@ public enum JobPostStatus {
 
     OFFLINE(0, "已下线"),
     PUBLISHED(1, "发布中"),
-    EXPIRED(2, "已截止");
+    EXPIRED(2, "已截止"),
+    RECYCLED(3, "回收站");
 
     @EnumValue
     private final int code;

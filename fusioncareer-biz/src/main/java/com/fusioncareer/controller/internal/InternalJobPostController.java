@@ -4,6 +4,9 @@ import com.fusioncareer.common.PageResult;
 import com.fusioncareer.common.R;
 import com.fusioncareer.dto.req.JobPostQueryRequest;
 import com.fusioncareer.dto.req.JobPostRequest;
+import com.fusioncareer.dto.req.JobPostEvidenceMergeRequest;
+import com.fusioncareer.dto.req.JobRecycleRequest;
+import com.fusioncareer.dto.res.JobPostAdminResponse;
 import com.fusioncareer.dto.res.JobPostResponse;
 import com.fusioncareer.service.JobPostService;
 import lombok.RequiredArgsConstructor;
@@ -47,8 +50,8 @@ public class InternalJobPostController {
 
     @GetMapping("/list")
     @Operation(summary = "分页查询岗位列表")
-    public R<PageResult<JobPostResponse>> list(JobPostQueryRequest query) {
-        return R.success(jobPostService.listJobPosts(query));
+    public R<PageResult<JobPostAdminResponse>> list(JobPostQueryRequest query) {
+        return R.success(jobPostService.listJobs(query));
     }
 
     @PutMapping("/{id}")
@@ -58,10 +61,25 @@ public class InternalJobPostController {
         return R.success();
     }
 
+    @PutMapping("/{id}/merge-evidence")
+    @Operation(summary = "将兼容的重复岗位证据合并到已存在岗位")
+    public R<JobPostAdminResponse> mergeEvidence(
+            @PathVariable Long id,
+            @RequestBody JobPostEvidenceMergeRequest request) {
+        return R.success(jobPostService.mergeJobPostEvidence(id, request));
+    }
+
     @DeleteMapping("/{id}")
     @Operation(summary = "删除岗位")
     public R<Void> delete(@PathVariable Long id) {
         jobPostService.removeById(id);
+        return R.success();
+    }
+
+    @PostMapping("/recycle-batch")
+    @Operation(summary = "批量将岗位移入回收站")
+    public R<Void> recycleBatch(@RequestBody List<JobRecycleRequest> requests) {
+        jobPostService.recycleJobs(requests);
         return R.success();
     }
 }

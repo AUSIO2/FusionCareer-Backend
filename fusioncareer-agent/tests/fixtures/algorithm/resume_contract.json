@@ -1,0 +1,17 @@
+{
+  "profilePatch": {
+    "realName": "张同学",
+    "gender": "FEMALE",
+    "politicalStatus": "LEAGUE_MEMBER",
+    "grade": "2023级",
+    "major": "新闻传播学",
+    "eduLevel": "ACADEMIC_MASTER",
+    "intentionCity": "[\"上海\", \"北京\"]"
+  },
+  "resumePatch": {
+    "education": "复旦大学；新闻传播学；学术型硕士；2023-09至今",
+    "internship": "示例新闻社；新媒体实习生；选题策划与数据复盘",
+    "skills": "采访写作；Premiere；Python"
+  },
+  "warnings": []
+}

@@ -1,6 +1,10 @@
 """LLM Client — OpenAI 标准格式，兼容 DeepSeek 等"""
 
+import ast
+import json
 import logging
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 from openai import AsyncOpenAI
@@ -8,6 +12,98 @@ from openai import AsyncOpenAI
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class LLMCompletion:
+    content: str
+    model: str
+    finishReason: str
+    promptTokens: int | None = None
+    completionTokens: int | None = None
+    totalTokens: int | None = None
+
+
+class LLMOutputTruncatedError(RuntimeError):
+    def __init__(self, completion: LLMCompletion):
+        super().__init__(f"LLM output truncated: finish_reason={completion.finishReason}")
+        self.completion = completion
+
+
+class LLMInvalidJsonError(ValueError):
+    def __init__(self, completion: LLMCompletion, cause: json.JSONDecodeError):
+        super().__init__(f"LLM returned invalid JSON: {cause.msg}")
+        self.completion = completion
+        self.__cause__ = cause
+
+
+def extractObject(readText: str) -> str:
+    readStart = readText.find("{")
+    if readStart < 0:
+        return readText
+    readDepth = 0
+    readQuote = ""
+    readEscape = False
+    for readIndex, readChar in enumerate(readText[readStart:], readStart):
+        if readQuote:
+            if readEscape:
+                readEscape = False
+            elif readChar == "\\":
+                readEscape = True
+            elif readChar == readQuote:
+                readQuote = ""
+            continue
+        if readChar in {'"', "'"}:
+            readQuote = readChar
+        elif readChar == "{":
+            readDepth += 1
+        elif readChar == "}":
+            readDepth -= 1
+            if readDepth == 0:
+                return readText[readStart:readIndex + 1]
+    return readText[readStart:]
+
+
+def removeCommas(readText: str) -> str:
+    createText = []
+    readQuote = ""
+    readEscape = False
+    for readIndex, readChar in enumerate(readText):
+        if readQuote:
+            createText.append(readChar)
+            if readEscape:
+                readEscape = False
+            elif readChar == "\\":
+                readEscape = True
+            elif readChar == readQuote:
+                readQuote = ""
+            continue
+        if readChar in {'"', "'"}:
+            readQuote = readChar
+        if readChar == "," and readText[readIndex + 1:].lstrip().startswith(("}", "]")):
+            continue
+        createText.append(readChar)
+    return "".join(createText)
+
+
+def parseJson(readText: str) -> dict:
+    readObject = extractObject(readText.strip())
+    readCandidates = (readText.strip(), readObject, removeCommas(readObject))
+    readError: json.JSONDecodeError | None = None
+    for readCandidate in dict.fromkeys(readCandidates):
+        try:
+            readValue, _ = json.JSONDecoder(strict=False).raw_decode(readCandidate.lstrip())
+            if isinstance(readValue, dict):
+                return readValue
+        except json.JSONDecodeError as createError:
+            readError = createError
+    try:
+        readValue = ast.literal_eval(removeCommas(readObject))
+        if isinstance(readValue, dict):
+            return readValue
+    except (SyntaxError, ValueError):
+        pass
+    raise readError or json.JSONDecodeError("response is not a JSON object", readText, 0)
 
 
 class LLMClient:
@@ -19,11 +115,22 @@ class LLMClient:
     def __init__(self):
         self._client: AsyncOpenAI | None = None
 
+    @staticmethod
+    def tool_chat_options(model: str) -> dict[str, Any]:
+        # DeepSeek V4 defaults to thinking mode, which requires replaying private
+        # reasoning for tool history. This text-only agent intentionally does not
+        # retain that reasoning, and recommendation buttons create synthetic calls.
+        if model.startswith(("deepseek-v4", "deepseek-flash", "deepseek-pro")):
+            return {"extra_body": {"thinking": {"type": "disabled"}}}
+        return {}
+
     def _ensure_client(self) -> AsyncOpenAI:
         if self._client is None:
             self._client = AsyncOpenAI(
                 api_key=settings.llm_api_key,
                 base_url=settings.llm_base_url,
+                timeout=120.0,
+                max_retries=1,
             )
         return self._client
 
@@ -50,6 +157,26 @@ class LLMClient:
         Returns:
             模型生成的文本内容
         """
+        completion = await self.chat_with_meta(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format=response_format,
+        )
+        return completion.content
+
+    async def chat_with_meta(
+        self,
+        user_message: str,
+        system_prompt: str = "",
+        model: str | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+        response_format: dict | None = None,
+        operation: str = "chat",
+    ) -> LLMCompletion:
         client = self._ensure_client()
         model = model or settings.llm_model
 
@@ -66,12 +193,58 @@ class LLMClient:
         }
         if response_format:
             kwargs["response_format"] = response_format
+            # Structured extraction needs the token budget for JSON, not reasoning.
+            if model.startswith("deepseek-v4"):
+                kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
 
-        logger.info(f"LLM 请求: model={model}, msg_len={len(user_message)}")
+        logger.info("LLM 请求: operation=%s model=%s msg_len=%d", operation, model, len(user_message))
         response = await client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
-        logger.info(f"LLM 响应: {len(content)} chars")
-        return content
+        finish_reason = response.choices[0].finish_reason or "stop"
+        usage = getattr(response, "usage", None)
+        completion = LLMCompletion(
+            content=content,
+            model=model,
+            finishReason=finish_reason,
+            promptTokens=getattr(usage, "prompt_tokens", None),
+            completionTokens=getattr(usage, "completion_tokens", None),
+            totalTokens=getattr(usage, "total_tokens", None),
+        )
+        logger.info(
+            "LLM 响应: operation=%s chars=%d finish_reason=%s prompt_tokens=%s completion_tokens=%s",
+            operation,
+            len(content),
+            finish_reason,
+            completion.promptTokens,
+            completion.completionTokens,
+        )
+        return completion
+
+    async def chat_json_with_meta(
+        self,
+        user_message: str,
+        system_prompt: str = "",
+        model: str | None = None,
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+        operation: str = "json",
+    ) -> tuple[dict, LLMCompletion]:
+        completion = await self.chat_with_meta(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            operation=operation,
+        )
+        if completion.finishReason in {"length", "max_tokens"} \
+                or completion.completionTokens is not None and completion.completionTokens >= max_tokens:
+            raise LLMOutputTruncatedError(completion)
+        try:
+            return parseJson(completion.content), completion
+        except json.JSONDecodeError as error:
+            raise LLMInvalidJsonError(completion, error) from error
 
     async def chat_json(
         self,
@@ -79,6 +252,7 @@ class LLMClient:
         system_prompt: str = "",
         model: str | None = None,
         temperature: float = 0.1,
+        max_tokens: int = 4096,
     ) -> dict:
         """
         发送聊天请求，要求返回 JSON 格式，自动解析。
@@ -86,21 +260,116 @@ class LLMClient:
         Returns:
             解析后的 dict
         """
-        import json
+        for readAttempt in range(3):
+            raw = await self.chat(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+            )
 
-        raw = await self.chat(
-            user_message=user_message,
-            system_prompt=system_prompt,
-            model=model,
-            temperature=temperature,
-            response_format={"type": "json_object"},
+            try:
+                return parseJson(raw)
+            except json.JSONDecodeError:
+                if readAttempt == 2:
+                    raise
+        raise RuntimeError("LLM JSON retry exhausted")
+
+    async def stream_chat(
+        self,
+        messages: list[dict[str, Any]],
+        system_prompt: str = "",
+        model: str | None = None,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """流式返回纯文本增量和一个最终完成事件。"""
+        readClient = self._ensure_client()
+        readModel = model or settings.llm_model
+        sendMessages: list[dict[str, str]] = []
+        if system_prompt:
+            sendMessages.append({"role": "system", "content": system_prompt})
+        sendMessages.extend(messages)
+        logger.info(
+            "LLM 流请求: model=%s, messages=%d, chars=%d",
+            readModel,
+            len(sendMessages),
+            sum(len(readMessage.get("content", "")) for readMessage in sendMessages),
         )
+        readStream = await readClient.chat.completions.create(
+            model=readModel,
+            messages=sendMessages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+            stream_options={"include_usage": True},
+            **self.tool_chat_options(readModel),
+        )
+        readFinishReason = "stop"
+        readPromptTokens: int | None = None
+        readCompletionTokens: int | None = None
+        async for readChunk in readStream:
+            readUsage = getattr(readChunk, "usage", None)
+            if readUsage is not None:
+                readPromptTokens = getattr(readUsage, "prompt_tokens", None)
+                readCompletionTokens = getattr(readUsage, "completion_tokens", None)
+            if not readChunk.choices:
+                continue
+            readChoice = readChunk.choices[0]
+            if readChoice.finish_reason:
+                readFinishReason = readChoice.finish_reason
+            readText = readChoice.delta.content or ""
+            if readText:
+                yield {"type": "delta", "text": readText}
+        yield {
+            "type": "done",
+            "model": readModel,
+            "finishReason": readFinishReason,
+            "usage": {
+                "promptTokens": readPromptTokens,
+                "completionTokens": readCompletionTokens,
+            },
+        }
 
-        # 容错：去除可能的 markdown 包裹
-        text = raw.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
-            text = "\n".join(lines)
-
-        return json.loads(text)
+    async def plan_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        system_prompt: str = "",
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """执行一次非流式只读 Tool 决策，不暴露 reasoning。"""
+        readClient = self._ensure_client()
+        readModel = model or settings.llm_model
+        sendMessages: list[dict[str, Any]] = []
+        if system_prompt:
+            sendMessages.append({"role": "system", "content": system_prompt})
+        sendMessages.extend(messages)
+        readResponse = await readClient.chat.completions.create(
+            model=readModel,
+            messages=sendMessages,
+            tools=tools,
+            tool_choice="auto",
+            temperature=0.1,
+            max_tokens=2048,
+            **self.tool_chat_options(readModel),
+        )
+        readMessage = readResponse.choices[0].message
+        readToolCalls = [
+            {
+                "id": readCall.id,
+                "type": "function",
+                "function": {
+                    "name": readCall.function.name,
+                    "arguments": readCall.function.arguments,
+                },
+            }
+            for readCall in (readMessage.tool_calls or [])
+        ]
+        return {
+            "content": readMessage.content or "",
+            "toolCalls": readToolCalls,
+            "model": readModel,
+        }

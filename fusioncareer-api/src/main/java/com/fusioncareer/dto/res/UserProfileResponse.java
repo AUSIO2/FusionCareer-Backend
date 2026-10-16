@@ -28,6 +28,7 @@ public class UserProfileResponse {
     private String intentionCity;
     private String intentionDream;
     private Mindset mindset;
+    private Long version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

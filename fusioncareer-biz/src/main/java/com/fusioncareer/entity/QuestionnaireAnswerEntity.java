@@ -3,6 +3,7 @@ package com.fusioncareer.entity;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 import com.fusioncareer.enums.QuestionnaireSubmissionStatus;
 import lombok.Data;
 
@@ -32,6 +33,9 @@ public class QuestionnaireAnswerEntity implements Serializable {
     /** 审阅是否通过 */
     private Boolean reviewPassed;
     private String reviewComments;
+    @Version
+    private Long version;
+    private LocalDateTime deletedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }
